@@ -195,3 +195,174 @@ class ArticlePlanApproveRequest(BaseModel):
     acknowledge_cannibalization: bool = False
     acknowledge_incomplete_plan: bool = False
     notes: str | None = Field(default=None, max_length=2000)
+
+
+# --- Source (公式ページの観測記録。immutable) --------------------------------
+
+SourceType = Literal[
+    "official_product",
+    "official_pricing",
+    "official_docs",
+    "official_help",
+    "official_announcement",
+    "secondary",
+]
+
+OFFICIAL_SOURCE_TYPES: frozenset[str] = frozenset(
+    {
+        "official_product",
+        "official_pricing",
+        "official_docs",
+        "official_help",
+        "official_announcement",
+    }
+)
+
+
+class SourceCreate(BaseModel):
+    """公式ページの観測記録を登録する入力。URL safety は Service で検証する。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: SourceType
+    source_url: str = Field(min_length=1, max_length=1024)
+    title: str | None = Field(default=None, max_length=512)
+    checked_at: datetime
+
+
+class SourceRead(BaseModel):
+    id: int
+    article_id: int
+    source_type: str
+    source_url: str | None
+    title: str | None
+    checked_at: datetime | None
+    created_at: datetime
+
+
+# --- ArticleFact (immutable 履歴) ------------------------------------------
+
+
+class ArticleFactCreate(BaseModel):
+    """1 tool・1 fact_key の観測結果。`update` はせず、新しい行を append する。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject_ref: str = Field(min_length=1, max_length=200)
+    affiliate_program_id: int | None = None
+    fact_key: str
+    fact_value: object | None = None
+    value_status: Literal["verified", "unknown", "not_applicable"]
+    unknown_reason: str | None = Field(default=None, max_length=500)
+    source_id: int | None = None
+    checked_at: datetime
+
+
+class ArticleFactRead(BaseModel):
+    id: int
+    article_id: int
+    subject_ref: str
+    affiliate_program_id: int | None
+    fact_key: str
+    fact_value: object | None
+    value_status: str
+    unknown_reason: str | None
+    source_id: int | None
+    checked_at: datetime
+    created_at: datetime
+
+
+# --- FactPack (read-time 導出。DB 非永続) --------------------------------
+
+
+class FactEntry(BaseModel):
+    fact_key: str
+    value: object | None
+    value_status: str
+    source_id: int | None
+    source_url: str | None
+    checked_at: datetime
+    unknown_reason: str | None
+    fresh: bool
+
+
+class ToolFacts(BaseModel):
+    subject_ref: str
+    affiliate_program_id: int | None
+    facts: list[FactEntry]
+    usable_claims: list[str]
+    do_not_claim: list[str]
+    pricing_checked_at: datetime | None
+    last_verified_at: datetime | None
+
+
+class MissingFact(BaseModel):
+    subject_ref: str
+    fact_key: str
+    reason: Literal["not_researched", "unknown", "not_applicable"]
+
+
+class StaleFact(BaseModel):
+    subject_ref: str
+    fact_key: str
+    checked_at: datetime
+    max_age_days: int
+
+
+class FreshnessReport(BaseModel):
+    within_policy: bool
+    stale_facts: list[StaleFact]
+    stalest_pricing_checked_at: datetime | None
+
+
+class ToolReadiness(BaseModel):
+    subject_ref: str
+    ok: bool
+    missing_required: list[str]
+    stale_required: list[str]
+
+
+class FactPackReadiness(BaseModel):
+    drafting_allowed: bool
+    per_tool: list[ToolReadiness]
+    blocking_reasons: list[str]
+
+
+class FactPackPlanMetadata(BaseModel):
+    article_type: str | None
+    target_reader: str
+    search_intent_summary: str
+    outline_headings: list[str]
+    comparison_axes: list[str]
+    cta_strategy: str
+    cannibalization_guidance: str
+
+
+class FactPackAffiliateCandidate(BaseModel):
+    program_id: int
+    name: str
+    provider: str | None
+    recommended_role: str
+    commission_type: str | None
+    commission_value: float | None
+
+
+class SourceCoverage(BaseModel):
+    source_count: int
+    by_type: dict[str, int]
+    tools_with_official_pricing: int
+    tools_total: int
+
+
+class FactPackDTO(BaseModel):
+    article: ArticleRead
+    keyword_id: int | None
+    keyword: str | None
+    plan_metadata: FactPackPlanMetadata | None
+    affiliate_candidates: list[FactPackAffiliateCandidate]
+    tool_facts: list[ToolFacts]
+    source_coverage: SourceCoverage
+    missing_facts: list[MissingFact]
+    freshness: FreshnessReport
+    readiness: FactPackReadiness
+    warnings: list[str]

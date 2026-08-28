@@ -193,6 +193,14 @@ prefix `/api/v1`。Application 例外は共通ハンドラで HTTP へ変換し�
 | POST | `/api/v1/articles/{article_id}/affiliate-programs` | 広告案件を紐付け (同一案件の重複は 409) | 201 |
 | PATCH | `/api/v1/articles/{article_id}/affiliate-programs/{link_id}` | 紐付け更新 (`is_primary=true` は 1 記事 1 件に正規化) | 200 |
 | DELETE | `/api/v1/articles/{article_id}/affiliate-programs/{link_id}` | 紐付け解除 | 204 |
+| GET | `/api/v1/articles/{article_id}/sources` | 公式 Source (観測記録) 一覧 | 200 |
+| POST | `/api/v1/articles/{article_id}/sources` | 公式ページの観測記録を登録 (URL safety を検証) | 201 |
+| GET | `/api/v1/articles/{article_id}/sources/{source_id}` | Source 1 件取得 | 200 |
+| DELETE | `/api/v1/articles/{article_id}/sources/{source_id}` | Source 削除 (Fact から参照中は 409 `entity_in_use`) | 204 |
+| GET | `/api/v1/articles/{article_id}/facts` | 検証済み事実 (`?subject_ref=` / `?fact_key=` / `?latest=true`) | 200 |
+| GET | `/api/v1/articles/{article_id}/facts/{fact_id}` | 事実 1 件取得 | 200 |
+| POST | `/api/v1/articles/{article_id}/facts` | 検証済み事実を **append** (immutable。exact duplicate は既存を返す) | 201 |
+| GET | `/api/v1/articles/{article_id}/fact-pack` | FactPack (Source/Fact の最新状態 + readiness) を導出 (read-only) | 200 |
 | POST | `/api/v1/affiliate-programs` | アフィリエイト案件作成 (同一 `name`+`provider` は 409) | 201 |
 | GET | `/api/v1/affiliate-programs` | 一覧 (`status` / `provider` / `category` filter、`limit` 1..100 / `offset` >=0) | 200 |
 | GET | `/api/v1/affiliate-programs/{id}` | 1 件取得 | 200 |
@@ -200,7 +208,46 @@ prefix `/api/v1`。Application 例外は共通ハンドラで HTTP へ変換し�
 | DELETE | `/api/v1/affiliate-programs/{id}` | 削除 | 204 |
 
 `plan_approval_rejected` → 409 (incomplete plan の承認・カニバリ未確認・候補外/inactive な
-affiliate 指定など、企画側入力の問題)。
+affiliate 指定など、企画側入力の問題)。`fact_validation_error` → 422 (verified なのに
+source なし・別 Article の Source 参照・URL に credential・値の型不一致 など)。
+`entity_in_use` → 409 (Fact から参照中の Source を削除しようとした)。
+
+## Source & Verified Fact (Phase 3B)
+
+planned Article から本文ドラフトへ進む前に、公式ページの事実を構造化して保存する基盤。
+
+- **`Source` = 公式ページを *その時点で確認した* 観測記録** (immutable)。同じ URL でも
+  別日時の再確認は新しい行。URL は https のみ・credential query は reject・tracking
+  query は除去して canonicalize・既知 tracking / affiliate redirect ホストは reject。
+  PATCH は無し (CREATE / GET / LIST / DELETE)。**Fact から参照中の Source は削除不可**
+  (409)。Article 削除時は Source / Fact とも cascade 削除。
+- **`ArticleFact` = 検証済み事実の immutable 履歴。** `is_current` フラグは持たず、
+  現在値は `(article_id, subject_ref, fact_key)` ごとに `checked_at DESC, id DESC`
+  (KeywordSignal と同じ latest semantics)。事実の「更新」は新しい行の append。
+  persistent fact key は 17 種類 (`pricing_checked_at` / `last_verified_at` は fact key
+  ではなく FactPack 側で導出)。
+- **`value_status` = verified / unknown / not_applicable。** `unknown` (公式を調査したが
+  確認できなかった) と **missing (行が無い) は別概念**。verified / unknown は official_*
+  Source 必須。unknown / not_applicable は `unknown_reason` 必須・非空。
+- **freshness policy**: 料金系 30 日 / 機能系 90 日 / 静的 180 日 (境界は
+  `age <= max_age` を fresh)。
+- **`FactPack` は read-time 導出物 (DB 非永続)。** `FactPackService.build()` は Source /
+  Fact の最新値と ArticlePlan から毎回集約する (DB write なし)。verified fact のみ
+  `usable_claims`、unknown / not_applicable / missing は `do_not_claim` (LLM に価格・
+  機能を捏造させないための境界)。
+- **readiness gate**: 各対象 tool で `official_product_name` / `official_url` /
+  `primary_use_cases (>=1)` / `key_features (>=2)` / `pricing_summary` /
+  `free_plan_available` が verified (pricing 2 つは explicit unknown も可) かつ fresh
+  なら `drafting_allowed`。recommended fact の不足は warning のみで drafting 可。
+- **比較対象 subject 集合 = Article の `ArticleAffiliateProgram` links** に紐づく program
+  (V1 固定)。human subset 選択 / 非 affiliate tool の正式比較集合入りは将来 (別 table)。
+- **`Product` model は作らない。** subject identity は `subject_ref` (正準名 str) +
+  nullable `affiliate_program_id`。cross-article 事実再利用 / 1 product 複数 ASP が
+  必要になった時点で `Product` を導入し `subject_ref` → `product_id` へ移行する。
+- CLI: `uv run python scripts/import_article_facts.py --article-id 1 --file facts.json`
+  (JSON、1 file = 1 transaction、`--dry-run` で write 0、**Web アクセスなし**)。
+- **LLM / 外部 API なし・追加実費 0 円。** migration は add-only の `article_facts`
+  テーブル 1 つのみ (既存テーブルの列は無変更)。
 
 ## Article Planning V1 (Phase 3A)
 

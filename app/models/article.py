@@ -12,6 +12,7 @@ from app.models.enums import ArticleStatus
 if TYPE_CHECKING:
     from app.models.affiliate_program import AffiliateProgram
     from app.models.article_affiliate_program import ArticleAffiliateProgram
+    from app.models.article_fact import ArticleFact
     from app.models.article_metric import ArticleMetric
     from app.models.keyword import Keyword
     from app.models.source import Source
@@ -69,6 +70,12 @@ class Article(Base, TimestampMixin):
     )
 
     sources: Mapped[list[Source]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # 記事の検証済み事実 (immutable 履歴)。Article 削除で全削除。
+    facts: Mapped[list[ArticleFact]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

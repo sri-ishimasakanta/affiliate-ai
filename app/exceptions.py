@@ -53,6 +53,28 @@ class IncompleteSignalSetError(ApplicationError):
         self.missing_components = list(missing_components)
 
 
+class FactValidationError(ApplicationError):
+    """Source / ArticleFact の入力が業務ルール上不正 (verified なのに source なし、
+    別 Article の Source 参照、URL に credential、value 型不一致 など)。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"fact validation error: {reason}")
+        self.reason = reason
+
+
+class EntityInUseError(ApplicationError):
+    """他レコードから参照されているため削除できない (例: Fact が参照する Source)。"""
+
+    def __init__(self, entity: str, identifier: object, used_by: str) -> None:
+        super().__init__(
+            f"{entity} {identifier!r} is still referenced by {used_by}"
+        )
+        self.entity = entity
+        self.identifier = identifier
+        self.used_by = used_by
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

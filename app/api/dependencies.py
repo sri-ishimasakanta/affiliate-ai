@@ -16,14 +16,17 @@ from app.services.affiliate_program_service import AffiliateProgramService
 from app.services.article_affiliate_program_service import (
     ArticleAffiliateProgramService,
 )
+from app.services.article_fact_service import ArticleFactService
 from app.services.article_plan_service import ArticlePlanService
 from app.services.article_service import ArticleService
+from app.services.fact_pack_service import FactPackService
 from app.services.keyword_metrics_collection_service import (
     KeywordMetricsCollectionService,
 )
 from app.services.keyword_scoring_service import KeywordScoringService
 from app.services.keyword_service import KeywordService
 from app.services.keyword_signal_service import KeywordSignalService
+from app.services.source_service import SourceService
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -44,6 +47,18 @@ def get_article_affiliate_program_service(
     session: SessionDep,
 ) -> ArticleAffiliateProgramService:
     return ArticleAffiliateProgramService(session)
+
+
+def get_source_service(session: SessionDep) -> SourceService:
+    return SourceService(session)
+
+
+def get_article_fact_service(session: SessionDep) -> ArticleFactService:
+    return ArticleFactService(session)
+
+
+def get_fact_pack_service(session: SessionDep) -> FactPackService:
+    return FactPackService(session)
 
 
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
@@ -73,6 +88,11 @@ ArticleAffiliateProgramServiceDep = Annotated[
     ArticleAffiliateProgramService,
     Depends(get_article_affiliate_program_service),
 ]
+SourceServiceDep = Annotated[SourceService, Depends(get_source_service)]
+ArticleFactServiceDep = Annotated[
+    ArticleFactService, Depends(get_article_fact_service)
+]
+FactPackServiceDep = Annotated[FactPackService, Depends(get_fact_pack_service)]
 AffiliateProgramServiceDep = Annotated[
     AffiliateProgramService, Depends(get_affiliate_program_service)
 ]

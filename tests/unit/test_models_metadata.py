@@ -2,6 +2,7 @@ from app.models import (
     AffiliateProgram,
     Article,
     ArticleAffiliateProgram,
+    ArticleFact,
     ArticleMetric,
     Base,
     Keyword,
@@ -13,7 +14,12 @@ from app.models import (
 
 TIMESTAMPED_MODELS = (Source, Keyword, AffiliateProgram, Article, ArticleMetric)
 
-IMMUTABLE_HISTORY_MODELS = (KeywordScore, KeywordSignal, KeywordScoreSignal)
+IMMUTABLE_HISTORY_MODELS = (
+    KeywordScore,
+    KeywordSignal,
+    KeywordScoreSignal,
+    ArticleFact,
+)
 
 
 def test_all_tables_registered() -> None:
@@ -26,6 +32,7 @@ def test_all_tables_registered() -> None:
         "articles",
         "article_metrics",
         "article_affiliate_programs",
+        "article_facts",
         "keyword_scores",
         "keyword_signals",
         "keyword_score_signals",

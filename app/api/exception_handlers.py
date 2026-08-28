@@ -16,9 +16,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.exceptions import (
     ApplicationError,
     DuplicateEntityError,
+    EntityInUseError,
     EntityNotFoundError,
     ExternalProviderDataError,
     ExternalProviderError,
+    FactValidationError,
     IncompleteSignalSetError,
     InvalidStatusTransitionError,
     PlanApprovalError,
@@ -29,9 +31,11 @@ from app.exceptions import (
 _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (EntityNotFoundError, 404, "entity_not_found"),
     (DuplicateEntityError, 409, "duplicate_entity"),
+    (EntityInUseError, 409, "entity_in_use"),
     (InvalidStatusTransitionError, 409, "invalid_status_transition"),
     (IncompleteSignalSetError, 409, "incomplete_signal_set"),
     (PlanApprovalError, 409, "plan_approval_rejected"),
+    (FactValidationError, 422, "fact_validation_error"),
     (ProviderNotConfiguredError, 503, "provider_not_configured"),
     (ExternalProviderDataError, 502, "external_provider_data_error"),
     (ExternalProviderError, 502, "external_provider_error"),

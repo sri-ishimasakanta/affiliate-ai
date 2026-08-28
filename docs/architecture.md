@@ -1059,6 +1059,108 @@ planned 段階で `ArticleAffiliateProgram` を登録することは許可する
 - **Phase 3A は LLM API を呼ばない。** `meta_description` は Phase 3B (drafting) で扱う
   ため Article model / DB schema は変更しない。
 
+## Source & Verified Fact / FactPack (Phase 3B)
+
+planned Article から本文ドラフトへ進む前に、外部世界の事実 (料金・機能・無料プラン等)
+を公式ページ由来で構造化保存する。ArticlePlan と違い **事実は永続化する** (時間で変わり、
+確認に人手コストがかかるため「毎回再生成できる derived data」ではない)。
+**LLM / 外部 API なし・追加実費 0 円。migration は add-only の `article_facts` 1 テーブルのみ。**
+
+### Source (immutable observation)
+
+既存 `sources` テーブルを **無変更で再利用** (`source_type` に `official_product` /
+`official_pricing` / `official_docs` / `official_help` / `official_announcement` /
+`secondary` の値を入れる。native ENUM は使わない)。
+
+- Source は「公式ページそのもの」ではなく「そのページを *その時点で確認した* 観測記録」。
+  同じ URL でも別日時の再確認は新しい Source 行 → historical provenance を壊さない。
+- **immutable**: `SourceService` は update / PATCH を提供しない (CREATE / GET / LIST /
+  DELETE)。
+- **URL safety** (`app/article/source_url_safety.py`): https のみ / userinfo 禁止 /
+  credential query (`token` `api_key` `secret` `password` …) は **reject** (除去保存
+  しない) / tracking query (`utm_*` `ref` `aff` `partner` `clickid` `gclid` …) は
+  除去して canonicalize (fragment も落とす) / 既知 tracking・redirect ホスト
+  (`pxf.io` `partnerstack.com` redirect `impact.com` `bit.ly` `track.*` …) と現在の
+  `AffiliateProgram.tracking_url` のホストは reject。公式ドメインの最終判断は human。
+- **delete guard**: `ArticleFact` から参照されている Source の削除は `entity_in_use`
+  (409)。Fact を cascade で消して provenance を壊さない。ただし **Article 削除時は
+  ORM cascade (`Article.facts` / `Article.sources` の `delete-orphan`) で Fact / Source
+  とも削除される**。
+
+### ArticleFact (immutable fact history)
+
+新規 `article_facts` テーブル。`updated_at` は持たない (immutable)。
+
+- **現在値 = `(article_id, subject_ref, fact_key)` ごとに `checked_at DESC, id DESC`**。
+  `is_current` フラグは **持たない** (current flag との二重管理を避ける。KeywordSignal と
+  同じ latest semantics)。事実の「更新」は新しい行の append。exact duplicate
+  (article, subject, key, checked_at, status, value, source) は skip。
+- **17 の persistent fact key** (`app/article/fact_keys.py` の `FactKey`)。
+  `pricing_checked_at` / `last_verified_at` は fact key ではなく **FactPack 側で導出**
+  (pricing 系 fact の最新 checked_at / verified fact の最大 checked_at)。
+- `list[str]` fact は NFKC → trim → 空除外 → 重複除去 (順序保持)。内容は casefold しない。
+- **`value_status`** (`verified` / `unknown` / `not_applicable`):
+  - `verified`: `fact_value` 非 null / official_* source 必須 / `unknown_reason` は null /
+    型が fact key 宣言型 (str / bool / list[str]) と一致。
+  - `unknown` (公式を調査したが確認できなかった): `fact_value` null / official_* source
+    必須 / `unknown_reason` 必須・非空。
+  - `not_applicable`: `fact_value` null / `unknown_reason` (説明) 必須 / source は optional。
+  - **missing (行が無い) ≠ unknown。** missing は「未調査」、unknown は「調査済み・確認不能」。
+- `pricing_summary` に通貨文字は **要求しない** (「要問い合わせ」「Contact sales」も
+  verified として許可。数字を system / LLM で補完しない)。
+- `subject_ref`: `affiliate_program_id` 指定時は `AffiliateProgram.name` と正規化一致
+  (`affiliate_matching.normalize_for_match`)。`affiliate_program_id` が null なら
+  非 affiliate comparison tool を明示的に許可 (nonblank / length のみ検証)。
+
+### freshness policy (`app/article/fact_freshness.py`)
+
+料金系 (`pricing_summary` / `free_plan_available` / `free_trial_available` /
+`business_plan_available`) **30 日** / 機能系 **90 日** / 静的
+(`official_product_name` / `official_url` / `category` / `target_users` /
+`japanese_language_support` / `japan_business_support`) **180 日**。境界は
+`now - checked_at <= max_age` を fresh。`now` は Service に inject 可能 (テスト決定論)。
+将来 `Settings` 化を検討 (今回は module 定数)。
+
+### FactPack (read-time 導出)
+
+`FactPackService.build(article_id)` は **DB write 禁止**。Source / Fact の最新値と
+ArticlePlan から毎回集約する。
+
+- **比較対象 subject 集合 = Article の `ArticleAffiliateProgram` links** に紐づく program
+  (V1 固定)。human が比較対象 subset を選ぶ機能 / 非 affiliate tool を正式比較集合に
+  含める機能は将来 (別 table)。**known limitation。**
+- 各 fact key: verified → `usable_claims` / unknown・not_applicable → `do_not_claim` +
+  `missing_facts` (reason: `unknown` / `not_applicable`) / 行なし → `missing_facts`
+  (reason: `not_researched`)。not_applicable は比較表で「対象外」表示できるよう status
+  を保持。
+- **readiness gate**: 各対象 tool で required fact
+  (`official_product_name` / `official_url` / `primary_use_cases >=1` /
+  `key_features >=2`) が verified、`pricing_summary` / `free_plan_available` が
+  verified **または explicit unknown** (official source + reason)、かつ全て fresh なら
+  その tool は ok。全 tool ok かつ subject が 1 つ以上あれば `drafting_allowed`。
+  recommended fact (target_users / ai_features / integrations …) の不足は `warnings`
+  のみで drafting 可。
+- LLM 境界: verified 事実だけを「使ってよい事実」として渡し、unknown / missing は
+  「言及禁止」。価格は `pricing_summary` 文字列をそのまま引用させ再構成させない
+  (Phase 3C)。
+
+### Product model を作らない理由
+
+`Make` (product) と `Make` affiliate program は概念的に別だが、V1 の要件 (1 記事・7 tool)
+に対して `Product` model + migration + `AffiliateProgram.product_id` + 既存 catalog の
+backfill は過剰。identity は `article_facts.subject_ref` (正準名 str) で持ち、
+`affiliate_program_id` nullable で紐付ける。**cross-article 事実再利用 / 1 product 複数
+ASP / tool 別名解決が必要になった時点で `Product` を導入し `subject_ref` → `product_id`
+へ移行する** (既知の負債)。
+
+### Phase 3C 再現性の負債
+
+Fact が immutable でも、Phase 3C で **どの Fact id を使って draft したか** を保存しないと
+draft 再現性はない。加えて ArticlePlan は現在 **非永続** なので、human が承認した
+outline / comparison_axes / CTA strategy / cannibalization guidance が再生成時に変わり
+得る。Phase 3C 開始前に `DraftInputSnapshot` (approved plan snapshot + used fact ids +
+affiliate selection + timestamp) を freeze する設計を行う。**Phase 3B-2 では実装しない。**
+
 ## ArticleMetric のクリック指標 (将来方針)
 
 - 現在の `clicks` は **Search Console のクリック数** として扱う想定。

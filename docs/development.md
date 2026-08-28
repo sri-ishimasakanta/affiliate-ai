@@ -520,6 +520,31 @@ import_competition_ease で投入) → 7/7 → Opportunity Score → ranking CSV
   生成物を必ずレビューする。
 - 接続先 URL は `migrations/env.py` が `get_settings().database_url` から取得する。
 
+## Source & Verified Fact / FactPack (Phase 3B)
+
+- **`Source` は immutable な観測記録。** 既存 `sources` テーブルを無変更で再利用
+  (`source_type` に `official_pricing` 等の値)。`SourceService` は CREATE / GET / LIST /
+  DELETE のみ (PATCH なし)。URL safety は `app/article/source_url_safety.py`
+  (https のみ・credential query は reject・tracking query は除去して canonicalize・
+  既知 tracking / affiliate redirect ホストは reject)。Fact から参照中の Source 削除は
+  `entity_in_use` (409)。
+- **`ArticleFact` は immutable 履歴。** `is_current` を持たず、現在値は
+  `(article_id, subject_ref, fact_key)` ごとに `checked_at DESC, id DESC`。
+  「更新」は新しい行の append。17 persistent fact key は `app/article/fact_keys.py`。
+  `value_status` = verified / unknown / not_applicable。**missing (行なし) と unknown は
+  別概念。** freshness は `app/article/fact_freshness.py` (料金 30 / 機能 90 / 静的 180 日)。
+- **`FactPackService.build()` は DB write 禁止。** Source / Fact の最新値 + ArticlePlan
+  から毎回集約。readiness gate は required fact (product名 / URL / use_cases /
+  key_features / pricing / free_plan) が verified (pricing 2 つは explicit unknown も可)
+  かつ fresh なら drafting 可。
+- **CLI**: `uv run python scripts/import_article_facts.py --article-id 1 --file facts.json
+  [--dry-run]` — JSON、1 file = 1 transaction (sub-service の commit を使わず
+  `ArticleFactImportService` が transaction owner)、`--dry-run` は write 0、
+  **Web アクセスなし** (human が公式ページで確認した結果を転記するだけ)。
+- **比較対象 subject 集合 = Article の `ArticleAffiliateProgram` links** (V1 固定・
+  known limitation)。**`Product` model は作らない** (`subject_ref` str + nullable
+  `affiliate_program_id` で identity)。migration は add-only の `article_facts` 1 つのみ。
+
 ## Article Planning V1 (Phase 3A)
 
 - **ArticlePlan は DB 非永続。** `ArticlePlanService.plan_for_keyword(keyword_id)` が

@@ -100,8 +100,9 @@ def test_affiliate_program_columns_migration_roundtrip(tmp_path: Path) -> None:
     url = f"sqlite:///{tmp_path / 'aff_roundtrip.db'}"
     _upgrade_head(url)
 
+    # affiliate カラムを追加した migration (abfa2f774ff4) の 1 つ前へ戻す。
     with _database_url(url):
-        command.downgrade(Config(str(ALEMBIC_INI)), "-1")
+        command.downgrade(Config(str(ALEMBIC_INI)), "1689a1b083a8")
     cols_after_down = _affiliate_program_columns(url)
     assert "match_terms" not in cols_after_down
     assert "currency" not in cols_after_down
@@ -109,3 +110,45 @@ def test_affiliate_program_columns_migration_roundtrip(tmp_path: Path) -> None:
     with _database_url(url):
         command.upgrade(Config(str(ALEMBIC_INI)), "head")
     assert {"match_terms", "currency"} <= _affiliate_program_columns(url)
+
+
+def _table_names(url: str) -> set[str]:
+    engine = build_engine(url)
+    try:
+        return set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+
+def _existing_table_columns(url: str, table: str) -> set[str]:
+    engine = build_engine(url)
+    try:
+        return {c["name"] for c in inspect(engine).get_columns(table)}
+    finally:
+        engine.dispose()
+
+
+def test_article_facts_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'article_facts.db'}"
+
+    # article_facts migration (ba2e8486248e) の 1 つ前 = abfa2f774ff4
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), "abfa2f774ff4")
+    before_tables = _table_names(url)
+    before_articles = _existing_table_columns(url, "articles")
+    before_sources = _existing_table_columns(url, "sources")
+    assert "article_facts" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+    after_tables = _table_names(url)
+
+    # article_facts が 1 つだけ増え、既存 table の列は不変
+    assert after_tables - before_tables == {"article_facts"}
+    assert _existing_table_columns(url, "articles") == before_articles
+    assert _existing_table_columns(url, "sources") == before_sources
+
+    # roundtrip: downgrade で article_facts が消える
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), "abfa2f774ff4")
+    assert "article_facts" not in _table_names(url)
