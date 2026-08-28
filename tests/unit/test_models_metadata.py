@@ -5,6 +5,7 @@ from app.models import (
     ArticleFact,
     ArticleMetric,
     Base,
+    DraftInputSnapshot,
     Keyword,
     KeywordScore,
     KeywordScoreSignal,
@@ -19,6 +20,7 @@ IMMUTABLE_HISTORY_MODELS = (
     KeywordSignal,
     KeywordScoreSignal,
     ArticleFact,
+    DraftInputSnapshot,
 )
 
 
@@ -36,6 +38,7 @@ def test_all_tables_registered() -> None:
         "keyword_scores",
         "keyword_signals",
         "keyword_score_signals",
+        "draft_input_snapshots",
     }
 
 

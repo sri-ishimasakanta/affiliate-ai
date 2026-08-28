@@ -366,3 +366,56 @@ class FactPackDTO(BaseModel):
     freshness: FreshnessReport
     readiness: FactPackReadiness
     warnings: list[str]
+
+
+# --- DraftInputSnapshot (LLM draft 生成入力の凍結 artifact) -------------------
+
+
+class DraftInputGateStatus(BaseModel):
+    can_freeze: bool
+    failed_gates: list[str]
+
+
+class DraftInputPreviewRead(BaseModel):
+    """read-only preview。DB write なし。"""
+
+    article_id: int
+    snapshot_version: str
+    builder_version: str
+    content_hash: str
+    payload: dict
+    readiness: dict
+    gate_status: DraftInputGateStatus
+
+
+class DraftInputFreezeRequest(BaseModel):
+    """freeze 入力。preview で人が見た content_hash を必須で渡す (drift guard)。"""
+
+    expected_content_hash: str = Field(min_length=64, max_length=64)
+
+
+class DraftInputSnapshotSummaryRead(BaseModel):
+    """一覧用のメタデータ (payload 全文は含めない)。"""
+
+    id: int
+    article_id: int
+    snapshot_version: str
+    builder_version: str
+    plan_snapshot_origin: str
+    content_hash: str
+    primary_affiliate_program_id: int | None
+    comparison_program_ids: list[int]
+    drafting_allowed_at_freeze: bool
+    frozen_at: datetime
+    created_at: datetime
+
+
+class DraftInputSnapshotRead(DraftInputSnapshotSummaryRead):
+    """detail (payload 全文を含む)。"""
+
+    payload: dict
+
+
+class DraftInputFreezeResponse(BaseModel):
+    snapshot: DraftInputSnapshotRead
+    already_frozen: bool

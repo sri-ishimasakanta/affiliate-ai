@@ -545,6 +545,46 @@ import_competition_ease で投入) → 7/7 → Opportunity Score → ranking CSV
   known limitation)。**`Product` model は作らない** (`subject_ref` str + nullable
   `affiliate_program_id` で identity)。migration は add-only の `article_facts` 1 つのみ。
 
+## DraftInputSnapshot Foundation (Phase 3C-2)
+
+- **目的**: LLM draft 生成前に「What we knew / decided」を immutable に凍結する。
+  model `app/models/draft_input_snapshot.py` (`updated_at` なし・immutable history)。
+  add-only migration `draft_input_snapshots` 1 table のみ (既存テーブル無変更)。
+- **`ArticlePlan` は非永続**なので、V1 の Snapshot は「freeze 時点で再導出した Plan を
+  human が確認・承認したもの」。`plan_snapshot_origin =
+  "current_derived__human_confirmed_at_freeze"` を payload に残す。過去の Phase 3A Plan
+  を完全復元する設計にはしない (known limitation)。
+- **builder** `app/services/draft_input_snapshot_builder.py` は read-only / 決定論。
+  preview と freeze が **同じ builder** を使う。`build(article_id, now=None)` は
+  Article / Keyword / ArticlePlan / links / AffiliateProgram / FactPack / latest Fact /
+  Source を集約し、7 tool × 17 FactKey の全セル grid を作り、claim partition invariant
+  を assert し、canonical payload + `content_hash` + `gate_status` を返す。
+- **payload の authority**: draft title/slug = 永続 `Article` (plan の
+  `working_title`/`proposed_slug` は `payload.audit.plan` へ)。primary =
+  `ArticleAffiliateProgram.is_primary` (`payload.selection`)。`recommended_role` は
+  `comparison_set[].planning_role` として advisory 保存。
+- **semantic hash** `app/article/draft_input_canonical.py` (pure)。
+  `compute_content_hash()` は `semantic_payload_for_hash()` で `audit` を落としてから
+  `json.dumps(sort_keys, ensure_ascii=False, separators=(",",":"), allow_nan=False)` →
+  SHA-256。datetime は UTC 秒精度 `+00:00` 文字列、commission は
+  `Decimal(...).quantize("0.0001")` の文字列。`payload.sources` は fact が参照した
+  `source_id` の union のみ (無関係 Source 追加で hash 不変)。`built_at` /
+  `frozen_at` / row id / plan 診断値は hash 対象外、`builder_version` は対象
+  (builder ロジック変更時は `BUILDER_VERSION` を更新)。
+- **drift guard**: `POST` は `expected_content_hash` 必須。`DraftInputSnapshotService`
+  が transaction owner で `build → gate 検証 → hash 照合 → duplicate lookup → append →
+  commit`。hash 不一致 = 409 `snapshot_input_changed`、gate 未達 = 409
+  `draft_input_not_ready`。どちらも 1 行も作らない。
+- **idempotency**: `UNIQUE(article_id, content_hash)` + service prelookup。同一 hash の
+  再 freeze は新規行を作らず既存を返す (`already_frozen=true`)。`IntegrityError` を
+  拾ったら rollback 後に既存行を取得して idempotent result として返す。
+- **freeze != drafting**: `Article.status` は変更しない。`planned → drafting` は
+  Phase 3C-4。生成の実行情報 (LLM model / prompt / body / token) は将来の
+  `DraftGenerationRun` (別 model、`snapshot_id` 参照) の責務。**commission は Snapshot
+  audit に保存するが Phase 3C-4 の LLM prompt へは渡さない**。
+- **LLM / 外部 API なし・追加実費 0 円。** Phase 3C-2 では Article #1 の実 Snapshot は
+  freeze しない (Phase 3C-3: Real Preview → Human Review → Freeze)。
+
 ## Article Planning V1 (Phase 3A)
 
 - **ArticlePlan は DB 非永続。** `ArticlePlanService.plan_for_keyword(keyword_id)` が

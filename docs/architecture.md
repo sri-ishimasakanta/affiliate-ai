@@ -1161,6 +1161,82 @@ outline / comparison_axes / CTA strategy / cannibalization guidance が再生成
 得る。Phase 3C 開始前に `DraftInputSnapshot` (approved plan snapshot + used fact ids +
 affiliate selection + timestamp) を freeze する設計を行う。**Phase 3B-2 では実装しない。**
 
+## DraftInputSnapshot (Phase 3C-2)
+
+LLM draft を生成する前に「**その draft が何を入力に作られたか (What we knew / decided)**」
+を immutable に凍結する artifact。`app/models/draft_input_snapshot.py`。
+
+### 目的と ArticlePlan の歴史的制約
+
+Keyword Signal / ArticlePlan / AffiliateProgram / primary selection / ArticleFact latest /
+Source / freshness / claim policy は時間とともに変化する。Snapshot はある時点の入力を
+外部 join なしで再現・監査できるようにする。
+
+現行 `ArticlePlan` は **非永続** で、Article #1 は Phase 3A 承認時の Plan を保存して
+いない。したがって V1 の Snapshot は「**過去に承認された厳密な Plan**」ではなく
+「**freeze 時点で再導出した Plan を human が確認・承認したもの**」。payload に
+`plan_snapshot_origin = "current_derived__human_confirmed_at_freeze"` を必ず残す。
+将来 Article では drafting 前の Snapshot freeze を標準 workflow にする。
+
+### payload の source of truth
+
+- **draft の title / slug は永続 `Article` が authoritative。** `ArticlePlan` の
+  `working_title` / `proposed_slug` (Article #1 では collision 回避で `-roundup-2`) は
+  planning 診断であり、`payload.audit.plan` にのみ入れる。`payload.article` には
+  実 `Article.title` / `Article.slug` を入れる。
+- **authoritative primary は `ArticleAffiliateProgram.is_primary`** (`payload.selection`)。
+  `ArticlePlan` / `FactPack` の `recommended_role` (`primary_candidate` 等) は advisory で
+  `payload.comparison_set[].planning_role` として別キーで保存する。LLM drafting が
+  実 primary として扱うのは `selection` / `is_primary` のみ。
+- **commission / provider は Snapshot audit context として保存してよいが、Phase 3C-4 の
+  LLM prompt builder では commission を LLM へ渡さない**。human が既に primary を決めて
+  おり、推薦文を affiliate economics で bias させないため。
+
+### semantic grid と missing の扱い
+
+比較対象 tool × 17 FactKey を **常に全セル** 表現する (Article #1 なら 7 × 17 = 119)。
+各セルの `state` は `verified` / `unknown` / `not_applicable` / `not_researched` の 4 値で、
+**fact 行が無いこと (`not_researched`) も drafting 入力**として明示セルにする
+(missing を Snapshot から消さない)。`claim_allowed = (state == "verified")`。
+各 tool で `usable_claims ∪ do_not_claim = 17 FactKey` / 交わり空、を build 時に assert
+する (崩れたら `DraftInputNotReadyError`)。`unknown` は `do_not_claim` のまま保持。
+
+### semantic hash boundary と drift guard
+
+`content_hash` は「保存 payload をそのまま hash」ではなく、
+`app/article/draft_input_canonical.py` の `semantic_payload_for_hash()` で **意味的入力
+だけ** を取り出してから SHA-256 する。非意味的値 (built_at 等) は payload の
+`"audit"` サブツリーに集約し hash から除外する。除外: `audit` / `frozen_at` / row id /
+`created_at` / plan の working_title・proposed_slug・slug_available・診断 readiness・
+opportunity_score。含める: `builder_version` (builder ロジックが意味的に変わったら
+`BUILDER_VERSION` を更新)、article title/slug、keyword、drafting 用 plan フィールド、
+comparison_set、selection、119 cell + provenance + claim boundary、参照された Source の
+union、policy、freeze に意味を持つ readiness/freshness。datetime は UTC 秒精度
+`+00:00` 文字列に正規化し、同一 instant は offset に依らず同一 hash。commission は
+`Decimal` 由来の固定桁文字列 (`"35.0000"`)。
+
+`payload.sources` は **present fact が実際に参照した `source_id` の union のみ**
+(全 Article Source ではない)。draft 入力に使っていない Source を追加しても hash が
+変わらないようにするため。
+
+**freeze の drift guard**: `POST .../draft-input-snapshots` は preview で human が見た
+`expected_content_hash` を必須で受け取り、freeze 時にその場で再 build して照合。
+不一致なら 409 `SnapshotInputChangedError` で **1 行も作らない** (human が見ていない
+入力を凍結しない)。
+
+### immutable / freeze != drafting
+
+`DraftInputSnapshot` は UPDATE / PATCH / DELETE を持たない (内容変更は新しい行の
+append、latest = `frozen_at DESC, id DESC`、`is_current` flag なし)。Article 削除時のみ
+cascade。**Snapshot freeze は `Article.status` を変更しない**。`planned → drafting` は
+Phase 3C-4 の生成開始時に行う。
+
+### DraftGenerationRun との分離
+
+`DraftInputSnapshot` に LLM model / provider / prompt / 生成本文 / token usage /
+生成 status を入れない。それらは将来の `DraftGenerationRun` (別 model、`snapshot_id`
+を参照) の責務。**What we knew/decided** と **How generation ran** を分離する。
+
 ## ArticleMetric のクリック指標 (将来方針)
 
 - 現在の `clicks` は **Search Console のクリック数** として扱う想定。

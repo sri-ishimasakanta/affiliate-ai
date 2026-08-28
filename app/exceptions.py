@@ -75,6 +75,33 @@ class EntityInUseError(ApplicationError):
         self.used_by = used_by
 
 
+class DraftInputNotReadyError(ApplicationError):
+    """DraftInputSnapshot の freeze gate を満たしていない。
+
+    Article が planned でない / body 済み / primary 不整合 / FactPack not ready /
+    required stale / claim partition 崩れ / ArticlePlan build 失敗 など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"draft input not ready: {reason}")
+        self.reason = reason
+
+
+class SnapshotInputChangedError(ApplicationError):
+    """preview 後に生成入力が変化し、``expected_content_hash`` と一致しない。
+
+    Human がレビューしていない入力を freeze しないための drift guard。
+    """
+
+    def __init__(self, expected: str, actual: str) -> None:
+        super().__init__(
+            "draft input changed since preview: expected content_hash "
+            f"{expected!r}, current {actual!r}"
+        )
+        self.expected = expected
+        self.actual = actual
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.article_affiliate_program import ArticleAffiliateProgram
     from app.models.article_fact import ArticleFact
     from app.models.article_metric import ArticleMetric
+    from app.models.draft_input_snapshot import DraftInputSnapshot
     from app.models.keyword import Keyword
     from app.models.source import Source
 
@@ -91,6 +92,12 @@ class Article(Base, TimestampMixin):
     )
 
     metrics: Mapped[list[ArticleMetric]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # draft 生成入力の凍結 artifact (immutable 履歴)。Article 削除で全削除。
+    draft_input_snapshots: Mapped[list[DraftInputSnapshot]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

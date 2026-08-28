@@ -201,6 +201,10 @@ prefix `/api/v1`。Application 例外は共通ハンドラで HTTP へ変換し�
 | GET | `/api/v1/articles/{article_id}/facts/{fact_id}` | 事実 1 件取得 | 200 |
 | POST | `/api/v1/articles/{article_id}/facts` | 検証済み事実を **append** (immutable。exact duplicate は既存を返す) | 201 |
 | GET | `/api/v1/articles/{article_id}/fact-pack` | FactPack (Source/Fact の最新状態 + readiness) を導出 (read-only) | 200 |
+| GET | `/api/v1/articles/{article_id}/draft-input-preview` | draft 生成入力の preview + `content_hash` + `gate_status` (read-only) | 200 |
+| POST | `/api/v1/articles/{article_id}/draft-input-snapshots` | draft 生成入力を凍結 (`expected_content_hash` 必須。drift は 409 `snapshot_input_changed`、gate 未達は 409 `draft_input_not_ready`) | 201 |
+| GET | `/api/v1/articles/{article_id}/draft-input-snapshots` | Snapshot 一覧 (メタデータのみ・payload なし) | 200 |
+| GET | `/api/v1/articles/{article_id}/draft-input-snapshots/{snapshot_id}` | Snapshot 1 件 (payload 全文) | 200 |
 | POST | `/api/v1/affiliate-programs` | アフィリエイト案件作成 (同一 `name`+`provider` は 409) | 201 |
 | GET | `/api/v1/affiliate-programs` | 一覧 (`status` / `provider` / `category` filter、`limit` 1..100 / `offset` >=0) | 200 |
 | GET | `/api/v1/affiliate-programs/{id}` | 1 件取得 | 200 |
@@ -275,3 +279,40 @@ Opportunity Score で選んだ keyword から記事制作へ進むための企�
   を登録するが、tracking URL を本文へ挿入するのは approved 後の後続 Phase。
 - **LLM / 外部 API / migration なし・追加実費 0 円**。`meta_description` は Phase 3B
   (drafting) で扱うため Article model / DB schema は変更しない。
+
+## DraftInputSnapshot (Phase 3C-2)
+
+LLM draft 生成の **前に「何を入力に作ったか (What we knew / decided)」を immutable に
+凍結する artifact**。詳細は [docs/architecture.md](docs/architecture.md)。
+
+- **`ArticlePlan` は非永続**。Article #1 は Phase 3A 承認時の Plan を保存していない
+  ため、V1 の Snapshot は「freeze 時点で再導出した Plan を human が確認・承認したもの」。
+  payload に `plan_snapshot_origin = "current_derived__human_confirmed_at_freeze"` を残す。
+- **payload の source of truth**: draft の title/slug は永続 `Article` が authoritative
+  (`ArticlePlan` の `working_title`/`proposed_slug` は診断として `audit` へ)。
+  authoritative primary は `ArticleAffiliateProgram.is_primary` (`payload.selection`)。
+  `recommended_role` は advisory で `comparison_set[].planning_role` に別キーで保存。
+- **semantic grid**: 比較対象 tool × 17 FactKey を常に全セル表現 (Article #1 は
+  7×17=119)。fact 行が無いこと (`not_researched`) も入力として明示セルにする。
+  `verified` のみ `usable_claims` / `unknown`・`not_applicable`・`not_researched` は
+  `do_not_claim` (17-key partition を build 時に assert)。`unknown` は保持。
+- **content_hash は semantic 部分のみ** (`app/article/draft_input_canonical.py`)。
+  `audit` / `frozen_at` / row id / plan の診断 title-slug 等は hash 対象外。
+  `builder_version` は hash 対象 (builder ロジック変更時は `BUILDER_VERSION` を更新)。
+  datetime は UTC 秒精度 `+00:00` 文字列、commission は `Decimal` 固定桁文字列。
+  `payload.sources` は **fact が参照した Source の union のみ** (無関係 Source 追加で
+  hash が変わらないように)。
+- **drift guard**: freeze は preview の `expected_content_hash` を必須で受け取り、
+  freeze 時に再 build して照合。不一致は 409 で **1 行も作らない**。
+- **freeze gate**: Article が `planned` / `body` 等が None / comparison link >= 1 /
+  primary ちょうど 1 / 全 affiliate `active` / FactPack `drafting_allowed` /
+  `blocking_reasons` 空 / required fresh / claim partition 成立。
+- **immutable**: UPDATE / PATCH / DELETE なし (内容変更は新しい行の append、latest は
+  `frozen_at DESC, id DESC`)。Article 削除時のみ cascade。
+- **freeze != drafting**: Snapshot freeze は `Article.status` を変更しない。
+  `planned → drafting` は Phase 3C-4 の生成開始時。
+- **生成の実行情報は持たない**: LLM model / prompt / 生成本文 / token usage は将来の
+  `DraftGenerationRun` の責務。commission は Snapshot audit には保存するが、Phase 3C-4
+  の LLM prompt へは **渡さない** 方針 (推薦文を affiliate economics で bias させない)。
+- **migration は add-only の `draft_input_snapshots` 1 table のみ** (既存テーブルの
+  列は無変更)。LLM / 外部 API なし・追加実費 0 円。

@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions import (
     ApplicationError,
+    DraftInputNotReadyError,
     DuplicateEntityError,
     EntityInUseError,
     EntityNotFoundError,
@@ -25,6 +26,7 @@ from app.exceptions import (
     InvalidStatusTransitionError,
     PlanApprovalError,
     ProviderNotConfiguredError,
+    SnapshotInputChangedError,
 )
 
 # (例外型, HTTP status, 安定した machine-readable code)
@@ -35,6 +37,8 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (InvalidStatusTransitionError, 409, "invalid_status_transition"),
     (IncompleteSignalSetError, 409, "incomplete_signal_set"),
     (PlanApprovalError, 409, "plan_approval_rejected"),
+    (SnapshotInputChangedError, 409, "snapshot_input_changed"),
+    (DraftInputNotReadyError, 409, "draft_input_not_ready"),
     (FactValidationError, 422, "fact_validation_error"),
     (ProviderNotConfiguredError, 503, "provider_not_configured"),
     (ExternalProviderDataError, 502, "external_provider_data_error"),

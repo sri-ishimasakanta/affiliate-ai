@@ -140,7 +140,7 @@ def test_article_facts_migration_is_add_only(tmp_path: Path) -> None:
     assert "article_facts" not in before_tables
 
     with _database_url(url):
-        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+        command.upgrade(Config(str(ALEMBIC_INI)), "ba2e8486248e")
     after_tables = _table_names(url)
 
     # article_facts が 1 つだけ増え、既存 table の列は不変
@@ -152,3 +152,63 @@ def test_article_facts_migration_is_add_only(tmp_path: Path) -> None:
     with _database_url(url):
         command.downgrade(Config(str(ALEMBIC_INI)), "abfa2f774ff4")
     assert "article_facts" not in _table_names(url)
+
+
+_SNAPSHOT_MIGRATION = "539cdcb66b22"
+_BEFORE_SNAPSHOT_MIGRATION = "ba2e8486248e"
+_UNCHANGED_TABLES = (
+    "articles",
+    "article_facts",
+    "sources",
+    "article_affiliate_programs",
+    "affiliate_programs",
+)
+
+
+def test_draft_input_snapshots_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'draft_input_snapshots.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_SNAPSHOT_MIGRATION)
+    before_tables = _table_names(url)
+    before_columns = {t: _existing_table_columns(url, t) for t in _UNCHANGED_TABLES}
+    assert "draft_input_snapshots" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _SNAPSHOT_MIGRATION)
+    after_tables = _table_names(url)
+
+    # snapshot table が 1 つだけ増え、既存 table の列は一切変わらない
+    assert after_tables - before_tables == {"draft_input_snapshots"}
+    for table, cols in before_columns.items():
+        assert _existing_table_columns(url, table) == cols, table
+
+    # downgrade は snapshot table だけを落とす
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_SNAPSHOT_MIGRATION)
+    assert _table_names(url) == before_tables
+    for table, cols in before_columns.items():
+        assert _existing_table_columns(url, table) == cols, table
+
+
+def test_draft_input_snapshots_table_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'snapshot_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("draft_input_snapshots")}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("draft_input_snapshots")
+        }
+    finally:
+        engine.dispose()
+    assert {
+        "id", "article_id", "snapshot_version", "builder_version",
+        "plan_snapshot_origin", "primary_affiliate_program_id",
+        "comparison_program_ids", "drafting_allowed_at_freeze", "payload",
+        "content_hash", "frozen_at", "created_at",
+    } == cols
+    assert "updated_at" not in cols
+    assert ("article_id", "content_hash") in uniques

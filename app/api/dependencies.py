@@ -19,6 +19,7 @@ from app.services.article_affiliate_program_service import (
 from app.services.article_fact_service import ArticleFactService
 from app.services.article_plan_service import ArticlePlanService
 from app.services.article_service import ArticleService
+from app.services.draft_input_snapshot_service import DraftInputSnapshotService
 from app.services.fact_pack_service import FactPackService
 from app.services.keyword_metrics_collection_service import (
     KeywordMetricsCollectionService,
@@ -61,6 +62,12 @@ def get_fact_pack_service(session: SessionDep) -> FactPackService:
     return FactPackService(session)
 
 
+def get_draft_input_snapshot_service(
+    session: SessionDep,
+) -> DraftInputSnapshotService:
+    return DraftInputSnapshotService(session)
+
+
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
     return AffiliateProgramService(session)
 
@@ -93,6 +100,9 @@ ArticleFactServiceDep = Annotated[
     ArticleFactService, Depends(get_article_fact_service)
 ]
 FactPackServiceDep = Annotated[FactPackService, Depends(get_fact_pack_service)]
+DraftInputSnapshotServiceDep = Annotated[
+    DraftInputSnapshotService, Depends(get_draft_input_snapshot_service)
+]
 AffiliateProgramServiceDep = Annotated[
     AffiliateProgramService, Depends(get_affiliate_program_service)
 ]

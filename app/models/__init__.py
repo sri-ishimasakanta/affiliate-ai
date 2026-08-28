@@ -4,6 +4,12 @@ from app.models.article_affiliate_program import ArticleAffiliateProgram
 from app.models.article_fact import ArticleFact
 from app.models.article_metric import ArticleMetric
 from app.models.base import Base, TimestampMixin
+from app.models.draft_input_snapshot import (
+    BUILDER_VERSION,
+    PLAN_SNAPSHOT_ORIGIN,
+    SNAPSHOT_VERSION,
+    DraftInputSnapshot,
+)
 from app.models.enums import (
     AffiliateProgramStatus,
     ArticleStatus,
@@ -17,6 +23,9 @@ from app.models.keyword_signal import KeywordSignal
 from app.models.source import Source
 
 __all__ = [
+    "BUILDER_VERSION",
+    "PLAN_SNAPSHOT_ORIGIN",
+    "SNAPSHOT_VERSION",
     "AffiliateProgram",
     "AffiliateProgramStatus",
     "Article",
@@ -25,6 +34,7 @@ __all__ = [
     "ArticleMetric",
     "ArticleStatus",
     "Base",
+    "DraftInputSnapshot",
     "Keyword",
     "KeywordScore",
     "KeywordScoreSignal",
