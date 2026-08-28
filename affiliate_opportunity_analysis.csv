@@ -1,0 +1,31 @@
+keyword,matched_program_count,distinct_provider_count,commission_data_count,fixed_commission_count,percentage_commission_count,best_percentage_commission_value,best_fixed_by_currency,best_fixed_USD,matched_program_ids,matched_program_names,active_providers,matched_terms
+ChatGPT とは,0,0,0,0,0,,{},,,,,
+ChatGPT 使い方,0,0,0,0,0,,{},,,,,
+生成AI とは,1,1,1,0,1,20.0,{},,3,Writesonic,FirstPromoter,生成AI
+AI 業務効率化,7,3,4,0,4,35.0,{},,1|5|8|9|12|15|16,Make | HubSpot | ClickUp | monday.com | Pipedrive | Reclaim.ai | Todoist,Impact | PartnerStack | direct,AI 業務効率化 | 業務効率化
+AI 議事録,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,AI 議事録 | 議事録
+AI 議事録 使い方,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,AI 議事録 | 議事録
+ChatGPT 無料,0,0,0,0,0,,{},,,,,
+AI 議事録 無料,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,AI 議事録 | 議事録
+生成AI 無料,1,1,1,0,1,20.0,{},,3,Writesonic,FirstPromoter,生成AI
+業務効率化 ツール 無料,7,3,4,0,4,35.0,{},,1|5|8|9|12|15|16,Make | HubSpot | ClickUp | monday.com | Pipedrive | Reclaim.ai | Todoist,Impact | PartnerStack | direct,業務効率化
+ChatGPT 料金,0,0,0,0,0,,{},,,,,
+ChatGPT Plus 料金,0,0,0,0,0,,{},,,,,
+Notion AI 料金,0,0,0,0,0,,{},,,,,
+Zapier 料金,0,0,0,0,0,,{},,,,,
+Make 料金,1,1,1,0,1,35.0,{},,1,Make,direct,Make
+AI 議事録 料金,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,AI 議事録 | 議事録
+AI 議事録 おすすめ,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,AI 議事録 | 議事録
+AI 議事録 比較,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,AI 議事録 | 議事録
+生成AI ツール おすすめ,1,1,1,0,1,20.0,{},,3,Writesonic,FirstPromoter,生成AI
+生成AI ツール 比較,1,1,1,0,1,20.0,{},,3,Writesonic,FirstPromoter,生成AI
+業務効率化 ツール おすすめ,7,3,4,0,4,35.0,{},,1|5|8|9|12|15|16,Make | HubSpot | ClickUp | monday.com | Pipedrive | Reclaim.ai | Todoist,Impact | PartnerStack | direct,業務効率化
+業務効率化 ツール 比較,7,3,4,0,4,35.0,{},,1|5|8|9|12|15|16,Make | HubSpot | ClickUp | monday.com | Pipedrive | Reclaim.ai | Todoist,Impact | PartnerStack | direct,業務効率化
+RPA おすすめ,0,0,0,0,0,,{},,,,,
+RPA 比較,0,0,0,0,0,,{},,,,,
+議事録 自動作成 ツール,1,1,1,1,0,,"{""USD"": 25.0}",25.0,4,Descript,PartnerStack,議事録
+文字起こし AI おすすめ,3,3,3,1,2,30.0,"{""USD"": 25.0}",25.0,4|11|14,Descript | Fireflies.ai | Krisp,Impact | PartnerStack | direct,文字起こし
+法人向け 生成AI,1,1,1,0,1,20.0,{},,3,Writesonic,FirstPromoter,生成AI
+生成AI 法人 導入,1,1,1,0,1,20.0,{},,3,Writesonic,FirstPromoter,生成AI
+AI 業務効率化 導入,7,3,4,0,4,35.0,{},,1|5|8|9|12|15|16,Make | HubSpot | ClickUp | monday.com | Pipedrive | Reclaim.ai | Todoist,Impact | PartnerStack | direct,AI 業務効率化 | 業務効率化
+RPA 導入,0,0,0,0,0,,{},,,,,
