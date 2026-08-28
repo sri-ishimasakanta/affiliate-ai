@@ -960,17 +960,104 @@ credential / URL は勝手に埋めない。importer のロジックはコピー
 - 1 keyword の失敗で batch を止めない。keyword ごとに success / incomplete / failed を区別。
   secret を例外メッセージ・出力に入れない。
 
-## ArticleAffiliateProgram の primary ルール (将来方針)
+## Article Planning V1 (Phase 3A)
 
-- **「1 記事につき `is_primary=True` は最大 1 件」** というビジネスルールは、
-  今後 AffiliateProgram の Service 層 (別フェーズ) で保証する:
-  - 主案件の設定時に、同一 `article_id` の既存 `is_primary=True` を `False` に落とす、
-    もしくは事前に検証してから 1 件だけ `True` にする。
-  - 読み取り時は「`is_primary` が複数あってもアプリ側は先頭 1 件を主とみなす」等の
-    防御を Service に持たせる。
-- **DB 固有の partial unique index (`WHERE is_primary`) 等は今回追加しない。**
-  SQLite 非対応であり、PostgreSQL 移行前に DB 依存の制約を増やさないため。
-  制約は Service 層に集約する。
+Opportunity Score で選んだ 1 keyword から記事制作へ進むための企画層。**migration なし・
+LLM / 外部 API なし・追加実費 0 円。**
+
+### ArticlePlan は導出物 (DB 非永続)
+
+`ArticlePlanService.plan_for_keyword(keyword_id)` は **read-only / 決定論**。
+`Keyword` + 最新 7 `KeywordSignal` + `AffiliateProgramRepository.list_active()` +
+originality provenance から `ArticlePlanDTO` を毎回生成する。
+
+- 純粋ロジックは `app/article/planning.py` (DB / SQLAlchemy / FastAPI / 外部 API 非依存):
+  記事タイプ判定 / working title / slug 案 / 想定読者 / search intent summary /
+  primary・secondary goals / outline (`PlanSection`) / 比較軸 / CTA 方針 /
+  compliance checklist / quality guardrails / 出典要件 / カニバリ guidance。
+- **記事タイプ**は keyword の明示 intent marker から決定論的に判定する。優先順位は
+  `how_to (使い方/導入…) > comparison_listicle (比較/違い…) >
+  recommendation_roundup (おすすめ/ランキング…) > category_landing (とは/種類…)`。
+  marker が無ければ `article_type=None` + warning で human review を要求する
+  (unknown で誤魔化さない)。
+- **表示用テーマ / タイトル**は `planning.display_text` で正規化する。NFKC のみ
+  (casefold しない) で、日本語が絡む token 境界の空白は詰め、ASCII/Latin 英数字
+  どうしの境界の空白だけ残す (`業務効率化 ツール おすすめ` → `業務効率化ツールおすすめ`、
+  `ChatGPT Plus 料金` → `ChatGPT Plus料金`)。**slug 生成 (`suggest_slug`) は別系統**で、
+  token separator の `-` はそのまま (`業務効率化-ツール-おすすめ-roundup`)。
+- **比較軸**は catalog で確認できないもの (料金 / 無料プラン / 連携 / AI 機能等) を
+  `future_research_required` と明示する。推測値では埋めない。
+- **affiliate 候補**は snapshot ではなく live active catalog に対し
+  `affiliate_matching.match_programs` を再実行して作る。
+- **catalog drift**: `affiliate_opportunity` Signal の `matched_program_ids` (生成時点
+  snapshot) と live 結果を比較する。snapshot の有無を `catalog_snapshot_available` で
+  区別する:
+  - Signal 不在 / `raw_data` が dict でない / `matched_program_ids` キーが list でない
+    → `catalog_snapshot_available=false`、`catalog_drift=false` (判定不可)、
+    `catalog_snapshot_unavailable` warning。
+  - `matched_program_ids` が list (空 `[]` を含む) → `catalog_snapshot_available=true`。
+    `[]` は「生成時点で 0 件マッチ」という有効な snapshot として live と比較する
+    (`snapshot=[]` かつ `live=[1,2]` → `catalog_drift=true`)。
+  - `catalog_drift = catalog_snapshot_available and sorted(snapshot) != sorted(live)`
+    (順序は無視)。**snapshot unavailable ≠ catalog drift。**
+- **primary affiliate を自動確定しない**。候補は `percentage commission DESC → name
+  ASC → id ASC` で決定論的に整列し、commission データ有無で
+  `primary_candidate / secondary_candidate / comparison_candidate` に分類するだけ。
+  確定は human が承認要求で行う。
+- `tracking_url` / credential / ASP account は DTO に一切含めない。
+
+### atomic approval
+
+`ArticlePlanService.approve(keyword_id, ArticlePlanApproveRequest)` は 1 transaction:
+
+1. current plan を再生成、2. validation (下記)、3. `Article` 作成
+(`title` / `slug` は request 指定、`body=None`)、4. `idea → planned`、
+5. 選択された広告案件を `ArticleAffiliateProgram` として作成、6. primary 設定、7. commit。
+
+途中で失敗したら `rollback` し、Article だけ残る / link が一部だけ残る等の partial
+state を作らない。plan DTO 自体は保存しない。
+
+validation (書き込み前に全て実施):
+
+- **incomplete plan (7/7 未満) は既定で拒否** (`plan_approval_rejected` → 409)。
+  `acknowledge_incomplete_plan=true` でのみ override 可能
+  (記事化の優先判断は Opportunity Score 完成後が原則)。
+- **originality < 40** の keyword は `acknowledge_cannibalization=true` が必須。
+- 同一 keyword に **非 archived な Article が既にあれば** `duplicate_entity` → 409
+  (1 クリック二重実行で Article が 2 件できない)。archived は再企画を妨げない。
+- `slug` がグローバルに使用済みなら `duplicate_entity` → 409。既存 Article は上書きしない。
+- request の primary / secondary program は **approval 直前に再生成した
+  `affiliate_candidates` (= active かつ matched) に含まれるものだけ許可**。
+  primary が secondary list にも含まれる / secondary が重複 / 候補外 → `plan_approval_rejected`。
+
+### ArticleAffiliateProgram の primary ルール
+
+- **「1 記事につき `is_primary=True` は最大 1 件」を `ArticleAffiliateProgramService`
+  で保証する。** 新しい link を primary にする際は同一 `article_id` の既存 primary を
+  `False` に降格してから `True` にする (同一 transaction)。`set_primary` / `update_link`
+  も同様。
+- **DB の partial unique index (`WHERE is_primary`) は今回追加しない。** 理由は
+  SQLite の機能制限ではなく (SQLite 3.8.0+ は partial index をサポートする)、
+  (1) V1 で migration を増やさない、(2) single-user / local workflow 前提、
+  (3) 1 Article 1 primary は Service 層で保証する、から。V1 では **高並列
+  transaction の race は DB レベルでは防げない**ため、multi-worker 化時に
+  DB-level の partial unique constraint / index を migration 候補として再検討する。
+- 中間モデルの CRUD 自体は program status を問わない (planned 段階での relation 登録は可)。
+  active 限定の強制は approval フローの責務。
+
+### affiliate relation ≠ link injection
+
+planned 段階で `ArticleAffiliateProgram` を登録することは許可する。ただし **tracking URL
+を `Article.body` へ挿入する actual link injection は Phase 3A では行わない**。
+本文 review / approved 後の後続 Phase の責務。
+
+### 責務分離 (将来 LLM を使う場合)
+
+- LLM が決めてよい: 文章表現・見出し文言・要約案・meta_description ドラフト。
+- system が固定 (LLM に上書きさせない): keyword / affiliate 候補 / source facts /
+  article intent / outline 要件 / compliance / publication approval / slug。
+- **Phase 3A は LLM API を呼ばない。** `meta_description` は Phase 3B (drafting) で扱う
+  ため Article model / DB schema は変更しない。
 
 ## ArticleMetric のクリック指標 (将来方針)
 

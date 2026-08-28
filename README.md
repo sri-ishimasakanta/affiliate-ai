@@ -181,14 +181,50 @@ prefix `/api/v1`。Application 例外は共通ハンドラで HTTP へ変換し�
 | POST | `/api/v1/keywords/{keyword_id}/signals/affiliate-opportunity` | ローカル Affiliate Catalog から `affiliate_opportunity` Signal を導出 (body なし・供給側評価) | 201 |
 | POST | `/api/v1/keywords/{keyword_id}/signals/originality` | サイト内部の既存 Keyword / Article から `originality` Signal を導出 (body なし・カニバリ逆指標) | 201 |
 | POST | `/api/v1/keywords/{keyword_id}/signals/competition-ease/manual` | 手動投入の Organic SEO Keyword Difficulty (0-100) から `competition_ease` Signal を作成 (`ease = 100 - difficulty`・外部 API なし) | 201 |
+| GET | `/api/v1/keywords/{keyword_id}/article-plan` | keyword から記事企画案 (read-only・DB 非永続) を導出。7 Signal 未充足でも 200 (`readiness.complete=false`) | 200 |
+| POST | `/api/v1/keywords/{keyword_id}/article-plan/approve` | 企画を承認し `Article`(status=`planned`) と広告案件の紐付けを **1 transaction** で作成 (originality<40 は `acknowledge_cannibalization` 必須、7/7 未満は既定で拒否) | 201 |
 | POST | `/api/v1/articles` | 記事作成 | 201 |
 | GET | `/api/v1/articles` | 一覧 (`limit` 1..100 / `offset` >=0) | 200 |
 | GET | `/api/v1/articles/{article_id}` | 1 件取得 | 200 |
 | PATCH | `/api/v1/articles/{article_id}` | 部分更新 | 200 |
 | DELETE | `/api/v1/articles/{article_id}` | 削除 | 204 |
 | PATCH | `/api/v1/articles/{article_id}/status` | status 変更 | 200 |
+| GET | `/api/v1/articles/{article_id}/affiliate-programs` | 記事に紐付いた広告案件一覧 | 200 |
+| POST | `/api/v1/articles/{article_id}/affiliate-programs` | 広告案件を紐付け (同一案件の重複は 409) | 201 |
+| PATCH | `/api/v1/articles/{article_id}/affiliate-programs/{link_id}` | 紐付け更新 (`is_primary=true` は 1 記事 1 件に正規化) | 200 |
+| DELETE | `/api/v1/articles/{article_id}/affiliate-programs/{link_id}` | 紐付け解除 | 204 |
 | POST | `/api/v1/affiliate-programs` | アフィリエイト案件作成 (同一 `name`+`provider` は 409) | 201 |
 | GET | `/api/v1/affiliate-programs` | 一覧 (`status` / `provider` / `category` filter、`limit` 1..100 / `offset` >=0) | 200 |
 | GET | `/api/v1/affiliate-programs/{id}` | 1 件取得 | 200 |
 | PATCH | `/api/v1/affiliate-programs/{id}` | 部分更新 | 200 |
 | DELETE | `/api/v1/affiliate-programs/{id}` | 削除 | 204 |
+
+`plan_approval_rejected` → 409 (incomplete plan の承認・カニバリ未確認・候補外/inactive な
+affiliate 指定など、企画側入力の問題)。
+
+## Article Planning V1 (Phase 3A)
+
+Opportunity Score で選んだ keyword から記事制作へ進むための企画層。詳細は
+[docs/architecture.md](docs/architecture.md) / [docs/development.md](docs/development.md)。
+
+- **ArticlePlan は DB へ永続化しない**。`ArticlePlanService.plan_for_keyword` が
+  Keyword + 最新 7 Signal + live Affiliate Catalog + originality provenance から
+  **決定論的** に `ArticlePlanDTO` (記事タイプ / working title / slug 案 / outline /
+  比較軸 / affiliate 候補 / compliance / guardrail / カニバリ guidance) を毎回生成する。
+- **primary affiliate を自動確定しない**。候補を role (primary / secondary /
+  comparison) に分類・決定論的に整列するだけで、確定は human が承認要求で行う。
+- **atomic approval**: `POST .../article-plan/approve` が 1 transaction で
+  「plan 再生成 → validation → `Article` 作成 → `idea→planned` → 広告案件リンク作成
+  → primary 設定 → commit」。途中失敗は全 rollback (partial state を作らない)。
+- **1 Article 1 primary**: `ArticleAffiliateProgramService` が保証する。DB の
+  partial unique index は今回追加しない — SQLite の制限ではなく (SQLite 3.8.0+ は
+  partial index 対応)、V1 で migration を増やさず single-user / local 前提で運用し、
+  multi-worker 化時に DB-level constraint / index を migration 候補として再検討する
+  ため。
+- **originality < 40** の keyword は承認要求で `acknowledge_cannibalization=true` が必須。
+- **incomplete plan (7/7 未満) は既定で承認拒否**。`acknowledge_incomplete_plan=true`
+  でのみ override 可能 (記事化の優先判断は Opportunity Score 完成後が原則)。
+- **affiliate relation ≠ link injection**: planned 段階で `ArticleAffiliateProgram`
+  を登録するが、tracking URL を本文へ挿入するのは approved 後の後続 Phase。
+- **LLM / 外部 API / migration なし・追加実費 0 円**。`meta_description` は Phase 3B
+  (drafting) で扱うため Article model / DB schema は変更しない。

@@ -52,6 +52,14 @@ class ArticleRepository:
             statement = statement.where(Article.keyword_id == keyword_id)
         return int(self._session.scalar(statement) or 0)
 
+    def list_by_keyword(self, keyword_id: int) -> list[Article]:
+        statement = (
+            select(Article)
+            .where(Article.keyword_id == keyword_id)
+            .order_by(Article.id)
+        )
+        return list(self._session.scalars(statement).all())
+
     def list_originality_candidates(
         self, *, exclude_keyword_id: int, statuses: Collection[str]
     ) -> list[tuple[int, int | None, str | None, str]]:

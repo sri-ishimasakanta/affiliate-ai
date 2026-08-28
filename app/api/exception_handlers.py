@@ -21,6 +21,7 @@ from app.exceptions import (
     ExternalProviderError,
     IncompleteSignalSetError,
     InvalidStatusTransitionError,
+    PlanApprovalError,
     ProviderNotConfiguredError,
 )
 
@@ -30,6 +31,7 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (DuplicateEntityError, 409, "duplicate_entity"),
     (InvalidStatusTransitionError, 409, "invalid_status_transition"),
     (IncompleteSignalSetError, 409, "incomplete_signal_set"),
+    (PlanApprovalError, 409, "plan_approval_rejected"),
     (ProviderNotConfiguredError, 503, "provider_not_configured"),
     (ExternalProviderDataError, 502, "external_provider_data_error"),
     (ExternalProviderError, 502, "external_provider_error"),

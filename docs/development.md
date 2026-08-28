@@ -520,6 +520,28 @@ import_competition_ease で投入) → 7/7 → Opportunity Score → ranking CSV
   生成物を必ずレビューする。
 - 接続先 URL は `migrations/env.py` が `get_settings().database_url` から取得する。
 
+## Article Planning V1 (Phase 3A)
+
+- **ArticlePlan は DB 非永続。** `ArticlePlanService.plan_for_keyword(keyword_id)` が
+  Keyword + 最新 7 Signal + live Affiliate Catalog + originality provenance から
+  `ArticlePlanDTO` を **決定論的** に毎回生成する (read-only、commit しない)。
+- 純粋ロジックは `app/article/planning.py` (DB / FastAPI / 外部 API 非依存)。
+  記事タイプ判定の優先順位・outline template・slug 案・compliance / guardrail を持つ。
+  keyword 固有の長文は hard-code せず一般化した rule / template を使う。
+- **slug 案**は新 romanization 依存を足さず NFKC + casefold ベースで Unicode-safe に
+  生成し、日本語文字を残す。`articles.slug` はグローバル一意なので生成時に
+  `ArticleRepository.get_by_slug` で衝突を確認し、衝突時は連番案 + warning。
+  最終的な slug は approve request で human が override する。
+- **atomic approval**: `ArticlePlanService.approve` は sub-service を経由せず repo を
+  直接使い、1 回だけ commit する (partial state を作らない)。
+- **1 Article 1 primary** は `ArticleAffiliateProgramService` がアプリ層で保証する。
+  DB の partial unique index は今回作らない (SQLite の制限ではなく、V1 で migration を
+  増やさず single-user / local 前提で運用するため。multi-worker 化時に再検討)。
+- **LLM / Google Ads / Ahrefs / SERP / 有料 SEO API を一切呼ばない。migration なし。
+  追加実費 0 円。** `meta_description` は Phase 3B で扱うため Article model は無変更。
+- 企画案の JSON エクスポート: `uv run python scripts/export_article_plan.py
+  --keyword "業務効率化 ツール おすすめ"` (read-only・1 件のみ・LLM なし)。
+
 ## SQLite から PostgreSQL への移行方針
 
 - 接続文字列は `DATABASE_URL` の 1 箇所のみ変更する。

@@ -13,6 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.config.database import get_session
 from app.services.affiliate_program_service import AffiliateProgramService
+from app.services.article_affiliate_program_service import (
+    ArticleAffiliateProgramService,
+)
+from app.services.article_plan_service import ArticlePlanService
 from app.services.article_service import ArticleService
 from app.services.keyword_metrics_collection_service import (
     KeywordMetricsCollectionService,
@@ -30,6 +34,16 @@ def get_keyword_service(session: SessionDep) -> KeywordService:
 
 def get_article_service(session: SessionDep) -> ArticleService:
     return ArticleService(session)
+
+
+def get_article_plan_service(session: SessionDep) -> ArticlePlanService:
+    return ArticlePlanService(session)
+
+
+def get_article_affiliate_program_service(
+    session: SessionDep,
+) -> ArticleAffiliateProgramService:
+    return ArticleAffiliateProgramService(session)
 
 
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
@@ -52,6 +66,13 @@ def get_keyword_metrics_collection_service(
 
 KeywordServiceDep = Annotated[KeywordService, Depends(get_keyword_service)]
 ArticleServiceDep = Annotated[ArticleService, Depends(get_article_service)]
+ArticlePlanServiceDep = Annotated[
+    ArticlePlanService, Depends(get_article_plan_service)
+]
+ArticleAffiliateProgramServiceDep = Annotated[
+    ArticleAffiliateProgramService,
+    Depends(get_article_affiliate_program_service),
+]
 AffiliateProgramServiceDep = Annotated[
     AffiliateProgramService, Depends(get_affiliate_program_service)
 ]

@@ -53,6 +53,17 @@ class IncompleteSignalSetError(ApplicationError):
         self.missing_components = list(missing_components)
 
 
+class PlanApprovalError(ApplicationError):
+    """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
+
+    incomplete plan の承認・カニバリ未確認・候補外/inactive な affiliate 指定など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"article plan approval rejected: {reason}")
+        self.reason = reason
+
+
 class ProviderNotConfiguredError(ApplicationError):
     """外部プロバイダの認証情報 / 設定が未設定 (運用上の構成エラー)。
 
