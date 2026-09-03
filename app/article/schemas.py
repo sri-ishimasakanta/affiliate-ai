@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.article.draft_prompt_package import EditorialOverridesV1
 from app.article.planning import ArticleType
 from app.models.enums import ArticleStatus
 
@@ -419,3 +420,110 @@ class DraftInputSnapshotRead(DraftInputSnapshotSummaryRead):
 class DraftInputFreezeResponse(BaseModel):
     snapshot: DraftInputSnapshotRead
     already_frozen: bool
+
+
+# --- DraftGenerationRun / DraftPromptPackage --------------------------------
+
+
+class GenerationParametersV1(BaseModel):
+    """LLM 実行パラメータ。既知の安全キーのみ (secret 禁止, §57)。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    temperature: float | None = None
+    max_tokens: int | None = Field(default=None, ge=1)
+    top_p: float | None = None
+    seed: int | None = None
+    stop: list[str] | None = None
+
+
+class DraftGenerationPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: int
+    editorial_overrides: EditorialOverridesV1
+
+
+class DraftGenerationPreviewRead(BaseModel):
+    article_id: int
+    snapshot_id: int
+    prompt_package_version: str
+    prompt_builder_version: str
+    template_version: str
+    prompt_input_hash: str
+    rendered_prompt_hash: str
+    prompt_package: dict
+    rendered_prompt: str
+    validation_summary: dict
+    estimated_size: dict
+
+
+class DraftGenerationRunPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: int
+    expected_prompt_hash: str = Field(min_length=64, max_length=64)
+    expected_rendered_prompt_hash: str = Field(min_length=64, max_length=64)
+    execution_mode: str
+    provider: str | None = None
+    model: str | None = None
+    generation_parameters: GenerationParametersV1 | None = None
+    editorial_overrides: EditorialOverridesV1
+    idempotency_key: str | None = Field(default=None, max_length=64)
+
+
+class DraftGenerationRunSummaryRead(BaseModel):
+    id: int
+    article_id: int
+    snapshot_id: int
+    snapshot_content_hash: str
+    status: str
+    execution_mode: str
+    provider: str | None
+    model: str | None
+    prompt_template_version: str
+    prompt_builder_version: str
+    prompt_input_hash: str
+    rendered_prompt_hash: str
+    idempotency_key: str | None
+    validation_overall: str | None
+    promotion_eligible: bool | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DraftGenerationRunRead(DraftGenerationRunSummaryRead):
+    prompt_package: dict
+    rendered_prompt: str
+    editorial_overrides: dict
+    generation_parameters: dict | None
+    raw_output: str | None
+    parsed_body: str | None
+    parsed_meta_description: str | None
+    generation_notes: list[str] | None
+    validation_report: dict | None
+    token_usage: dict | None
+    error_message: str | None
+
+
+class DraftGenerationPrepareResponse(BaseModel):
+    run: DraftGenerationRunSummaryRead
+    already_prepared: bool
+
+
+class DraftGenerationExecuteResponse(BaseModel):
+    run: DraftGenerationRunSummaryRead
+    next_action: str
+    rendered_prompt: str | None = None
+
+
+class DraftGenerationSubmitResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    raw_output: str
+
+
+class DraftGenerationSubmitResultResponse(BaseModel):
+    run: DraftGenerationRunRead

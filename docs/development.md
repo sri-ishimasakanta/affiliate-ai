@@ -585,6 +585,43 @@ import_competition_ease で投入) → 7/7 → Opportunity Score → ranking CSV
 - **LLM / 外部 API なし・追加実費 0 円。** Phase 3C-2 では Article #1 の実 Snapshot は
   freeze しない (Phase 3C-3: Real Preview → Human Review → Freeze)。
 
+## DraftGenerationRun / DraftPromptPackage Foundation (Phase 3C-4B)
+
+- **レイヤ**: `DraftInputSnapshot` (frozen 入力) → `DraftPromptPackage` (model に
+  見せてよいもの) → `DraftGenerationRun` (どう実行したか) → `Article` (Human 採用)。
+- **pure モジュール**: `app/article/draft_prompt_package.py` (builder +
+  `EditorialOverridesV1` + `assert_no_forbidden_keys`) / `draft_prompt_render.py`
+  (4 ブロック rendered prompt、`template_version=article_roundup_v1`) /
+  `draft_prompt_canonical.py` (`prompt_input_hash` / `rendered_prompt_hash`) /
+  `draft_output_contract.py` (出力 JSON parse) / `draft_output_validators.py`
+  (editorial validation_report、heuristic)。
+- **builder は Snapshot payload のみ**を source にする。`commission_*` / `provider` /
+  `tracking_url` / `planning_role` / `audit` / `opportunity_score` / 内部 warning は
+  読まず、生成後に禁止 dict キーの不在を再帰検証。
+- **service**: `DraftPromptPreviewService` (read-only、DB write 0、LLM 0) /
+  `DraftGenerationRunService` (transaction owner: prepare / execute Tx1 / submit-result
+  Tx2)。Repository (`DraftGenerationRunRepository`) は commit しない・汎用 update なし。
+- **2-hash drift guard**: prepare は `expected_prompt_hash` と
+  `expected_rendered_prompt_hash` の両方を照合 (不一致 409 `prompt_input_changed`)。
+- **execute は保存済み `rendered_prompt` を使う** (builder 再呼び出しなし)。事前に
+  保存 artifact 自身の hash / snapshot binding を検証。
+- **status**: `prepared → running → succeeded|failed|cancelled`。execute で
+  `planned→drafting`。LLM 失敗後も Article は `drafting`。retry = 新 run。
+  同一 Article に `running` は 1 本まで。
+- **生成成功 ≠ Article.body 採用**: 出力は `run.parsed_body` /
+  `run.parsed_meta_description` にのみ保存。`Article.body` は Phase 3C-4E の promotion
+  で Human action によってのみ書く。
+- **body に H1 なし**: `body_markdown` は `## ` から開始。H1 (`# `) は validator が
+  fail。Article.title は別フィールド authoritative。
+- **manual zero-cost path のみ実装**: `execution_mode=manual` は外部 call 0。execute が
+  `rendered_prompt` を返し、Human が外部生成器で実行、`submit-result` で戻す。
+  api / local_cli adapter は interface / stub。
+- **secrets**: DB へ credential を保存しない。`error_message` は
+  `sanitize_provider_error` で `Bearer` / `x-api-key` / `sk-` を除去。
+- **migration は add-only の `draft_generation_runs` 1 table のみ**。lifecycle record
+  なので `updated_at` を持つ。FK: `article_id` CASCADE / `snapshot_id` RESTRICT。
+- Phase 3C-4B では Article #1 の実 run を作らない。実 prompt 初確認は Phase 3C-4C。
+
 ## Article Planning V1 (Phase 3A)
 
 - **ArticlePlan は DB 非永続。** `ArticlePlanService.plan_for_keyword(keyword_id)` が

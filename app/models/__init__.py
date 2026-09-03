@@ -4,6 +4,23 @@ from app.models.article_affiliate_program import ArticleAffiliateProgram
 from app.models.article_fact import ArticleFact
 from app.models.article_metric import ArticleMetric
 from app.models.base import Base, TimestampMixin
+from app.models.draft_generation_run import (
+    EXECUTION_MODES,
+    MODE_API,
+    MODE_LOCAL_CLI,
+    MODE_MANUAL,
+    PROMPT_BUILDER_VERSION,
+    PROMPT_PACKAGE_VERSION,
+    PROMPT_TEMPLATE_VERSION,
+    RUN_CANCELLED,
+    RUN_FAILED,
+    RUN_PREPARED,
+    RUN_RUNNING,
+    RUN_STATUSES,
+    RUN_SUCCEEDED,
+    RUN_TERMINAL_STATUSES,
+    DraftGenerationRun,
+)
 from app.models.draft_input_snapshot import (
     BUILDER_VERSION,
     PLAN_SNAPSHOT_ORIGIN,
@@ -24,7 +41,21 @@ from app.models.source import Source
 
 __all__ = [
     "BUILDER_VERSION",
+    "EXECUTION_MODES",
+    "MODE_API",
+    "MODE_LOCAL_CLI",
+    "MODE_MANUAL",
     "PLAN_SNAPSHOT_ORIGIN",
+    "PROMPT_BUILDER_VERSION",
+    "PROMPT_PACKAGE_VERSION",
+    "PROMPT_TEMPLATE_VERSION",
+    "RUN_CANCELLED",
+    "RUN_FAILED",
+    "RUN_PREPARED",
+    "RUN_RUNNING",
+    "RUN_STATUSES",
+    "RUN_SUCCEEDED",
+    "RUN_TERMINAL_STATUSES",
     "SNAPSHOT_VERSION",
     "AffiliateProgram",
     "AffiliateProgramStatus",
@@ -34,6 +65,7 @@ __all__ = [
     "ArticleMetric",
     "ArticleStatus",
     "Base",
+    "DraftGenerationRun",
     "DraftInputSnapshot",
     "Keyword",
     "KeywordScore",

@@ -33,6 +33,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.article import Article
+    from app.models.draft_generation_run import DraftGenerationRun
 
 # payload / builder / plan-origin の表記揺れを防ぐための定数。
 SNAPSHOT_VERSION = "draft_input_v1"
@@ -103,3 +104,8 @@ class DraftInputSnapshot(Base):
     # updated_at は持たない (immutable)。
 
     article: Mapped[Article] = relationship(back_populates="draft_input_snapshots")
+    # この Snapshot を入力とした generation run 群。run が存在する間 Snapshot は
+    # FK ``ON DELETE RESTRICT`` で削除不能 (defense-in-depth)。run 自体の削除は
+    # Article 削除経由の cascade (Article.draft_generation_runs) が担当するため、
+    # ここでは cascade を張らない。
+    runs: Mapped[list[DraftGenerationRun]] = relationship(back_populates="snapshot")

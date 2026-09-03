@@ -102,6 +102,46 @@ class SnapshotInputChangedError(ApplicationError):
         self.actual = actual
 
 
+class PromptInputChangedError(ApplicationError):
+    """prepare 時に ``expected_prompt_hash`` / ``expected_rendered_prompt_hash`` が
+    現在の builder / renderer の出力と一致しない (Human が review した prompt と別物)。
+    """
+
+    def __init__(self, field: str, expected: str, actual: str) -> None:
+        super().__init__(
+            f"draft prompt changed since preview: {field} expected {expected!r}, "
+            f"current {actual!r}"
+        )
+        self.field = field
+        self.expected = expected
+        self.actual = actual
+
+
+class DraftGenerationStateError(ApplicationError):
+    """DraftGenerationRun / Article が要求された遷移を許さない状態にある。
+
+    run が prepared でない / 同一 Article に running run が既にある /
+    Article status が planned・drafting 以外 / idempotency_key の identity 衝突 など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"draft generation state error: {reason}")
+        self.reason = reason
+
+
+class DraftGenerationNotReadyError(ApplicationError):
+    """生成 artifact が整合しておらず実行できない。
+
+    保存済み prompt_package の hash が prompt_input_hash と不一致 /
+    rendered_prompt の hash 不一致 / snapshot binding 不整合 /
+    PromptPackage に禁止キー (commission 等) が混入 など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"draft generation not ready: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

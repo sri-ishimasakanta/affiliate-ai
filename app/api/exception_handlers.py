@@ -15,6 +15,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions import (
     ApplicationError,
+    DraftGenerationNotReadyError,
+    DraftGenerationStateError,
     DraftInputNotReadyError,
     DuplicateEntityError,
     EntityInUseError,
@@ -25,6 +27,7 @@ from app.exceptions import (
     IncompleteSignalSetError,
     InvalidStatusTransitionError,
     PlanApprovalError,
+    PromptInputChangedError,
     ProviderNotConfiguredError,
     SnapshotInputChangedError,
 )
@@ -39,6 +42,9 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (PlanApprovalError, 409, "plan_approval_rejected"),
     (SnapshotInputChangedError, 409, "snapshot_input_changed"),
     (DraftInputNotReadyError, 409, "draft_input_not_ready"),
+    (PromptInputChangedError, 409, "prompt_input_changed"),
+    (DraftGenerationStateError, 409, "draft_generation_state_error"),
+    (DraftGenerationNotReadyError, 409, "draft_generation_not_ready"),
     (FactValidationError, 422, "fact_validation_error"),
     (ProviderNotConfiguredError, 503, "provider_not_configured"),
     (ExternalProviderDataError, 502, "external_provider_data_error"),

@@ -212,3 +212,61 @@ def test_draft_input_snapshots_table_shape_at_head(tmp_path: Path) -> None:
     } == cols
     assert "updated_at" not in cols
     assert ("article_id", "content_hash") in uniques
+
+
+_RUNS_MIGRATION = "3e86dc460cd9"
+_BEFORE_RUNS_MIGRATION = "539cdcb66b22"
+_UNCHANGED_TABLES_FOR_RUNS = (*_UNCHANGED_TABLES, "draft_input_snapshots")
+
+
+def test_draft_generation_runs_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'draft_generation_runs.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_RUNS_MIGRATION)
+    before_tables = _table_names(url)
+    before_columns = {
+        t: _existing_table_columns(url, t) for t in _UNCHANGED_TABLES_FOR_RUNS
+    }
+    assert "draft_generation_runs" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _RUNS_MIGRATION)
+
+    assert _table_names(url) - before_tables == {"draft_generation_runs"}
+    for table, cols in before_columns.items():
+        assert _existing_table_columns(url, table) == cols, table
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_RUNS_MIGRATION)
+    assert _table_names(url) == before_tables
+    for table, cols in before_columns.items():
+        assert _existing_table_columns(url, table) == cols, table
+
+
+def test_draft_generation_runs_table_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'runs_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("draft_generation_runs")}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("draft_generation_runs")
+        }
+        fks = {
+            (
+                fk["referred_table"],
+                tuple(fk["constrained_columns"]),
+                fk.get("options", {}).get("ondelete"),
+            )
+            for fk in insp.get_foreign_keys("draft_generation_runs")
+        }
+    finally:
+        engine.dispose()
+    assert "updated_at" in cols  # lifecycle record
+    assert {"prompt_package", "rendered_prompt", "prompt_input_hash", "status"} <= cols
+    assert ("idempotency_key",) in uniques
+    assert ("articles", ("article_id",), "CASCADE") in fks
+    assert ("draft_input_snapshots", ("snapshot_id",), "RESTRICT") in fks

@@ -5,6 +5,7 @@ from app.models import (
     ArticleFact,
     ArticleMetric,
     Base,
+    DraftGenerationRun,
     DraftInputSnapshot,
     Keyword,
     KeywordScore,
@@ -13,7 +14,16 @@ from app.models import (
     Source,
 )
 
-TIMESTAMPED_MODELS = (Source, Keyword, AffiliateProgram, Article, ArticleMetric)
+# DraftGenerationRun は lifecycle record なので created_at + updated_at を持つ
+# (immutable history モデルとは対照)。
+TIMESTAMPED_MODELS = (
+    Source,
+    Keyword,
+    AffiliateProgram,
+    Article,
+    ArticleMetric,
+    DraftGenerationRun,
+)
 
 IMMUTABLE_HISTORY_MODELS = (
     KeywordScore,
@@ -39,6 +49,7 @@ def test_all_tables_registered() -> None:
         "keyword_signals",
         "keyword_score_signals",
         "draft_input_snapshots",
+        "draft_generation_runs",
     }
 
 
