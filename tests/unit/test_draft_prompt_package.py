@@ -100,7 +100,21 @@ def _payload() -> dict:
                 {"level": "H2", "heading": "比較", "purpose": "p", "required_elements": []}
             ],
             "comparison_axes": [
-                {"axis": "料金", "data_availability": "future_research_required"}
+                {"axis": "用途・解決できる課題",
+                 "data_availability": "future_research_required"},
+                {"axis": "料金（月額 / 年額）",
+                 "data_availability": "future_research_required"},
+                {"axis": "対象ユーザー規模（個人 / 中小 / 法人）",
+                 "data_availability": "future_research_required"},
+                {"axis": "自動化範囲",
+                 "data_availability": "future_research_required"},
+                {"axis": "日本語対応・日本法人",
+                 "data_availability": "future_research_required"},
+                {"axis": "法人契約・請求書払い",
+                 "data_availability": "future_research_required"},
+                {"axis": "カテゴリ（カタログ分類）", "data_availability": "catalog"},
+                {"axis": "提携 ASP / 収益条件（内部判断用・記事非掲載）",
+                 "data_availability": "catalog"},
             ],
             "cta_strategy": "cta",
             "cannibalization_guidance": "guide",
@@ -262,3 +276,112 @@ def test_live_snapshot_payload_is_only_source() -> None:
 def test_pricing_as_of_label_derived() -> None:
     pkg = _build()
     assert pkg["pricing_notice_policy"]["as_of_label"] == "2026年8月時点"
+
+
+# --- Phase 3C-4C.1: LLM-visible comparison-axis projection -------------------
+
+_HIDDEN_AXIS_LABELS = {
+    "提携 ASP / 収益条件（内部判断用・記事非掲載）",
+    "法人契約・請求書払い",
+    "日本語対応・日本法人",
+}
+
+
+def test_builder_version_is_v2() -> None:
+    assert _build()["prompt_builder_version"] == "draft_prompt_builder_v2"
+
+
+def test_internal_comparison_axes_projected_out() -> None:
+    pkg = _build()
+    labels = {a["axis"] for a in pkg["plan"]["comparison_axes"]}
+    assert labels.isdisjoint(_HIDDEN_AXIS_LABELS)
+    # affiliate economics axis は 0 件
+    assert not any(
+        ("ASP" in a["axis"] or "収益条件" in a["axis"] or "提携" in a["axis"])
+        for a in pkg["plan"]["comparison_axes"]
+    )
+
+
+def test_projection_keeps_legitimate_axes_and_order() -> None:
+    pkg = _build()
+    labels = [a["axis"] for a in pkg["plan"]["comparison_axes"]]
+    assert labels == [
+        "用途・解決できる課題",
+        "料金（月額 / 年額）",
+        "対象ユーザー規模（個人 / 中小 / 法人）",  # 「法人」を含むが除外しない
+        "自動化範囲",
+        "カテゴリ（カタログ分類）",
+    ]
+
+
+def test_projection_does_not_touch_fact_boundary() -> None:
+    """日本語対応の generic 軸は消えるが、tool ごとの JLS Fact state は保持される。"""
+    pkg = _build()
+    for tool in pkg["comparison_tools"]:
+        # _payload() の _tool(): 全 fact verified, ai_features=unknown,
+        # japan_business_support=not_researched
+        assert "japanese_language_support" in [
+            u["fact_key"] for u in tool["usable_facts"]
+        ]
+
+
+def test_sensitive_axis_leak_raises() -> None:
+    """exact リストに無い affiliate-economics 風軸は hard-fail する。"""
+    p = _payload()
+    p["plan"]["comparison_axes"].append(
+        {"axis": "ASP 別の想定収益条件", "data_availability": "catalog"}
+    )
+    with pytest.raises(DraftGenerationNotReadyError):
+        _build(payload=p)
+
+
+def test_projection_changes_prompt_input_hash() -> None:
+    """hidden 軸を含む payload では projection が hash を変える。
+
+    projection 後の hash は、最初から hidden 軸を除いた payload の hash と一致する
+    (projection は決定論的で idempotent)。
+    """
+    h_projected = compute_prompt_input_hash(_build(payload=_payload()))
+
+    p_pre_filtered = _payload()
+    p_pre_filtered["plan"]["comparison_axes"] = [
+        a
+        for a in p_pre_filtered["plan"]["comparison_axes"]
+        if a["axis"] not in _HIDDEN_AXIS_LABELS
+    ]
+    assert compute_prompt_input_hash(_build(payload=p_pre_filtered)) == h_projected
+
+    # hidden 軸を強制的に残した package と比べれば hash は必ず異なる
+    pkg_with_hidden = _build(payload=_payload())
+    pkg_with_hidden["plan"]["comparison_axes"] = _payload()["plan"]["comparison_axes"]
+    assert compute_prompt_input_hash(pkg_with_hidden) != h_projected
+
+
+def test_human_override_wording_preserved_verbatim() -> None:
+    instruction = (
+        "比較表でツール別の yes/no 判定を作らない。「導入時の注意点」で、"
+        "「請求書払い・日本法人対応は各社で異なり、本記事では未確認です。"
+        "導入前に各社の公式情報を確認してください。」程度の限定表現に留める。"
+        "未確認情報を補完・推測しない。"
+    )
+    rule = (
+        "monday.com と Todoist のみ「日本語対応」と断定してよい。Make は"
+        "「公式情報では確認できず」まで。HubSpot・ClickUp・Pipedrive・Reclaim.ai は"
+        "「本記事では未確認」まで。unknown / not_researched を false・非対応・なしへ"
+        "変換しない。"
+    )
+    ov = _overrides(
+        axis_rulings=[
+            {"axis": "法人契約・請求書払い", "action": "SOFTEN", "instruction": instruction}
+        ],
+        japanese_support_ruling={
+            "verified_true": ["monday.com", "Todoist"],
+            "unknown": ["Make"],
+            "not_researched": ["HubSpot", "ClickUp", "Pipedrive", "Reclaim.ai"],
+            "rule": rule,
+        },
+    )
+    pkg = _build(overrides=ov)
+    stored = pkg["editorial_overrides"]
+    assert stored["axis_rulings"][0]["instruction"] == instruction
+    assert stored["japanese_support_ruling"]["rule"] == rule

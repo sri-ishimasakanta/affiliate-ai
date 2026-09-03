@@ -37,7 +37,11 @@ if TYPE_CHECKING:
 
 # 表記揺れ防止の定数 (§22)。
 PROMPT_PACKAGE_VERSION = "draft_prompt_v1"
-PROMPT_BUILDER_VERSION = "draft_prompt_builder_v1"
+# v2 (Phase 3C-4C.1): LLM-visible comparison-axis projection を追加。
+# Snapshot plan.comparison_axes から affiliate economics / invoice・Japan business /
+# generic Japanese-support 軸を PromptPackage から除外する (Snapshot は不変)。
+# PromptPackage schema / renderer template 本文は v1 と同一。
+PROMPT_BUILDER_VERSION = "draft_prompt_builder_v2"
 PROMPT_TEMPLATE_VERSION = "article_roundup_v1"
 
 # status (§17)。String 保存だが定数で扱う。

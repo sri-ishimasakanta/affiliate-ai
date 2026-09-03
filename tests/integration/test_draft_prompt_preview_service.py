@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.article.draft_prompt_package import EditorialOverridesV1
 from app.exceptions import DraftGenerationNotReadyError, EntityNotFoundError
-from app.models import ArticleFact, DraftGenerationRun
+from app.models import ArticleFact, DraftGenerationRun, DraftInputSnapshot
 from app.services.draft_prompt_preview_service import DraftPromptPreviewService
 from tests.support.draft_generation_fixture import default_overrides, frozen_scenario
 
@@ -112,3 +112,73 @@ def test_preview_editorial_overrides_extra_forbidden() -> None:
         EditorialOverridesV1(
             primary="Make", comparison_set_size=7, unexpected="nope"
         )
+
+
+# --- Phase 3C-4C.1: comparison-axis projection (builder v2) -----------------
+
+_HIDDEN_AXES = {
+    "提携 ASP / 収益条件（内部判断用・記事非掲載）",
+    "法人契約・請求書払い",
+    "日本語対応・日本法人",
+}
+
+
+def _snapshot_row(session: Session, snapshot_id: int) -> DraftInputSnapshot:
+    row = session.get(DraftInputSnapshot, snapshot_id)
+    assert row is not None
+    return row
+
+
+def test_preview_hides_internal_comparison_axes(session: Session) -> None:
+    fs = frozen_scenario(session, n_tools=7)
+    # 前提: frozen Snapshot payload には内部軸が comparison_axes に入っている
+    snap_row = _snapshot_row(session, fs.snapshot_id)
+    snap_axes = {a["axis"] for a in snap_row.payload["plan"]["comparison_axes"]}
+    assert _HIDDEN_AXES <= snap_axes
+
+    out = _svc(session).preview(
+        fs.article_id, snapshot_id=fs.snapshot_id, overrides=default_overrides(fs)
+    )
+    pkg = out["prompt_package"]
+    llm_axes = [a["axis"] for a in pkg["plan"]["comparison_axes"]]
+
+    # (test #2) 3 内部軸は LLM-visible comparison axis として残らない
+    assert set(llm_axes).isdisjoint(_HIDDEN_AXES)
+    # (test #1 / #17) affiliate economics 軸は 0 件 — rendered prompt のどこにも出ない
+    rp = out["rendered_prompt"]
+    assert "ASP" not in rp
+    assert "収益条件" not in rp
+    assert not any("提携" in a or "ASP" in a or "収益" in a for a in llm_axes)
+    # 正当な軸は順序を保って残る
+    assert "自動化範囲" in llm_axes
+    assert "カテゴリ（カタログ分類）" in llm_axes
+    # builder version は v2、package/template は据え置き
+    assert pkg["prompt_builder_version"] == "draft_prompt_builder_v2"
+    assert out["prompt_package_version"] == "draft_prompt_v1"
+    assert out["template_version"] == "article_roundup_v1"
+
+
+def test_preview_projection_keeps_snapshot_immutable(session: Session) -> None:
+    fs = frozen_scenario(session, n_tools=3)
+    snap_row = _snapshot_row(session, fs.snapshot_id)
+    before = [dict(a) for a in snap_row.payload["plan"]["comparison_axes"]]
+    before_hash = snap_row.content_hash
+
+    _svc(session).preview(
+        fs.article_id, snapshot_id=fs.snapshot_id, overrides=default_overrides(fs)
+    )
+
+    session.expire(snap_row)
+    snap_row = _snapshot_row(session, fs.snapshot_id)
+    assert snap_row.payload["plan"]["comparison_axes"] == before
+    assert len(before) == 12  # 内部軸を含む完全な audit artifact のまま
+    assert snap_row.content_hash == before_hash
+
+
+def test_preview_projection_deterministic(session: Session) -> None:
+    fs = frozen_scenario(session, n_tools=7)
+    ov = default_overrides(fs)
+    a = _svc(session).preview(fs.article_id, snapshot_id=fs.snapshot_id, overrides=ov)
+    b = _svc(session).preview(fs.article_id, snapshot_id=fs.snapshot_id, overrides=ov)
+    assert a["prompt_input_hash"] == b["prompt_input_hash"]
+    assert a["rendered_prompt_hash"] == b["rendered_prompt_hash"]

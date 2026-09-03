@@ -82,6 +82,72 @@ _EXCLUDED_FROM_SNAPSHOT = (
 )
 
 
+# --- LLM-visible comparison-axis projection (builder v2, Phase 3C-4C.1) ------
+# Snapshot ``plan.comparison_axes`` には、記事本文の比較軸にすべきでない
+# 「内部判断用」/「Human editorial ruling 専用」の軸が含まれる。Snapshot 側では
+# audit 目的で保持したまま、LLM へ渡す DraftPromptPackage からは projection で外す
+# (Snapshot / content_hash は一切変更しない)。
+#
+# 除外は「意味カテゴリ + planning.COMPARISON_AXES に対応する既知 exact ラベル」で
+# 行う。広すぎる substring 一致で正当な軸 (例:「料金（月額 / 年額）」「対象ユーザー
+# 規模（個人 / 中小 / 法人）」) を巻き込まないため、通常の filter は exact 一致のみ。
+_LLM_HIDDEN_COMPARISON_AXES: dict[str, frozenset[str]] = {
+    # A. affiliate economics — 軸の存在自体を LLM に見せない (§3-A)。
+    "affiliate_economics": frozenset(
+        {"提携 ASP / 収益条件（内部判断用・記事非掲載）"}
+    ),
+    # B. invoice / Japan business — trusted SOFTEN override でのみ扱う (§3-B)。
+    "invoice_japan_business": frozenset({"法人契約・請求書払い"}),
+    # C. Japanese support / Japan business の generic combined 軸 —
+    #    verified Fact state + trusted japanese_support_ruling でのみ扱う (§3-C)。
+    #    日本語対応 Fact 自体は comparison_tools 側でそのまま保持される。
+    "japanese_support_combined": frozenset({"日本語対応・日本法人"}),
+}
+
+_ALL_LLM_HIDDEN_AXES: frozenset[str] = frozenset(
+    label for labels in _LLM_HIDDEN_COMPARISON_AXES.values() for label in labels
+)
+
+# exact 一致で取りこぼした場合の安全網。通常の filter ではなく、意味的に危険な軸だけを
+# narrow token で検知して hard-fail する (planning のラベルが変わったら気付けるように)。
+# ここに挙げる token は現行の正当な軸のどれにも部分一致しないもののみ。
+_SENSITIVE_AXIS_TOKENS: tuple[str, ...] = (
+    "ASP",
+    "収益条件",
+    "提携",
+    "請求書",
+    "日本法人",
+)
+
+
+def project_llm_visible_comparison_axes(snapshot_comparison_axes: list) -> list:
+    """frozen Snapshot の ``plan.comparison_axes`` から LLM へ渡してよい軸だけを返す。
+
+    順序は保持する。除外対象は :data:`_LLM_HIDDEN_COMPARISON_AXES`。取りこぼしは
+    :func:`_assert_no_hidden_axis_leak` が hard-fail させる。
+    """
+
+    visible = [
+        axis
+        for axis in snapshot_comparison_axes
+        if axis.get("axis") not in _ALL_LLM_HIDDEN_AXES
+    ]
+    _assert_no_hidden_axis_leak(visible)
+    return visible
+
+
+def _assert_no_hidden_axis_leak(visible_axes: list) -> None:
+    for axis in visible_axes:
+        label = axis.get("axis", "")
+        for token in _SENSITIVE_AXIS_TOKENS:
+            if token in label:
+                raise DraftGenerationNotReadyError(
+                    f"comparison axis {label!r} appears affiliate-economics / "
+                    "invoice / Japan-business related but was not projected out; "
+                    "update _LLM_HIDDEN_COMPARISON_AXES"
+                )
+
+
 class AxisRulingV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -204,7 +270,10 @@ def build_prompt_package(
             "primary_goal": p["plan"]["primary_goal"],
             "secondary_goals": list(p["plan"]["secondary_goals"]),
             "outline": p["plan"]["outline"],
-            "comparison_axes": p["plan"]["comparison_axes"],
+            # v2: LLM 非表示にすべき内部/ruling 専用軸を projection で除外する。
+            "comparison_axes": project_llm_visible_comparison_axes(
+                p["plan"]["comparison_axes"]
+            ),
             "cta_strategy": p["plan"]["cta_strategy"],
             "cannibalization_guidance": p["plan"]["cannibalization_guidance"],
             "cannibalization_acknowledgment_required": p["plan"][
