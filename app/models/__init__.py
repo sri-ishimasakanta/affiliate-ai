@@ -39,6 +39,13 @@ from app.models.keyword_score import KeywordScore
 from app.models.keyword_score_signal import KeywordScoreSignal
 from app.models.keyword_signal import KeywordSignal
 from app.models.source import Source
+from app.models.wordpress_draft_run import (
+    WP_RUN_ACTIVE_STATUSES,
+    WP_RUN_PREPARED,
+    WP_RUN_STATUSES,
+    WP_RUN_TERMINAL_STATUSES,
+    WordPressDraftRun,
+)
 
 __all__ = [
     "BUILDER_VERSION",
@@ -77,4 +84,9 @@ __all__ = [
     "KeywordStatus",
     "Source",
     "TimestampMixin",
+    "WP_RUN_ACTIVE_STATUSES",
+    "WP_RUN_PREPARED",
+    "WP_RUN_STATUSES",
+    "WP_RUN_TERMINAL_STATUSES",
+    "WordPressDraftRun",
 ]

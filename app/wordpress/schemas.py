@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WordPressPreviewResponse(BaseModel):
@@ -84,3 +86,79 @@ class WordPressDraftRequestPreviewResponse(BaseModel):
     publishable: bool
     blocking_reasons: list[str]
     wordpress_configured: bool
+
+
+# --- WordPressDraftRun (初回 draft 作成の実行記録) -------------------------
+
+
+class WordPressDraftRunPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_promotion_id: int
+    expected_renderer_version: str = Field(min_length=1)
+    expected_rendered_content_hash: str = Field(min_length=64, max_length=64)
+    expected_payload_hash: str = Field(min_length=64, max_length=64)
+    expected_request_identity_hash: str = Field(min_length=64, max_length=64)
+    idempotency_key: str | None = Field(default=None, max_length=128)
+    # target_base_url は信頼できるローカル設定 (Settings.wordpress_base_url) からのみ。
+    # credential は受け付けない (extra="forbid")。
+
+
+class WordPressDraftRunPrepareResponse(BaseModel):
+    run_id: int
+    status: str
+    already_prepared: bool
+
+    article_id: int
+    source_promotion_id: int
+
+    target_base_url: str
+    method: str
+    endpoint_path: str
+
+    payload_hash: str
+    request_identity_hash: str
+    target_request_identity_hash: str
+
+    canonical_body_hash: str
+    canonical_meta_hash: str
+    renderer_version: str
+    rendered_content_hash: str
+
+    created_at: datetime
+    wordpress_configured: bool
+
+
+class WordPressDraftRunSummaryRead(BaseModel):
+    id: int
+    article_id: int
+    source_promotion_id: int
+    status: str
+
+    target_base_url: str
+    method: str
+    endpoint_path: str
+
+    payload_hash: str
+    request_identity_hash: str
+    target_request_identity_hash: str
+    renderer_version: str
+    rendered_content_hash: str
+    canonical_body_hash: str
+    canonical_meta_hash: str
+
+    idempotency_key: str | None
+    wordpress_post_id: str | None
+    wordpress_post_status: str | None
+    wordpress_post_url: str | None
+    error_message: str | None
+
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class WordPressDraftRunRead(WordPressDraftRunSummaryRead):
+    payload_json: str
+    payload_keys: list[str]
+    response_snapshot: dict | None

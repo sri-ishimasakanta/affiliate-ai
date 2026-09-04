@@ -33,6 +33,8 @@ from app.exceptions import (
     ProviderNotConfiguredError,
     RenderedCandidateChangedError,
     SnapshotInputChangedError,
+    WordPressDraftRunStateError,
+    WordPressTargetError,
 )
 
 # (例外型, HTTP status, 安定した machine-readable code)
@@ -48,6 +50,8 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (PromptInputChangedError, 409, "prompt_input_changed"),
     (CandidateChangedError, 409, "candidate_changed"),
     (RenderedCandidateChangedError, 409, "rendered_candidate_changed"),
+    (WordPressDraftRunStateError, 409, "wordpress_draft_run_state_error"),
+    (WordPressTargetError, 422, "wordpress_target_invalid"),
     (DraftGenerationStateError, 409, "draft_generation_state_error"),
     (DraftGenerationNotReadyError, 409, "draft_generation_not_ready"),
     (DraftPromotionStateError, 409, "draft_promotion_state_error"),

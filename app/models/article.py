@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.draft_input_snapshot import DraftInputSnapshot
     from app.models.keyword import Keyword
     from app.models.source import Source
+    from app.models.wordpress_draft_run import WordPressDraftRun
 
 
 class Article(Base, TimestampMixin):
@@ -114,6 +115,13 @@ class Article(Base, TimestampMixin):
     # Human が採用した draft の immutable な採用記録。Article 削除で全削除
     # (source_run より先に削除される必要があるため cascade を Article 側に持つ)。
     draft_promotions: Mapped[list[ArticleDraftPromotion]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # 初回 WordPress draft の実行記録 (append-only)。Article 削除で全削除
+    # (promotion より先に削除される必要があるため cascade を Article 側に持つ)。
+    wordpress_draft_runs: Mapped[list[WordPressDraftRun]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

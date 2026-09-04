@@ -187,6 +187,29 @@ class RenderedCandidateChangedError(ApplicationError):
         self.actual = actual
 
 
+class WordPressTargetError(ApplicationError):
+    """WORDPRESS_BASE_URL が正規化できない (scheme 不正 / userinfo / query / fragment /
+    hostname 欠落 / wp-json path 混入 など)。credential 値はメッセージに含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress target invalid: {reason}")
+        self.reason = reason
+
+
+class WordPressDraftRunStateError(ApplicationError):
+    """WordPressDraftRun / Article / Promotion が prepare を許さない状態にある。
+
+    Article が review でない / 既に公開済みフィールドを持つ / promotion 不整合 /
+    publication validator 非 pass / 承認済み hash からの drift / target 未設定 /
+    idempotency_key の identity 衝突 / 同一 target に active な run が既にある など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress draft run state error: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

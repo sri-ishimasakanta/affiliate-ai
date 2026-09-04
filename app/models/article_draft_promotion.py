@@ -37,6 +37,7 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.article import Article
     from app.models.draft_generation_run import DraftGenerationRun
+    from app.models.wordpress_draft_run import WordPressDraftRun
 
 
 class ArticleDraftPromotion(Base):
@@ -113,4 +114,9 @@ class ArticleDraftPromotion(Base):
     article: Mapped[Article] = relationship(back_populates="draft_promotions")
     source_run: Mapped[DraftGenerationRun] = relationship(
         back_populates="draft_promotions"
+    )
+    # この採用を由来とする WordPress draft run 群。run が存在する間 promotion は
+    # FK ON DELETE RESTRICT で単独削除不能 (Article 削除経由の cascade は許可)。
+    wordpress_draft_runs: Mapped[list[WordPressDraftRun]] = relationship(
+        back_populates="source_promotion"
     )
