@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.article.draft_promotion_canonical import compute_text_hash
+from app.config.settings import Settings
 from app.models import ArticleDraftPromotion, DraftGenerationRun
 from app.services.wordpress_preview_service import WordPressPreviewService
 from tests.support.draft_promotion_fixture import (
@@ -21,7 +23,22 @@ def _svc(session: Session) -> WordPressPreviewService:
     return WordPressPreviewService(session)
 
 
-def test_preview_read_only_and_publishable(session: Session) -> None:
+@pytest.fixture
+def wp_unconfigured(monkeypatch):
+    """wordpress_configured=False を .env の状態に関わらず決定的にする。
+
+    delenv だけでは不十分 (Settings は env_file=".env" にフォールバックするため)。
+    3C-5D-A.1a で確立した isolated-settings pattern と同じ手法を使う。
+    """
+    isolated_settings = Settings(_env_file=None)
+    monkeypatch.setattr(
+        "app.services.wordpress_preview_service.get_settings",
+        lambda: isolated_settings,
+    )
+    yield
+
+
+def test_preview_read_only_and_publishable(session: Session, wp_unconfigured) -> None:
     ps = promoted_scenario(session)
     promotions_before = session.scalar(
         select(func.count()).select_from(ArticleDraftPromotion)
@@ -95,7 +112,7 @@ def test_preview_before_promotion_is_not_publishable(session: Session) -> None:
     ) == 0
 
 
-def test_preview_via_api_does_no_writes(api_client, session: Session) -> None:
+def test_preview_via_api_does_no_writes(api_client, session: Session, wp_unconfigured) -> None:
     ps = promoted_scenario(session)
     runs_before = session.scalar(select(func.count()).select_from(DraftGenerationRun))
 
