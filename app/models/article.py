@@ -12,6 +12,7 @@ from app.models.enums import ArticleStatus
 if TYPE_CHECKING:
     from app.models.affiliate_program import AffiliateProgram
     from app.models.article_affiliate_program import ArticleAffiliateProgram
+    from app.models.article_draft_promotion import ArticleDraftPromotion
     from app.models.article_fact import ArticleFact
     from app.models.article_metric import ArticleMetric
     from app.models.draft_generation_run import DraftGenerationRun
@@ -106,6 +107,13 @@ class Article(Base, TimestampMixin):
     # draft 生成の実行記録 (lifecycle record)。Article 削除で全削除
     # (snapshot より先に削除される必要があるため cascade を Article 側に持つ)。
     draft_generation_runs: Mapped[list[DraftGenerationRun]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # Human が採用した draft の immutable な採用記録。Article 削除で全削除
+    # (source_run より先に削除される必要があるため cascade を Article 側に持つ)。
+    draft_promotions: Mapped[list[ArticleDraftPromotion]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

@@ -270,3 +270,75 @@ def test_draft_generation_runs_table_shape_at_head(tmp_path: Path) -> None:
     assert ("idempotency_key",) in uniques
     assert ("articles", ("article_id",), "CASCADE") in fks
     assert ("draft_input_snapshots", ("snapshot_id",), "RESTRICT") in fks
+
+
+_PROMOTIONS_MIGRATION = "71fe1f7da534"
+_BEFORE_PROMOTIONS_MIGRATION = "3e86dc460cd9"
+_UNCHANGED_TABLES_FOR_PROMOTIONS = (
+    *_UNCHANGED_TABLES,
+    "draft_input_snapshots",
+    "draft_generation_runs",
+)
+
+
+def test_article_draft_promotions_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'article_draft_promotions.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_PROMOTIONS_MIGRATION)
+    before_tables = _table_names(url)
+    before_columns = {
+        t: _existing_table_columns(url, t) for t in _UNCHANGED_TABLES_FOR_PROMOTIONS
+    }
+    assert "article_draft_promotions" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _PROMOTIONS_MIGRATION)
+
+    assert _table_names(url) - before_tables == {"article_draft_promotions"}
+    for table, cols in before_columns.items():
+        assert _existing_table_columns(url, table) == cols, table
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_PROMOTIONS_MIGRATION)
+    assert _table_names(url) == before_tables
+    for table, cols in before_columns.items():
+        assert _existing_table_columns(url, table) == cols, table
+
+
+def test_article_draft_promotions_table_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'promotions_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("article_draft_promotions")}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("article_draft_promotions")
+        }
+        fks = {
+            (
+                fk["referred_table"],
+                tuple(fk["constrained_columns"]),
+                fk.get("options", {}).get("ondelete"),
+            )
+            for fk in insp.get_foreign_keys("article_draft_promotions")
+        }
+    finally:
+        engine.dispose()
+    assert "updated_at" not in cols  # immutable append-only
+    assert {
+        "body_markdown",
+        "meta_description",
+        "body_hash",
+        "meta_hash",
+        "candidate_content_hash",
+        "source_prompt_input_hash",
+        "source_rendered_prompt_hash",
+        "validation_report",
+        "promoted_at",
+    } <= cols
+    assert ("idempotency_key",) in uniques
+    assert ("articles", ("article_id",), "CASCADE") in fks
+    assert ("draft_generation_runs", ("source_run_id",), "RESTRICT") in fks

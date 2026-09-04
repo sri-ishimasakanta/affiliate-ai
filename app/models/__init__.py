@@ -1,6 +1,7 @@
 from app.models.affiliate_program import AffiliateProgram
 from app.models.article import Article
 from app.models.article_affiliate_program import ArticleAffiliateProgram
+from app.models.article_draft_promotion import ArticleDraftPromotion
 from app.models.article_fact import ArticleFact
 from app.models.article_metric import ArticleMetric
 from app.models.base import Base, TimestampMixin
@@ -61,6 +62,7 @@ __all__ = [
     "AffiliateProgramStatus",
     "Article",
     "ArticleAffiliateProgram",
+    "ArticleDraftPromotion",
     "ArticleFact",
     "ArticleMetric",
     "ArticleStatus",

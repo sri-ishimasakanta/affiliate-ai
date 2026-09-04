@@ -527,3 +527,90 @@ class DraftGenerationSubmitResultRequest(BaseModel):
 
 class DraftGenerationSubmitResultResponse(BaseModel):
     run: DraftGenerationRunRead
+
+
+# --- ArticleDraftPromotion (Human 承認 draft の採用記録) ---------------------
+
+
+class DraftPromotionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_run_id: int
+    body_markdown: str = Field(min_length=1)
+    meta_description: str = Field(min_length=1, max_length=400)
+
+
+class DraftPromotionGates(BaseModel):
+    article_exists: bool
+    article_status_ok: bool
+    article_body_empty: bool
+    article_meta_empty: bool
+    source_run_exists: bool
+    source_run_belongs_to_article: bool
+    source_run_succeeded: bool
+    source_run_prompt_hash_ok: bool
+    source_run_rendered_hash_ok: bool
+    candidate_parses: bool
+    candidate_validation_pass: bool
+    candidate_promotion_eligible: bool
+
+
+class DraftPromotionPreviewResponse(BaseModel):
+    article_id: int
+    source_run_id: int
+    body_hash: str
+    meta_hash: str
+    candidate_content_hash: str
+    body_chars: int
+    meta_chars: int
+    validation_report: dict
+    source_run_status: str
+    source_prompt_input_hash: str
+    source_rendered_prompt_hash: str
+    article_status: str
+    can_promote: bool
+    gates: DraftPromotionGates
+
+
+class DraftPromotionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_run_id: int
+    body_markdown: str = Field(min_length=1)
+    meta_description: str = Field(min_length=1, max_length=400)
+    expected_body_hash: str = Field(min_length=64, max_length=64)
+    expected_meta_hash: str = Field(min_length=64, max_length=64)
+    expected_candidate_content_hash: str = Field(min_length=64, max_length=64)
+    idempotency_key: str | None = Field(default=None, max_length=64)
+    human_review_notes: list[str] | None = None
+
+
+class DraftPromotionSummaryRead(BaseModel):
+    id: int
+    article_id: int
+    source_run_id: int
+    source_prompt_input_hash: str
+    source_rendered_prompt_hash: str
+    body_hash: str
+    meta_hash: str
+    candidate_content_hash: str
+    body_chars: int
+    meta_chars: int
+    validation_overall: str | None
+    promotion_eligible: bool | None
+    idempotency_key: str | None
+    promoted_at: datetime
+    created_at: datetime
+
+
+class DraftPromotionRead(DraftPromotionSummaryRead):
+    body_markdown: str
+    meta_description: str
+    validation_report: dict
+    human_review_notes: list[str] | None
+
+
+class DraftPromotionCreateResponse(BaseModel):
+    promotion: DraftPromotionRead
+    article_status: str
+    already_promoted: bool

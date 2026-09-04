@@ -33,6 +33,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.article import Article
+    from app.models.article_draft_promotion import ArticleDraftPromotion
     from app.models.draft_input_snapshot import DraftInputSnapshot
 
 # 表記揺れ防止の定数 (§22)。
@@ -154,3 +155,8 @@ class DraftGenerationRun(Base):
 
     article: Mapped[Article] = relationship(back_populates="draft_generation_runs")
     snapshot: Mapped[DraftInputSnapshot] = relationship(back_populates="runs")
+    # この run を由来とする Human 採用記録。採用記録が存在する間、run は
+    # FK ``ON DELETE RESTRICT`` で削除不能。cascade は Article 側が担当するため張らない。
+    draft_promotions: Mapped[list[ArticleDraftPromotion]] = relationship(
+        back_populates="source_run"
+    )

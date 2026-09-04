@@ -10,6 +10,7 @@ from app.api.v1 import (
     articles,
     draft_generation_runs,
     draft_input_snapshots,
+    draft_promotions,
     keywords,
 )
 
@@ -22,3 +23,4 @@ router.include_router(article_facts.router)
 router.include_router(affiliate_programs.router)
 router.include_router(draft_input_snapshots.router)
 router.include_router(draft_generation_runs.router)
+router.include_router(draft_promotions.router)

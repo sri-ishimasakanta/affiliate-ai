@@ -15,9 +15,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions import (
     ApplicationError,
+    CandidateChangedError,
     DraftGenerationNotReadyError,
     DraftGenerationStateError,
     DraftInputNotReadyError,
+    DraftPromotionStateError,
     DuplicateEntityError,
     EntityInUseError,
     EntityNotFoundError,
@@ -43,8 +45,10 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (SnapshotInputChangedError, 409, "snapshot_input_changed"),
     (DraftInputNotReadyError, 409, "draft_input_not_ready"),
     (PromptInputChangedError, 409, "prompt_input_changed"),
+    (CandidateChangedError, 409, "candidate_changed"),
     (DraftGenerationStateError, 409, "draft_generation_state_error"),
     (DraftGenerationNotReadyError, 409, "draft_generation_not_ready"),
+    (DraftPromotionStateError, 409, "draft_promotion_state_error"),
     (FactValidationError, 422, "fact_validation_error"),
     (ProviderNotConfiguredError, 503, "provider_not_configured"),
     (ExternalProviderDataError, 502, "external_provider_data_error"),

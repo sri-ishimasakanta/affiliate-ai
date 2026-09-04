@@ -142,6 +142,35 @@ class DraftGenerationNotReadyError(ApplicationError):
         self.reason = reason
 
 
+class DraftPromotionStateError(ApplicationError):
+    """Article / source run が draft promotion を許さない状態にある。
+
+    Article status が drafting 以外 / Article.body・meta が既に埋まっている /
+    source run が succeeded でない / source run が別 Article のもの /
+    候補 validator が warn・fail / idempotency_key の identity 衝突 など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"draft promotion state error: {reason}")
+        self.reason = reason
+
+
+class CandidateChangedError(ApplicationError):
+    """promote 時に ``expected_body_hash`` / ``expected_meta_hash`` /
+    ``expected_candidate_content_hash`` のいずれかが現在の候補から計算した hash と
+    一致しない (Human が承認した本文と別物)。3-hash drift guard。
+    """
+
+    def __init__(self, field: str, expected: str, actual: str) -> None:
+        super().__init__(
+            f"draft candidate changed since review: {field} expected {expected!r}, "
+            f"current {actual!r}"
+        )
+        self.field = field
+        self.expected = expected
+        self.actual = actual
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

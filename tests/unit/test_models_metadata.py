@@ -2,6 +2,7 @@ from app.models import (
     AffiliateProgram,
     Article,
     ArticleAffiliateProgram,
+    ArticleDraftPromotion,
     ArticleFact,
     ArticleMetric,
     Base,
@@ -31,6 +32,7 @@ IMMUTABLE_HISTORY_MODELS = (
     KeywordScoreSignal,
     ArticleFact,
     DraftInputSnapshot,
+    ArticleDraftPromotion,
 )
 
 
@@ -50,6 +52,7 @@ def test_all_tables_registered() -> None:
         "keyword_score_signals",
         "draft_input_snapshots",
         "draft_generation_runs",
+        "article_draft_promotions",
     }
 
 

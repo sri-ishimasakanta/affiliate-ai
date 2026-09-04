@@ -16,6 +16,9 @@ from app.services.affiliate_program_service import AffiliateProgramService
 from app.services.article_affiliate_program_service import (
     ArticleAffiliateProgramService,
 )
+from app.services.article_draft_promotion_service import (
+    ArticleDraftPromotionService,
+)
 from app.services.article_fact_service import ArticleFactService
 from app.services.article_plan_service import ArticlePlanService
 from app.services.article_service import ArticleService
@@ -82,6 +85,12 @@ def get_draft_generation_run_service(
     return DraftGenerationRunService(session)
 
 
+def get_article_draft_promotion_service(
+    session: SessionDep,
+) -> ArticleDraftPromotionService:
+    return ArticleDraftPromotionService(session)
+
+
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
     return AffiliateProgramService(session)
 
@@ -122,6 +131,9 @@ DraftPromptPreviewServiceDep = Annotated[
 ]
 DraftGenerationRunServiceDep = Annotated[
     DraftGenerationRunService, Depends(get_draft_generation_run_service)
+]
+ArticleDraftPromotionServiceDep = Annotated[
+    ArticleDraftPromotionService, Depends(get_article_draft_promotion_service)
 ]
 AffiliateProgramServiceDep = Annotated[
     AffiliateProgramService, Depends(get_affiliate_program_service)
