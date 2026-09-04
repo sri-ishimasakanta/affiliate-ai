@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.article.draft_promotion_canonical import compute_text_hash
-from app.config.settings import get_settings
+from app.config.settings import Settings, get_settings
 from app.exceptions import (
     EntityNotFoundError,
     RenderedCandidateChangedError,
@@ -124,20 +124,28 @@ def test_prepare_target_base_url_canonicalized(session: Session, monkeypatch) ->
 
 
 def test_prepare_missing_base_url_state_error(session: Session, monkeypatch) -> None:
+    # monkeypatch.delenv alone is not sufficient: Settings falls back to the
+    # real .env file (SettingsConfigDict(env_file=".env")), so a developer's
+    # local WORDPRESS_BASE_URL would silently defeat this test. Isolate the
+    # settings object explicitly with _env_file=None (same pattern as
+    # test_google_ads_optional_and_unconfigured_by_default in
+    # tests/unit/test_settings.py) and patch it into the exact module where
+    # WordPressDraftRunService consumes get_settings.
     monkeypatch.delenv("WORDPRESS_BASE_URL", raising=False)
-    get_settings.cache_clear()
-    try:
-        ps = promoted_scenario(session)
-        exp, _ = _expected(session, ps)
-        with pytest.raises(WordPressDraftRunStateError):
-            _svc(session).prepare(
-                ps.article_id,
-                source_promotion_id=_promotion_id(session, ps.article_id),
-                **exp,
-            )
-        assert _count(session) == 0
-    finally:
-        get_settings.cache_clear()
+    isolated_settings = Settings(_env_file=None)
+    monkeypatch.setattr(
+        "app.services.wordpress_draft_run_service.get_settings",
+        lambda: isolated_settings,
+    )
+    ps = promoted_scenario(session)
+    exp, _ = _expected(session, ps)
+    with pytest.raises(WordPressDraftRunStateError):
+        _svc(session).prepare(
+            ps.article_id,
+            source_promotion_id=_promotion_id(session, ps.article_id),
+            **exp,
+        )
+    assert _count(session) == 0
 
 
 # -- drift guards -------------------------------------------------
