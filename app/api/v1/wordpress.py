@@ -15,6 +15,8 @@ from app.models import WordPressDraftRun
 from app.wordpress.schemas import (
     WordPressDraftRequestPreviewRequest,
     WordPressDraftRequestPreviewResponse,
+    WordPressDraftRunExecuteRequest,
+    WordPressDraftRunExecuteResponse,
     WordPressDraftRunPrepareRequest,
     WordPressDraftRunPrepareResponse,
     WordPressDraftRunRead,
@@ -142,3 +144,22 @@ def get_wordpress_draft_run(
     article_id: int, run_id: int, service: WordPressDraftRunServiceDep
 ) -> WordPressDraftRunRead:
     return _wp_run_detail(service.get(article_id, run_id))
+
+
+@router.post(
+    "/{article_id}/wordpress-draft-runs/{run_id}/execute",
+    response_model=WordPressDraftRunExecuteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="prepared run を実行し、WordPress へ厳密に 1 回だけ draft 作成 POST を送る",
+)
+def execute_wordpress_draft_run(
+    article_id: int,
+    run_id: int,
+    payload: WordPressDraftRunExecuteRequest,
+    service: WordPressDraftRunServiceDep,
+) -> WordPressDraftRunExecuteResponse:
+    return service.execute(
+        article_id,
+        run_id,
+        expected_target_request_identity_hash=payload.expected_target_request_identity_hash,
+    )

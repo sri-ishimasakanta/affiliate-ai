@@ -33,7 +33,9 @@ from app.exceptions import (
     ProviderNotConfiguredError,
     RenderedCandidateChangedError,
     SnapshotInputChangedError,
+    WordPressAmbiguousOutcomeError,
     WordPressDraftRunStateError,
+    WordPressExternalCreateLocalPersistFailedError,
     WordPressTargetError,
 )
 
@@ -52,6 +54,12 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (RenderedCandidateChangedError, 409, "rendered_candidate_changed"),
     (WordPressDraftRunStateError, 409, "wordpress_draft_run_state_error"),
     (WordPressTargetError, 422, "wordpress_target_invalid"),
+    (WordPressAmbiguousOutcomeError, 502, "wordpress_ambiguous_outcome"),
+    (
+        WordPressExternalCreateLocalPersistFailedError,
+        500,
+        "wordpress_external_create_local_persist_failed",
+    ),
     (DraftGenerationStateError, 409, "draft_generation_state_error"),
     (DraftGenerationNotReadyError, 409, "draft_generation_not_ready"),
     (DraftPromotionStateError, 409, "draft_promotion_state_error"),

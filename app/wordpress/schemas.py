@@ -162,3 +162,29 @@ class WordPressDraftRunRead(WordPressDraftRunSummaryRead):
     payload_json: str
     payload_keys: list[str]
     response_snapshot: dict | None
+
+
+# --- WordPressDraftRun execute (実 WordPress への draft 作成) --------------
+
+
+class WordPressDraftRunExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # prepare 時に Human が承認した target_request_identity_hash と一致しなければ拒否。
+    expected_target_request_identity_hash: str = Field(min_length=64, max_length=64)
+
+
+class WordPressDraftRunExecuteResponse(BaseModel):
+    run_id: int
+    status: str  # 成功時は常に "succeeded" (失敗は例外 -> HTTP エラーで返る)
+    article_id: int
+
+    target_base_url: str
+    target_request_identity_hash: str
+
+    wordpress_post_id: str
+    wordpress_post_status: str
+    wordpress_post_url: str | None
+
+    started_at: datetime
+    finished_at: datetime

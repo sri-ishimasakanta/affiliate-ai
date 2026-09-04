@@ -253,3 +253,31 @@ class ExternalProviderDataError(ApplicationError):
     def __init__(self, provider: str, message: str) -> None:
         super().__init__(f"{provider}: {message}")
         self.provider = provider
+
+
+class WordPressAmbiguousOutcomeError(ApplicationError):
+    """WordPress create-post POST 送信後、timeout / 接続断でレスポンスを受け取れなかった。
+
+    WordPress 側で実際に作成が成功したか不明 (定義的な 4xx/5xx とは区別する)。
+    絶対に自動再送しない。Human が WordPress を直接確認してから判断する。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(f"ambiguous_wordpress_outcome: {message}")
+
+
+class WordPressExternalCreateLocalPersistFailedError(ApplicationError):
+    """WordPress の create-post は 201 で成功したが、ローカル DB への成功記録の commit
+    に失敗した (external/local 非原子性)。
+
+    WordPress 側には既に post が存在する可能性が高い。絶対に再 POST しない。
+    Human による reconciliation が必要。
+    """
+
+    def __init__(self, wordpress_post_id: str) -> None:
+        super().__init__(
+            "external_create_succeeded_local_persist_failed: "
+            f"wordpress_post_id={wordpress_post_id!r} may already exist on WordPress; "
+            "do not retry automatically; Human reconciliation required"
+        )
+        self.wordpress_post_id = wordpress_post_id
