@@ -12,15 +12,24 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.article.draft_promotion_canonical import compute_text_hash
-from app.config.settings import settings
-from app.exceptions import EntityNotFoundError
+from app.config.settings import get_settings
+from app.exceptions import EntityNotFoundError, RenderedCandidateChangedError
 from app.repositories.article_draft_promotion_repository import (
     ArticleDraftPromotionRepository,
 )
 from app.repositories.article_repository import ArticleRepository
+from app.wordpress.draft_request import (
+    ENDPOINT_PATH,
+    METHOD,
+    V1_POST_STATUS,
+    build_wordpress_draft_request,
+)
 from app.wordpress.publication_validator import validate_wordpress_publication_preview
 from app.wordpress.renderer import render_wordpress_html
-from app.wordpress.schemas import WordPressPreviewResponse
+from app.wordpress.schemas import (
+    WordPressDraftRequestPreviewResponse,
+    WordPressPreviewResponse,
+)
 
 # promotion / source run が取れない場合の fallback (validator は promotion_exists で fail)。
 _FALLBACK_TOOLS = [
@@ -112,7 +121,7 @@ class WordPressPreviewService:
             rendered_image_count=rendered.image_count,
             wp_excerpt=article.meta_description or "",
             seo_meta_integration_supported=False,
-            wordpress_configured=settings.wordpress_configured,
+            wordpress_configured=get_settings().wordpress_configured,
             affiliate_substitutions=affiliate_substitutions,
             internal_link_substitutions=internal_link_substitutions,
             external_links=list(rendered.external_links),
@@ -124,6 +133,97 @@ class WordPressPreviewService:
             image_blocker=False,
             validation_report=report,
             publishable=report["publishable"],
+        )
+
+    # -- draft-create request preview (read-only, no network) --------
+    def draft_request_preview(
+        self,
+        article_id: int,
+        *,
+        expected_renderer_version: str | None = None,
+        expected_rendered_content_hash: str | None = None,
+    ) -> WordPressDraftRequestPreviewResponse:
+        pv = self.preview(article_id)  # 承認済み publication preview path を再利用
+
+        if (
+            expected_renderer_version is not None
+            and expected_renderer_version != pv.renderer_version
+        ):
+            raise RenderedCandidateChangedError(
+                "expected_renderer_version",
+                expected_renderer_version,
+                pv.renderer_version,
+            )
+        if (
+            expected_rendered_content_hash is not None
+            and expected_rendered_content_hash != pv.rendered_content_hash
+        ):
+            raise RenderedCandidateChangedError(
+                "expected_rendered_content_hash",
+                expected_rendered_content_hash,
+                pv.rendered_content_hash,
+            )
+
+        blocking = [
+            c["id"]
+            for c in pv.validation_report["checks"]
+            if c["level"] == "fail"
+        ]
+        # sendable な request package は全 gate pass 時のみ組む (§15)。
+        sendable = (
+            pv.publishable
+            and pv.target_post_status == V1_POST_STATUS
+            and pv.source_promotion_id is not None
+            and not pv.affiliate_substitutions
+            and not pv.internal_link_substitutions
+        )
+
+        payload = None
+        payload_keys = ["title", "content", "excerpt", "slug", "status"]
+        payload_hash = None
+        request_identity_hash = None
+        if sendable:
+            req = build_wordpress_draft_request(
+                article_id=article_id,
+                source_promotion_id=pv.source_promotion_id,
+                title=pv.target_title,
+                content=pv.rendered_content,
+                excerpt=pv.wp_excerpt,
+                slug=pv.target_slug,
+                canonical_body_hash=pv.canonical_body_hash,
+                canonical_meta_hash=pv.canonical_meta_hash,
+                renderer_version=pv.renderer_version,
+                rendered_content_hash=pv.rendered_content_hash,
+            )
+            payload = req.payload_dict()
+            payload_keys = list(payload.keys())
+            payload_hash = req.payload_hash
+            request_identity_hash = req.request_identity_hash
+
+        return WordPressDraftRequestPreviewResponse(
+            article_id=article_id,
+            source_promotion_id=pv.source_promotion_id,
+            method=METHOD,
+            endpoint_path=ENDPOINT_PATH,
+            target_post_status=V1_POST_STATUS,
+            title=pv.target_title,
+            slug=pv.target_slug,
+            excerpt=pv.wp_excerpt,
+            excerpt_chars=len(pv.wp_excerpt),
+            rendered_content=pv.rendered_content,
+            rendered_content_chars=pv.rendered_content_chars,
+            canonical_body_hash=pv.canonical_body_hash,
+            canonical_meta_hash=pv.canonical_meta_hash,
+            renderer_version=pv.renderer_version,
+            rendered_content_hash=pv.rendered_content_hash,
+            payload=payload,
+            payload_keys=payload_keys,
+            payload_hash=payload_hash,
+            request_identity_hash=request_identity_hash,
+            publication_validation_report=pv.validation_report,
+            publishable=pv.publishable,
+            blocking_reasons=blocking,
+            wordpress_configured=get_settings().wordpress_configured,
         )
 
     @staticmethod

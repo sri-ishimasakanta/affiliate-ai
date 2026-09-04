@@ -31,6 +31,7 @@ from app.exceptions import (
     PlanApprovalError,
     PromptInputChangedError,
     ProviderNotConfiguredError,
+    RenderedCandidateChangedError,
     SnapshotInputChangedError,
 )
 
@@ -46,6 +47,7 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (DraftInputNotReadyError, 409, "draft_input_not_ready"),
     (PromptInputChangedError, 409, "prompt_input_changed"),
     (CandidateChangedError, 409, "candidate_changed"),
+    (RenderedCandidateChangedError, 409, "rendered_candidate_changed"),
     (DraftGenerationStateError, 409, "draft_generation_state_error"),
     (DraftGenerationNotReadyError, 409, "draft_generation_not_ready"),
     (DraftPromotionStateError, 409, "draft_promotion_state_error"),

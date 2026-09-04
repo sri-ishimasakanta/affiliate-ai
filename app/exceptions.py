@@ -171,6 +171,22 @@ class CandidateChangedError(ApplicationError):
         self.actual = actual
 
 
+class RenderedCandidateChangedError(ApplicationError):
+    """WordPress draft request の組み立て時に ``expected_renderer_version`` /
+    ``expected_rendered_content_hash`` が現在の renderer 出力と一致しない
+    (Human が HTML を承認した時点と renderer/コードが drift している)。
+    """
+
+    def __init__(self, field: str, expected: str, actual: str) -> None:
+        super().__init__(
+            f"rendered candidate changed since approval: {field} expected "
+            f"{expected!r}, current {actual!r}"
+        )
+        self.field = field
+        self.expected = expected
+        self.actual = actual
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 
