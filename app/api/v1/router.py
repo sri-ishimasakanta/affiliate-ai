@@ -12,6 +12,7 @@ from app.api.v1 import (
     draft_input_snapshots,
     draft_promotions,
     keywords,
+    wordpress,
 )
 
 router = APIRouter()
@@ -24,3 +25,4 @@ router.include_router(affiliate_programs.router)
 router.include_router(draft_input_snapshots.router)
 router.include_router(draft_generation_runs.router)
 router.include_router(draft_promotions.router)
+router.include_router(wordpress.router)

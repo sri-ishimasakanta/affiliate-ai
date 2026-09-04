@@ -42,11 +42,19 @@ _GOOD_META = (
 
 def _good_body(tools: list[str]) -> str:
     tools_line = " / ".join(tools)
+    table = (
+        "| ツール | 料金 |\n|---|---|\n"
+        + "".join(f"| {t} | 各社公式参照 |\n" for t in tools)
+    )
+    sections = "\n\n".join(
+        f"### {t}\n{t} の概要です。詳細は各社公式をご確認ください。" for t in tools
+    )
     return (
         "本記事は広告（アフィリエイト）を含みます。PR 表記。\n\n"
         "## 業務効率化ツールとは\n" + "本文の解説です。" * 120 + "\n\n"
         "## 選び方\n判断の軸を示します。料金は2026年8月時点。各社 $0〜$29／月 が目安です。\n\n"
-        f"## おすすめ業務効率化ツール比較\n{tools_line} を比較します。\n\n"
+        f"## おすすめ業務効率化ツール比較\n{tools_line} を比較します。\n\n{table}\n\n"
+        f"{sections}\n\n"
         "## 目的別おすすめ\n用途に応じて 1 つ選びます。\n\n"
         "## 導入時の注意点\n請求書払いは各社で異なり本記事では未確認です。\n\n"
         "## よくある質問\nQ. 無料ですか。A. 各社の無料プランを確認してください。\n\n"
@@ -98,3 +106,33 @@ def article_of(session: Session, article_id: int) -> Article:
     art = session.get(Article, article_id)
     assert art is not None
     return art
+
+
+def promoted_scenario(
+    session: Session, *, n_tools: int = 7, suffix: str = ""
+) -> PromotableScenario:
+    """promotable_scenario をさらに実 path で promote し、Article を review に載せる。"""
+    from app.article.draft_promotion_canonical import (
+        compute_candidate_content_hash,
+        compute_text_hash,
+    )
+    from app.services.article_draft_promotion_service import (
+        ArticleDraftPromotionService,
+    )
+
+    ps = promotable_scenario(session, n_tools=n_tools, suffix=suffix)
+    ArticleDraftPromotionService(session).promote(
+        ps.article_id,
+        source_run_id=ps.run_id,
+        body_markdown=ps.body_markdown,
+        meta_description=ps.meta_description,
+        expected_body_hash=compute_text_hash(ps.body_markdown),
+        expected_meta_hash=compute_text_hash(ps.meta_description),
+        expected_candidate_content_hash=compute_candidate_content_hash(
+            article_id=ps.article_id,
+            source_run_id=ps.run_id,
+            body_markdown=ps.body_markdown,
+            meta_description=ps.meta_description,
+        ),
+    )
+    return ps

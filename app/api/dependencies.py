@@ -33,6 +33,7 @@ from app.services.keyword_scoring_service import KeywordScoringService
 from app.services.keyword_service import KeywordService
 from app.services.keyword_signal_service import KeywordSignalService
 from app.services.source_service import SourceService
+from app.services.wordpress_preview_service import WordPressPreviewService
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -91,6 +92,10 @@ def get_article_draft_promotion_service(
     return ArticleDraftPromotionService(session)
 
 
+def get_wordpress_preview_service(session: SessionDep) -> WordPressPreviewService:
+    return WordPressPreviewService(session)
+
+
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
     return AffiliateProgramService(session)
 
@@ -134,6 +139,9 @@ DraftGenerationRunServiceDep = Annotated[
 ]
 ArticleDraftPromotionServiceDep = Annotated[
     ArticleDraftPromotionService, Depends(get_article_draft_promotion_service)
+]
+WordPressPreviewServiceDep = Annotated[
+    WordPressPreviewService, Depends(get_wordpress_preview_service)
 ]
 AffiliateProgramServiceDep = Annotated[
     AffiliateProgramService, Depends(get_affiliate_program_service)

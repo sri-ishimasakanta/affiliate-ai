@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.19.1",
     "fastapi>=0.141.1",
     "google-ads>=31.4.0",
+    "mistune>=3.3.4",
     "pydantic-settings>=2.15.0",
     "sqlalchemy>=2.0",
 ]

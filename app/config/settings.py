@@ -42,9 +42,30 @@ class Settings(BaseSettings):
     google_ads_geo_target_id: int = 2392
     google_ads_language_id: int = 1005
 
+    # WordPress 連携 (Phase 3C-5)。未設定でもアプリ・preview は動く。
+    # 実際の外部通信を行うフェーズでのみ必須。secret には default を置かない。
+    wordpress_base_url: str | None = None
+    wordpress_username: str | None = None
+    wordpress_app_password: str | None = None
+    # V1 の初回外部アクションは常に draft。publish は明示的な別アクション。
+    wordpress_default_post_status: str = "draft"
+    wordpress_verify_tls: bool = True
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def wordpress_configured(self) -> bool:
+        """WordPress へ接続するのに必要な設定が揃っているか (認証はしない)。"""
+
+        return all(
+            (
+                self.wordpress_base_url,
+                self.wordpress_username,
+                self.wordpress_app_password,
+            )
+        )
 
     @property
     def google_ads_configured(self) -> bool:

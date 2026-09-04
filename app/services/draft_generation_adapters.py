@@ -16,10 +16,15 @@ _SECRET_MARKERS = (
     "authorization:",
     "x-api-key",
     "bearer ",
+    "basic ",
     "sk-ant-",
     "sk-",
     "api_key=",
     "apikey=",
+    "app_password",
+    "application password",
+    "wordpress_app_password",
+    "x-wp-nonce",
 )
 
 
