@@ -38,6 +38,8 @@ from app.exceptions import (
     WordPressAmbiguousOutcomeError,
     WordPressDraftRunStateError,
     WordPressExternalCreateLocalPersistFailedError,
+    WordPressPublicationRunConflictError,
+    WordPressPublicationRunPreparationError,
     WordPressTargetError,
 )
 
@@ -57,6 +59,12 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (RenderedCandidateChangedError, 409, "rendered_candidate_changed"),
     (WordPressDraftRunStateError, 409, "wordpress_draft_run_state_error"),
     (ArticlePublicationApprovalError, 409, "article_publication_approval_error"),
+    (
+        WordPressPublicationRunPreparationError,
+        409,
+        "wordpress_publication_run_preparation_error",
+    ),
+    (WordPressPublicationRunConflictError, 409, "wordpress_publication_run_conflict"),
     (WordPressTargetError, 422, "wordpress_target_invalid"),
     (WordPressAmbiguousOutcomeError, 502, "wordpress_ambiguous_outcome"),
     (

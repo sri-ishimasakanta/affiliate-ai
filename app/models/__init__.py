@@ -46,6 +46,13 @@ from app.models.wordpress_draft_run import (
     WP_RUN_TERMINAL_STATUSES,
     WordPressDraftRun,
 )
+from app.models.wordpress_publication_run import (
+    WP_PUBRUN_ACTIVE_STATUSES,
+    WP_PUBRUN_PREPARED,
+    WP_PUBRUN_STATUSES,
+    WP_PUBRUN_TERMINAL_STATUSES,
+    WordPressPublicationRun,
+)
 
 __all__ = [
     "BUILDER_VERSION",
@@ -84,9 +91,14 @@ __all__ = [
     "KeywordStatus",
     "Source",
     "TimestampMixin",
+    "WP_PUBRUN_ACTIVE_STATUSES",
+    "WP_PUBRUN_PREPARED",
+    "WP_PUBRUN_STATUSES",
+    "WP_PUBRUN_TERMINAL_STATUSES",
     "WP_RUN_ACTIVE_STATUSES",
     "WP_RUN_PREPARED",
     "WP_RUN_STATUSES",
     "WP_RUN_TERMINAL_STATUSES",
     "WordPressDraftRun",
+    "WordPressPublicationRun",
 ]

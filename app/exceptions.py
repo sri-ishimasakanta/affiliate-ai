@@ -240,6 +240,30 @@ class ArticlePublicationApprovalError(ApplicationError):
         self.reason = reason
 
 
+class WordPressPublicationRunPreparationError(ApplicationError):
+    """WordPressPublicationRun の prepare を許さない状態にある。
+
+    Article が approved でない / 既に公開済みフィールドを持つ / wordpress_post_id 未設定・
+    不一致 / 本文・meta hash drift / 対応する succeeded WordPressDraftRun が無い・不整合 /
+    承認済み target_request_identity_hash からの drift / configured target 不一致 /
+    raw content hash の形式不正 など。credential 値はメッセージに含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress publication run preparation error: {reason}")
+        self.reason = reason
+
+
+class WordPressPublicationRunConflictError(ApplicationError):
+    """同じ idempotency key が別の publication identity で既に使われている、または同一の
+    Human 承認済み publication identity に対して active / succeeded な run が既に存在する。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress publication run conflict: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

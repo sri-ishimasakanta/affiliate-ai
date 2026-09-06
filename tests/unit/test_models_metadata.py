@@ -14,6 +14,7 @@ from app.models import (
     KeywordSignal,
     Source,
     WordPressDraftRun,
+    WordPressPublicationRun,
 )
 
 # DraftGenerationRun は lifecycle record なので created_at + updated_at を持つ
@@ -35,6 +36,7 @@ IMMUTABLE_HISTORY_MODELS = (
     DraftInputSnapshot,
     ArticleDraftPromotion,
     WordPressDraftRun,
+    WordPressPublicationRun,
 )
 
 
@@ -56,6 +58,7 @@ def test_all_tables_registered() -> None:
         "draft_generation_runs",
         "article_draft_promotions",
         "wordpress_draft_runs",
+        "wordpress_publication_runs",
     }
 
 

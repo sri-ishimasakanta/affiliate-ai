@@ -188,3 +188,81 @@ class WordPressDraftRunExecuteResponse(BaseModel):
 
     started_at: datetime
     finished_at: datetime
+
+
+# --- WordPressPublicationRun prepare (既存 draft の publish 準備、通信なし) ----
+
+
+class WordPressPublicationRunPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_wordpress_draft_run_id: int
+    # 呼び出し側 (Human) が承認した既知の値。service が生成した実値と一致しなければ拒否。
+    expected_wordpress_post_id: int
+    expected_target_request_identity_hash: str = Field(min_length=64, max_length=64)
+    # Phase 3C-5D-B1.1b で監査済みの stored content.raw の SHA-256。prepare では fetch しない。
+    wordpress_raw_content_hash: str = Field(min_length=64, max_length=64)
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+
+class WordPressPublicationRunPrepareResponse(BaseModel):
+    run_id: int
+    status: str
+    already_prepared: bool
+
+    article_id: int
+    source_wordpress_draft_run_id: int
+
+    target_base_url: str
+    wordpress_post_id: str
+    method: str
+    endpoint_path: str
+
+    publish_payload_json: str
+    publish_payload_hash: str
+    publication_request_identity_hash: str
+    # ChatGPT / Human がレビューする CANDIDATE。execute 時にこの値の一致を要求する。
+    target_publication_request_identity_hash: str
+
+    canonical_body_hash: str
+    canonical_meta_hash: str
+    wordpress_raw_content_hash: str
+    expected_pre_publish_status: str
+
+    idempotency_key: str | None
+    created_at: datetime
+
+
+class WordPressPublicationRunSummaryRead(BaseModel):
+    id: int
+    article_id: int
+    source_wordpress_draft_run_id: int
+    status: str
+
+    target_base_url: str
+    wordpress_post_id: str
+    method: str
+    endpoint_path: str
+
+    publish_payload_hash: str
+    publication_request_identity_hash: str
+    target_publication_request_identity_hash: str
+    canonical_body_hash: str
+    canonical_meta_hash: str
+    wordpress_raw_content_hash: str
+    expected_pre_publish_status: str
+
+    idempotency_key: str | None
+    wordpress_post_status: str | None
+    wordpress_post_url: str | None
+    published_at_source: str | None
+    error_message: str | None
+
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class WordPressPublicationRunRead(WordPressPublicationRunSummaryRead):
+    publish_payload_json: str
+    response_snapshot: dict | None

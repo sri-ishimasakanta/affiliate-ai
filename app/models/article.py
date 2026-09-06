@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.models.keyword import Keyword
     from app.models.source import Source
     from app.models.wordpress_draft_run import WordPressDraftRun
+    from app.models.wordpress_publication_run import WordPressPublicationRun
 
 
 class Article(Base, TimestampMixin):
@@ -122,6 +123,13 @@ class Article(Base, TimestampMixin):
     # 初回 WordPress draft の実行記録 (append-only)。Article 削除で全削除
     # (promotion より先に削除される必要があるため cascade を Article 側に持つ)。
     wordpress_draft_runs: Mapped[list[WordPressDraftRun]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # WordPress publish の実行記録 (append-only)。Article 削除で全削除
+    # (source draft run を FK RESTRICT で参照するため draft run より先に削除される)。
+    wordpress_publication_runs: Mapped[list[WordPressPublicationRun]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

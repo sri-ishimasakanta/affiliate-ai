@@ -10,8 +10,9 @@ from fastapi import APIRouter, status
 from app.api.dependencies import (
     WordPressDraftRunServiceDep,
     WordPressPreviewServiceDep,
+    WordPressPublicationRunServiceDep,
 )
-from app.models import WordPressDraftRun
+from app.models import WordPressDraftRun, WordPressPublicationRun
 from app.wordpress.schemas import (
     WordPressDraftRequestPreviewRequest,
     WordPressDraftRequestPreviewResponse,
@@ -22,6 +23,10 @@ from app.wordpress.schemas import (
     WordPressDraftRunRead,
     WordPressDraftRunSummaryRead,
     WordPressPreviewResponse,
+    WordPressPublicationRunPrepareRequest,
+    WordPressPublicationRunPrepareResponse,
+    WordPressPublicationRunRead,
+    WordPressPublicationRunSummaryRead,
 )
 
 router = APIRouter(prefix="/articles", tags=["wordpress"])
@@ -163,3 +168,89 @@ def execute_wordpress_draft_run(
         run_id,
         expected_target_request_identity_hash=payload.expected_target_request_identity_hash,
     )
+
+
+# --- WordPress publication runs (既存 draft の publish; このフェーズは prepare のみ) ---
+
+
+def _wp_pubrun_summary(run: WordPressPublicationRun) -> WordPressPublicationRunSummaryRead:
+    return WordPressPublicationRunSummaryRead(
+        id=run.id,
+        article_id=run.article_id,
+        source_wordpress_draft_run_id=run.source_wordpress_draft_run_id,
+        status=run.status,
+        target_base_url=run.target_base_url,
+        wordpress_post_id=run.wordpress_post_id,
+        method=run.method,
+        endpoint_path=run.endpoint_path,
+        publish_payload_hash=run.publish_payload_hash,
+        publication_request_identity_hash=run.publication_request_identity_hash,
+        target_publication_request_identity_hash=(
+            run.target_publication_request_identity_hash
+        ),
+        canonical_body_hash=run.canonical_body_hash,
+        canonical_meta_hash=run.canonical_meta_hash,
+        wordpress_raw_content_hash=run.wordpress_raw_content_hash,
+        expected_pre_publish_status=run.expected_pre_publish_status,
+        idempotency_key=run.idempotency_key,
+        wordpress_post_status=run.wordpress_post_status,
+        wordpress_post_url=run.wordpress_post_url,
+        published_at_source=run.published_at_source,
+        error_message=run.error_message,
+        created_at=run.created_at,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+    )
+
+
+def _wp_pubrun_detail(run: WordPressPublicationRun) -> WordPressPublicationRunRead:
+    return WordPressPublicationRunRead(
+        **_wp_pubrun_summary(run).model_dump(),
+        publish_payload_json=run.publish_payload_json,
+        response_snapshot=run.response_snapshot,
+    )
+
+
+@router.post(
+    "/{article_id}/wordpress-publication-runs",
+    response_model=WordPressPublicationRunPrepareResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="既存 WordPress draft の publish run を prepare する (通信なし・Human gate)",
+)
+def prepare_wordpress_publication_run(
+    article_id: int,
+    payload: WordPressPublicationRunPrepareRequest,
+    service: WordPressPublicationRunServiceDep,
+) -> WordPressPublicationRunPrepareResponse:
+    return service.prepare(
+        article_id,
+        source_wordpress_draft_run_id=payload.source_wordpress_draft_run_id,
+        expected_wordpress_post_id=payload.expected_wordpress_post_id,
+        expected_target_request_identity_hash=payload.expected_target_request_identity_hash,
+        wordpress_raw_content_hash=payload.wordpress_raw_content_hash,
+        idempotency_key=payload.idempotency_key,
+    )
+
+
+@router.get(
+    "/{article_id}/wordpress-publication-runs",
+    response_model=list[WordPressPublicationRunSummaryRead],
+    status_code=status.HTTP_200_OK,
+    summary="記事の WordPress publication run 一覧 (メタデータのみ)",
+)
+def list_wordpress_publication_runs(
+    article_id: int, service: WordPressPublicationRunServiceDep
+) -> list[WordPressPublicationRunSummaryRead]:
+    return [_wp_pubrun_summary(r) for r in service.list_for_article(article_id)]
+
+
+@router.get(
+    "/{article_id}/wordpress-publication-runs/{run_id}",
+    response_model=WordPressPublicationRunRead,
+    status_code=status.HTTP_200_OK,
+    summary="WordPress publication run を 1 件取得する (payload 全文)",
+)
+def get_wordpress_publication_run(
+    article_id: int, run_id: int, service: WordPressPublicationRunServiceDep
+) -> WordPressPublicationRunRead:
+    return _wp_pubrun_detail(service.get(article_id, run_id))

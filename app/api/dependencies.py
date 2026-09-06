@@ -38,6 +38,9 @@ from app.services.keyword_signal_service import KeywordSignalService
 from app.services.source_service import SourceService
 from app.services.wordpress_draft_run_service import WordPressDraftRunService
 from app.services.wordpress_preview_service import WordPressPreviewService
+from app.services.wordpress_publication_run_service import (
+    WordPressPublicationRunService,
+)
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -110,6 +113,12 @@ def get_article_publication_approval_service(
     return ArticlePublicationApprovalService(session)
 
 
+def get_wordpress_publication_run_service(
+    session: SessionDep,
+) -> WordPressPublicationRunService:
+    return WordPressPublicationRunService(session)
+
+
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
     return AffiliateProgramService(session)
 
@@ -159,6 +168,9 @@ WordPressPreviewServiceDep = Annotated[
 ]
 WordPressDraftRunServiceDep = Annotated[
     WordPressDraftRunService, Depends(get_wordpress_draft_run_service)
+]
+WordPressPublicationRunServiceDep = Annotated[
+    WordPressPublicationRunService, Depends(get_wordpress_publication_run_service)
 ]
 ArticlePublicationApprovalServiceDep = Annotated[
     ArticlePublicationApprovalService, Depends(get_article_publication_approval_service)
