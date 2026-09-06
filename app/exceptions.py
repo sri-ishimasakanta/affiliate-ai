@@ -210,6 +210,36 @@ class WordPressDraftRunStateError(ApplicationError):
         self.reason = reason
 
 
+class ProtectedArticleStatusTransitionError(ApplicationError):
+    """Article の汎用 status 変更 API では、公開ライフサイクル上の保護された target
+    status (承認 / 公開) へ遷移できない。
+
+    review -> approved は専用の publication approval workflow、
+    * -> published は将来の専用 publication workflow を経由する必要がある。
+    """
+
+    def __init__(self, entity: str, target: str) -> None:
+        super().__init__(
+            f"{entity}: target status {target!r} requires a dedicated guarded "
+            "workflow (not available via the generic status endpoint)"
+        )
+        self.entity = entity
+        self.target = target
+
+
+class ArticlePublicationApprovalError(ApplicationError):
+    """Article の Human publication approval (review -> approved) を許さない状態にある。
+
+    Article が review でない / 既に公開済みフィールドを持つ / wordpress_post_id 不一致・
+    未設定 / 対応する WordPressDraftRun が succeeded でない・不整合 / 承認済み
+    target_request_identity_hash からの drift / prepare 後の本文・meta drift など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"article publication approval error: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

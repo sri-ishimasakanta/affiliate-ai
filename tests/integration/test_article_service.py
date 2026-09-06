@@ -8,8 +8,10 @@ from app.exceptions import (
     DuplicateEntityError,
     EntityNotFoundError,
     InvalidStatusTransitionError,
+    ProtectedArticleStatusTransitionError,
 )
 from app.keyword.schemas import KeywordCreate
+from app.models import Article
 from app.models.enums import ArticleStatus
 from app.services.article_service import ArticleService
 from app.services.keyword_service import KeywordService
@@ -124,7 +126,14 @@ def test_nonexistent_keyword_raises_application_error(session: Session) -> None:
     assert service.list_articles() == []
 
 
-def test_valid_status_transition_sets_published_at(session: Session) -> None:
+def test_valid_generic_status_transitions_up_to_review(session: Session) -> None:
+    """review 到達までの非センシティブな遷移は汎用 change_status で引き続き可能。
+
+    review -> approved と * -> published は保護対象 (別テストで検証)。
+    approved / published への到達後の published_at 設定は将来の専用
+    publication workflow の責務であり、このサービスでは扱わない。
+    """
+
     service = _article_service(session)
     read = service.create_article(ArticleCreate(title="T", slug="flow-slug"))
 
@@ -132,17 +141,42 @@ def test_valid_status_transition_sets_published_at(session: Session) -> None:
         ArticleStatus.PLANNED,
         ArticleStatus.DRAFTING,
         ArticleStatus.REVIEW,
-        ArticleStatus.APPROVED,
     ):
         assert service.change_status(read.id, target).status == target
 
-    published = service.change_status(read.id, ArticleStatus.PUBLISHED)
-    assert published.status == ArticleStatus.PUBLISHED
-    assert published.published_at is not None
+    # rewrite への到達は approved/published を経由しないと許可表上不可なので、
+    # ここでは review までの正当な汎用遷移が機能することのみを確認する。
 
-    # published -> rewrite -> review
-    assert service.change_status(read.id, ArticleStatus.REWRITE).status == ArticleStatus.REWRITE
-    assert service.change_status(read.id, ArticleStatus.REVIEW).status == ArticleStatus.REVIEW
+
+def test_generic_change_status_rejects_review_to_approved(session: Session) -> None:
+    service = _article_service(session)
+    read = service.create_article(ArticleCreate(title="T", slug="protected-approved"))
+    for target in (ArticleStatus.PLANNED, ArticleStatus.DRAFTING, ArticleStatus.REVIEW):
+        service.change_status(read.id, target)
+
+    with pytest.raises(ProtectedArticleStatusTransitionError):
+        service.change_status(read.id, ArticleStatus.APPROVED)
+
+    assert service.get_article(read.id).status == ArticleStatus.REVIEW
+
+
+def test_generic_change_status_rejects_any_target_published(session: Session) -> None:
+    service = _article_service(session)
+    read = service.create_article(ArticleCreate(title="T", slug="protected-published"))
+    for target in (ArticleStatus.PLANNED, ArticleStatus.DRAFTING, ArticleStatus.REVIEW):
+        service.change_status(read.id, target)
+
+    # directly move to approved at the DB level (bypassing the generic API,
+    # simulating the dedicated approval workflow) so we can prove the generic
+    # endpoint also rejects approved -> published specifically.
+    entity = session.get(Article, read.id)
+    entity.status = ArticleStatus.APPROVED.value
+    session.flush()
+
+    with pytest.raises(ProtectedArticleStatusTransitionError):
+        service.change_status(read.id, ArticleStatus.PUBLISHED)
+
+    assert service.get_article(read.id).status == ArticleStatus.APPROVED
 
 
 def test_invalid_status_transition_raises(session: Session) -> None:
@@ -156,15 +190,20 @@ def test_invalid_status_transition_raises(session: Session) -> None:
 
 
 def test_archived_from_approved_is_allowed(session: Session) -> None:
+    """approved -> archived は ARTICLE_TRANSITIONS 上は引き続き有効。
+
+    approved 自体には汎用 API から到達できないため (保護対象)、専用の
+    approval workflow を模して DB 上で直接 approved にしてから確認する。
+    """
+
     service = _article_service(session)
     read = service.create_article(ArticleCreate(title="T", slug="arch-slug"))
-    for target in (
-        ArticleStatus.PLANNED,
-        ArticleStatus.DRAFTING,
-        ArticleStatus.REVIEW,
-        ArticleStatus.APPROVED,
-    ):
+    for target in (ArticleStatus.PLANNED, ArticleStatus.DRAFTING, ArticleStatus.REVIEW):
         service.change_status(read.id, target)
+
+    entity = session.get(Article, read.id)
+    entity.status = ArticleStatus.APPROVED.value
+    session.flush()
 
     archived = service.change_status(read.id, ArticleStatus.ARCHIVED)
     assert archived.status == ArticleStatus.ARCHIVED

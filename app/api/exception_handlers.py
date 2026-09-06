@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions import (
     ApplicationError,
+    ArticlePublicationApprovalError,
     CandidateChangedError,
     DraftGenerationNotReadyError,
     DraftGenerationStateError,
@@ -30,6 +31,7 @@ from app.exceptions import (
     InvalidStatusTransitionError,
     PlanApprovalError,
     PromptInputChangedError,
+    ProtectedArticleStatusTransitionError,
     ProviderNotConfiguredError,
     RenderedCandidateChangedError,
     SnapshotInputChangedError,
@@ -45,6 +47,7 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (DuplicateEntityError, 409, "duplicate_entity"),
     (EntityInUseError, 409, "entity_in_use"),
     (InvalidStatusTransitionError, 409, "invalid_status_transition"),
+    (ProtectedArticleStatusTransitionError, 409, "protected_status_transition"),
     (IncompleteSignalSetError, 409, "incomplete_signal_set"),
     (PlanApprovalError, 409, "plan_approval_rejected"),
     (SnapshotInputChangedError, 409, "snapshot_input_changed"),
@@ -53,6 +56,7 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (CandidateChangedError, 409, "candidate_changed"),
     (RenderedCandidateChangedError, 409, "rendered_candidate_changed"),
     (WordPressDraftRunStateError, 409, "wordpress_draft_run_state_error"),
+    (ArticlePublicationApprovalError, 409, "article_publication_approval_error"),
     (WordPressTargetError, 422, "wordpress_target_invalid"),
     (WordPressAmbiguousOutcomeError, 502, "wordpress_ambiguous_outcome"),
     (

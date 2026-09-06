@@ -177,18 +177,42 @@ def test_delete_article_not_found_returns_404(api_client: TestClient) -> None:
 
 
 # -- PATCH /status ----------------------------------------------------------
-def test_change_article_status_valid_and_sets_published_at(api_client: TestClient) -> None:
+def test_change_article_status_valid_up_to_review(api_client: TestClient) -> None:
     created = _create_article(api_client, title="T", slug="flow-slug")
 
-    _advance(api_client, created["id"], "planned", "drafting", "review", "approved")
+    _advance(api_client, created["id"], "planned", "drafting", "review")
+    got = api_client.get(f"/api/v1/articles/{created['id']}").json()
+    assert got["status"] == "review"
+
+
+def test_change_article_status_rejects_review_to_approved(api_client: TestClient) -> None:
+    created = _create_article(api_client, title="T", slug="protected-approved-api")
+    _advance(api_client, created["id"], "planned", "drafting", "review")
+
+    resp = api_client.patch(
+        f"/api/v1/articles/{created['id']}/status", json={"status": "approved"}
+    )
+
+    assert resp.status_code == 409
+    _assert_error_shape(resp.json(), "protected_status_transition")
+    unchanged = api_client.get(f"/api/v1/articles/{created['id']}").json()
+    assert unchanged["status"] == "review"
+    assert unchanged["wordpress_id"] is None
+
+
+def test_change_article_status_rejects_any_target_published(api_client: TestClient) -> None:
+    created = _create_article(api_client, title="T", slug="protected-published-api")
+    _advance(api_client, created["id"], "planned", "drafting", "review")
+
     resp = api_client.patch(
         f"/api/v1/articles/{created['id']}/status", json={"status": "published"}
     )
 
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "published"
-    assert body["published_at"] is not None
+    assert resp.status_code == 409
+    _assert_error_shape(resp.json(), "protected_status_transition")
+    unchanged = api_client.get(f"/api/v1/articles/{created['id']}").json()
+    assert unchanged["status"] == "review"
+    assert unchanged["published_at"] is None
 
 
 def test_change_article_status_invalid_transition_returns_409(api_client: TestClient) -> None:

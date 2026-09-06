@@ -10,14 +10,17 @@ DB アクセス自体は :class:`ArticleRepository` / :class:`KeywordRepository`
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.article.schemas import ArticleCreate, ArticleRead, ArticleUpdate
-from app.exceptions import DuplicateEntityError, EntityNotFoundError
+from app.exceptions import (
+    DuplicateEntityError,
+    EntityNotFoundError,
+    ProtectedArticleStatusTransitionError,
+)
 from app.models import Article
 from app.models.enums import ArticleStatus
 from app.repositories.article_repository import ArticleRepository
@@ -28,6 +31,12 @@ from app.services.status_transitions import (
 )
 
 _ENTITY = "Article"
+
+# 汎用 status 変更 API では到達させない target (公開ライフサイクル上の保護された状態)。
+# review -> approved は ArticlePublicationApprovalService (POST /articles/{id}/approve)、
+# * -> published は将来の専用 publication service を経由する必要がある。
+# ARTICLE_TRANSITIONS 自体はそれらの専用 service が引き続き利用するため変更しない。
+_GENERIC_FORBIDDEN_TARGETS = frozenset({ArticleStatus.APPROVED, ArticleStatus.PUBLISHED})
 
 # Schema フィールド名 -> モデル属性名
 _UPDATE_FIELD_MAP = {
@@ -101,13 +110,14 @@ class ArticleService:
 
         current = ArticleStatus(entity.status)
         target = ArticleStatus(target)
+
+        if target in _GENERIC_FORBIDDEN_TARGETS:
+            raise ProtectedArticleStatusTransitionError(_ENTITY, target)
+
         ensure_transition_allowed(_ENTITY, current, target, ARTICLE_TRANSITIONS)
 
         if target != current:
-            values: dict[str, Any] = {"status": target}
-            if target is ArticleStatus.PUBLISHED and entity.published_at is None:
-                values["published_at"] = datetime.now(UTC)
-            self._repo.update(entity, values)
+            self._repo.update(entity, {"status": target})
             self._commit()
         return self._to_read(entity)
 

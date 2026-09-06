@@ -21,6 +21,9 @@ from app.services.article_draft_promotion_service import (
 )
 from app.services.article_fact_service import ArticleFactService
 from app.services.article_plan_service import ArticlePlanService
+from app.services.article_publication_approval_service import (
+    ArticlePublicationApprovalService,
+)
 from app.services.article_service import ArticleService
 from app.services.draft_generation_run_service import DraftGenerationRunService
 from app.services.draft_input_snapshot_service import DraftInputSnapshotService
@@ -101,6 +104,12 @@ def get_wordpress_draft_run_service(session: SessionDep) -> WordPressDraftRunSer
     return WordPressDraftRunService(session)
 
 
+def get_article_publication_approval_service(
+    session: SessionDep,
+) -> ArticlePublicationApprovalService:
+    return ArticlePublicationApprovalService(session)
+
+
 def get_affiliate_program_service(session: SessionDep) -> AffiliateProgramService:
     return AffiliateProgramService(session)
 
@@ -150,6 +159,9 @@ WordPressPreviewServiceDep = Annotated[
 ]
 WordPressDraftRunServiceDep = Annotated[
     WordPressDraftRunService, Depends(get_wordpress_draft_run_service)
+]
+ArticlePublicationApprovalServiceDep = Annotated[
+    ArticlePublicationApprovalService, Depends(get_article_publication_approval_service)
 ]
 AffiliateProgramServiceDep = Annotated[
     AffiliateProgramService, Depends(get_affiliate_program_service)

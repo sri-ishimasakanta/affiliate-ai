@@ -7,12 +7,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from app.api.dependencies import ArticleAffiliateProgramServiceDep, ArticleServiceDep
+from app.api.dependencies import (
+    ArticleAffiliateProgramServiceDep,
+    ArticlePublicationApprovalServiceDep,
+    ArticleServiceDep,
+)
 from app.article.schemas import (
     ArticleAffiliateProgramCreate,
     ArticleAffiliateProgramRead,
     ArticleAffiliateProgramUpdate,
     ArticleCreate,
+    ArticlePublicationApprovalRequest,
     ArticleRead,
     ArticleStatusUpdate,
     ArticleUpdate,
@@ -99,6 +104,25 @@ def change_article_status(
     service: ArticleServiceDep,
 ) -> ArticleRead:
     return service.change_status(article_id, payload.status)
+
+
+@router.post(
+    "/{article_id}/approve",
+    response_model=ArticleRead,
+    status_code=status.HTTP_200_OK,
+    summary="WordPress draft の Human 目視レビュー後の publication approval "
+    "(review -> approved のみ、通信なし)",
+)
+def approve_article_publication(
+    article_id: int,
+    payload: ArticlePublicationApprovalRequest,
+    service: ArticlePublicationApprovalServiceDep,
+) -> ArticleRead:
+    return service.approve(
+        article_id,
+        expected_wordpress_post_id=payload.expected_wordpress_post_id,
+        expected_target_request_identity_hash=payload.expected_target_request_identity_hash,
+    )
 
 
 # --- 記事 × 広告案件の紐付け (中間モデル操作) --------------------------------

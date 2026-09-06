@@ -49,6 +49,18 @@ class ArticleStatusUpdate(BaseModel):
     status: ArticleStatus
 
 
+class ArticlePublicationApprovalRequest(BaseModel):
+    """WordPress draft の Human 目視レビュー後の publication approval (review -> approved)。
+
+    任意の status への変更は許さない (このエンドポイントは review -> approved 専用)。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_wordpress_post_id: int
+    expected_target_request_identity_hash: str = Field(min_length=64, max_length=64)
+
+
 class ArticleRead(BaseModel):
     """記事の出力表現。"""
 
