@@ -51,3 +51,37 @@ def test_google_ads_configured_when_all_credentials_present(monkeypatch) -> None
     monkeypatch.setenv("GOOGLE_ADS_CUSTOMER_ID", "1234567890")
 
     assert Settings().google_ads_configured is True
+
+
+def test_search_console_unconfigured_by_default(monkeypatch) -> None:
+    for key in (
+        "SEARCH_CONSOLE_PROPERTY_URI",
+        "SEARCH_CONSOLE_CREDENTIALS_FILE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    config = Settings(_env_file=None)
+
+    assert config.search_console_property_uri is None
+    assert config.search_console_credentials_file is None
+    assert config.search_console_property_configured is False
+    assert config.search_console_configured is False
+
+
+def test_search_console_configured_needs_property_and_credentials_file(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("SEARCH_CONSOLE_PROPERTY_URI", "sc-domain:example.com")
+    monkeypatch.delenv("SEARCH_CONSOLE_CREDENTIALS_FILE", raising=False)
+
+    partial = Settings(_env_file=None)
+    assert partial.search_console_property_configured is True
+    # credential file path がなければ「認証まで含めて設定済み」ではない
+    assert partial.search_console_configured is False
+
+    fake_path = "/outside/repo/service-account.json"
+    monkeypatch.setenv("SEARCH_CONSOLE_CREDENTIALS_FILE", fake_path)
+    full = Settings(_env_file=None)
+    assert full.search_console_configured is True
+    # Settings は path しか持たない (secret 本体は持たない)
+    assert full.search_console_credentials_file == fake_path

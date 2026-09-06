@@ -51,10 +51,12 @@ class Settings(BaseSettings):
     wordpress_default_post_status: str = "draft"
     wordpress_verify_tls: bool = True
 
-    # Google Search Console (Phase 3C-5F)。C0 は property URI のみ (非 secret)。
-    # 実 API credential (service account JSON 等) は C1 で追加する。
+    # Google Search Console (Phase 3C-5F)。
     # Domain property は "sc-domain:<host>"、URL-prefix は "https://<host>/"。
     search_console_property_uri: str | None = None
+    # service account JSON key file の **パス** のみを持つ (中身は import 時に読まない)。
+    # secret 本体は Settings にも DB にも入れない。
+    search_console_credentials_file: str | None = None
 
     @property
     def is_sqlite(self) -> bool:
@@ -74,9 +76,16 @@ class Settings(BaseSettings):
 
     @property
     def search_console_property_configured(self) -> bool:
-        """Search Console の property URI が設定されているか (credential は別途 C1)。"""
+        """Search Console の property URI が設定されているか。"""
 
         return bool(self.search_console_property_uri)
+
+    @property
+    def search_console_configured(self) -> bool:
+        """Search Console へ read-only アクセスするのに必要な設定が揃っているか
+        (JSON の妥当性検証は :mod:`app.search_console.credentials` の責務)。"""
+
+        return bool(self.search_console_property_uri and self.search_console_credentials_file)
 
     @property
     def google_ads_configured(self) -> bool:

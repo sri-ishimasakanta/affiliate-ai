@@ -336,6 +336,17 @@ class SearchConsoleImportStateError(ApplicationError):
         self.reason = reason
 
 
+class SearchConsoleCredentialError(ApplicationError):
+    """Search Console の service-account credential file の構成エラー
+    (未設定 / 不在 / 非ファイル / 非 JSON / type 不正 / 必須フィールド欠落 /
+    repo 内に配置)。private_key など secret はメッセージに一切含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"search console credential error: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 
