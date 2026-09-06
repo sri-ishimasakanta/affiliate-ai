@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     wordpress_default_post_status: str = "draft"
     wordpress_verify_tls: bool = True
 
+    # Google Search Console (Phase 3C-5F)。C0 は property URI のみ (非 secret)。
+    # 実 API credential (service account JSON 等) は C1 で追加する。
+    # Domain property は "sc-domain:<host>"、URL-prefix は "https://<host>/"。
+    search_console_property_uri: str | None = None
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
@@ -66,6 +71,12 @@ class Settings(BaseSettings):
                 self.wordpress_app_password,
             )
         )
+
+    @property
+    def search_console_property_configured(self) -> bool:
+        """Search Console の property URI が設定されているか (credential は別途 C1)。"""
+
+        return bool(self.search_console_property_uri)
 
     @property
     def google_ads_configured(self) -> bool:

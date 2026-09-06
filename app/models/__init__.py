@@ -38,6 +38,15 @@ from app.models.keyword import Keyword
 from app.models.keyword_score import KeywordScore
 from app.models.keyword_score_signal import KeywordScoreSignal
 from app.models.keyword_signal import KeywordSignal
+from app.models.search_console_import_run import (
+    SC_IMPORT_ACTIVE_STATUSES,
+    SC_IMPORT_PREPARED,
+    SC_IMPORT_STATUSES,
+    SC_IMPORT_TERMINAL_STATUSES,
+    SearchConsoleImportRun,
+)
+from app.models.search_console_page_daily import SearchConsolePageDaily
+from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.source import Source
 from app.models.wordpress_draft_run import (
     WP_RUN_ACTIVE_STATUSES,
@@ -71,6 +80,10 @@ __all__ = [
     "RUN_STATUSES",
     "RUN_SUCCEEDED",
     "RUN_TERMINAL_STATUSES",
+    "SC_IMPORT_ACTIVE_STATUSES",
+    "SC_IMPORT_PREPARED",
+    "SC_IMPORT_STATUSES",
+    "SC_IMPORT_TERMINAL_STATUSES",
     "SNAPSHOT_VERSION",
     "AffiliateProgram",
     "AffiliateProgramStatus",
@@ -89,6 +102,9 @@ __all__ = [
     "KeywordSignal",
     "KeywordSignalComponent",
     "KeywordStatus",
+    "SearchConsoleImportRun",
+    "SearchConsolePageDaily",
+    "SearchConsoleQueryDaily",
     "Source",
     "TimestampMixin",
     "WP_PUBRUN_ACTIVE_STATUSES",

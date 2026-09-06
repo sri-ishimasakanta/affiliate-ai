@@ -12,6 +12,9 @@ from app.models import (
     KeywordScore,
     KeywordScoreSignal,
     KeywordSignal,
+    SearchConsoleImportRun,
+    SearchConsolePageDaily,
+    SearchConsoleQueryDaily,
     Source,
     WordPressDraftRun,
     WordPressPublicationRun,
@@ -37,6 +40,9 @@ IMMUTABLE_HISTORY_MODELS = (
     ArticleDraftPromotion,
     WordPressDraftRun,
     WordPressPublicationRun,
+    SearchConsoleImportRun,
+    SearchConsolePageDaily,
+    SearchConsoleQueryDaily,
 )
 
 
@@ -59,6 +65,9 @@ def test_all_tables_registered() -> None:
         "article_draft_promotions",
         "wordpress_draft_runs",
         "wordpress_publication_runs",
+        "search_console_import_runs",
+        "search_console_page_daily",
+        "search_console_query_daily",
     }
 
 

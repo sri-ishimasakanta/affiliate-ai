@@ -325,6 +325,17 @@ class WordPressPublicationExternalSuccessLocalPersistFailedError(ApplicationErro
         self.wordpress_post_id = wordpress_post_id
 
 
+class SearchConsoleImportStateError(ApplicationError):
+    """SearchConsoleImportRun の prepare / execute を許さない state にある
+    (guard 失敗、既に running/terminal な run への再実行要求、無効な期間など)。
+    credential / 生レスポンスは含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"search console import state error: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

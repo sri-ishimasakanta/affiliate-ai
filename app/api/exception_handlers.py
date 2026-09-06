@@ -34,6 +34,7 @@ from app.exceptions import (
     ProtectedArticleStatusTransitionError,
     ProviderNotConfiguredError,
     RenderedCandidateChangedError,
+    SearchConsoleImportStateError,
     SnapshotInputChangedError,
     WordPressAmbiguousOutcomeError,
     WordPressAmbiguousPublishOutcomeError,
@@ -64,6 +65,7 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (RenderedCandidateChangedError, 409, "rendered_candidate_changed"),
     (WordPressDraftRunStateError, 409, "wordpress_draft_run_state_error"),
     (ArticlePublicationApprovalError, 409, "article_publication_approval_error"),
+    (SearchConsoleImportStateError, 409, "search_console_import_state_error"),
     (
         WordPressPublicationRunPreparationError,
         409,
