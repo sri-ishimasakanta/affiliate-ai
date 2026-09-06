@@ -65,6 +65,15 @@ class AffiliateLinkTargetRepository:
             )
         ).first()
 
+    def list_all_ordered_by_token(self) -> list[AffiliateLinkTarget]:
+        """全 target を token 昇順で返す (projection snapshot 構築の read 専用)。"""
+
+        return list(
+            self._session.scalars(
+                select(AffiliateLinkTarget).order_by(AffiliateLinkTarget.token)
+            ).all()
+        )
+
     def list_active_for_article(
         self, article_id: int
     ) -> list[AffiliateLinkTarget]:
