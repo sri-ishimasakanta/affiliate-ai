@@ -347,6 +347,20 @@ class SearchConsoleCredentialError(ApplicationError):
         self.reason = reason
 
 
+class AffiliateLinkTargetError(ApplicationError):
+    """AffiliateLinkTarget の create / disable / supersede が business rule 上不可。
+
+    article/program 関係なし / program が active でない / tracking_url 不在 /
+    destination 検証失敗 / destination host が independently 未承認 / 既に active な
+    target がある / idempotency_key 競合 / 許可されない status 遷移 など。
+    tracking_url など secret 相当値はメッセージに含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"affiliate link target error: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

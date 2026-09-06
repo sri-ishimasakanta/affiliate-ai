@@ -1,4 +1,5 @@
 from app.models import (
+    AffiliateLinkTarget,
     AffiliateProgram,
     Article,
     ArticleAffiliateProgram,
@@ -43,6 +44,8 @@ IMMUTABLE_HISTORY_MODELS = (
     SearchConsoleImportRun,
     SearchConsolePageDaily,
     SearchConsoleQueryDaily,
+    # 狭い lifecycle (active -> disabled/superseded) のみ。updated_at は持たない。
+    AffiliateLinkTarget,
 )
 
 
@@ -68,6 +71,7 @@ def test_all_tables_registered() -> None:
         "search_console_import_runs",
         "search_console_page_daily",
         "search_console_query_daily",
+        "affiliate_link_targets",
     }
 
 

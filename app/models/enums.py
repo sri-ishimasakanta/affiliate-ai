@@ -37,6 +37,19 @@ class AffiliateProgramStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class AffiliateLinkTargetStatus(StrEnum):
+    """AffiliateLinkTarget の状態 (control-plane)。
+
+    active    : 将来 runtime projection の対象になりうる
+    disabled  : 意図的に利用不可
+    superseded: より新しい immutable target に置き換えられた
+    """
+
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    SUPERSEDED = "superseded"
+
+
 class KeywordSignalComponent(StrEnum):
     """Keyword Signal が根拠となる Opportunity Score の component。
 

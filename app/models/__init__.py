@@ -1,3 +1,12 @@
+from app.models.affiliate_link_target import (
+    ALT_ACTIVE,
+    ALT_DISABLED,
+    ALT_STATUSES,
+    ALT_SUPERSEDED,
+    ALT_TERMINAL_STATUSES,
+    AffiliateLinkTarget,
+    alt_transition_allowed,
+)
 from app.models.affiliate_program import AffiliateProgram
 from app.models.article import Article
 from app.models.article_affiliate_program import ArticleAffiliateProgram
@@ -29,6 +38,7 @@ from app.models.draft_input_snapshot import (
     DraftInputSnapshot,
 )
 from app.models.enums import (
+    AffiliateLinkTargetStatus,
     AffiliateProgramStatus,
     ArticleStatus,
     KeywordSignalComponent,
@@ -64,6 +74,11 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "ALT_ACTIVE",
+    "ALT_DISABLED",
+    "ALT_STATUSES",
+    "ALT_SUPERSEDED",
+    "ALT_TERMINAL_STATUSES",
     "BUILDER_VERSION",
     "EXECUTION_MODES",
     "MODE_API",
@@ -85,6 +100,8 @@ __all__ = [
     "SC_IMPORT_STATUSES",
     "SC_IMPORT_TERMINAL_STATUSES",
     "SNAPSHOT_VERSION",
+    "AffiliateLinkTarget",
+    "AffiliateLinkTargetStatus",
     "AffiliateProgram",
     "AffiliateProgramStatus",
     "Article",
@@ -117,4 +134,5 @@ __all__ = [
     "WP_RUN_TERMINAL_STATUSES",
     "WordPressDraftRun",
     "WordPressPublicationRun",
+    "alt_transition_allowed",
 ]
