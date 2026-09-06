@@ -5,12 +5,58 @@ DB / network 非依存。provider 実装 (C1 で Google client) はこの型を�
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
 
 from app.exceptions import ExternalProviderDataError
 
 _PROVIDER = "search_console"
+
+
+def coerce_count(value: object, *, field: str) -> int:
+    """Google の double 型 count (clicks / impressions) を厳格に int へ変換する。
+
+    受理: 数値かつ bool でなく finite かつ >= 0 かつ数学的に整数 (0, 1, 1.0, 123.0)。
+    拒否: -1 / 1.5 / NaN / Infinity / "1" / True。
+    ``int(value)`` を検証前に呼ばない (切り捨て・丸めをしない)。
+    """
+
+    if isinstance(value, bool):
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is a bool")
+    if not isinstance(value, int | float):
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is not numeric")
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ExternalProviderDataError(_PROVIDER, f"row {field} is not finite")
+        if not value.is_integer():
+            raise ExternalProviderDataError(
+                _PROVIDER, f"row {field} is not an integral value"
+            )
+    if value < 0:
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is negative")
+    return int(value)
+
+
+def coerce_ratio(
+    value: object, *, field: str, low: float, high: float | None = None
+) -> float:
+    """Google の double 型 (ctr / position) を厳格に float へ変換する。
+
+    provider が返した浮動小数点値をそのまま保つ (CTR は再計算しない / position は
+    整数に丸めない)。bool / 非数値 / 非 finite / 範囲外は拒否する。
+    """
+
+    if isinstance(value, bool):
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is a bool")
+    if not isinstance(value, int | float):
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is not numeric")
+    v = float(value)
+    if not math.isfinite(v):
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is not finite")
+    if v < low or (high is not None and v > high):
+        raise ExternalProviderDataError(_PROVIDER, f"row {field} is out of range")
+    return v
 
 
 @dataclass(frozen=True)

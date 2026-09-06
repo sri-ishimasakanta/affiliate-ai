@@ -41,7 +41,7 @@ from app.repositories.search_console_metrics_repository import (
     SearchConsoleMetricsRepository,
 )
 from app.search_console.import_identity import (
-    V1_DIMENSION_SETS,
+    DIMENSION_SETS,
     compute_import_identity_hash,
     dimensions_json,
 )
@@ -49,6 +49,23 @@ from app.search_console.provider import SearchConsoleProvider
 from app.search_console.rows import validate_page_row, validate_query_row
 
 _RUN = "SearchConsoleImportRun"
+_PROVIDER = "search_console"
+
+
+def _assert_within_window(metric_date: date, *, start_date: date, end_date: date) -> None:
+    """provider 行の metric_date が要求した import window [start, end] 内か確認する。
+
+    境界は inclusive。範囲外の行を run に紐付けて永続化すると ImportRun の
+    provenance と metric の帰属が矛盾するため、永続化前に弾く。エラー文言に
+    token / credential / Authorization / 生レスポンスは含めない。
+    """
+
+    if metric_date < start_date or metric_date > end_date:
+        raise ExternalProviderDataError(
+            _PROVIDER,
+            f"provider row metric_date {metric_date.isoformat()} is outside the import "
+            f"window {start_date.isoformat()}..{end_date.isoformat()}",
+        )
 
 
 class SearchConsoleImportService:
@@ -162,8 +179,18 @@ class SearchConsoleImportService:
             )
             for r in page_rows:
                 validate_page_row(r)
+                _assert_within_window(
+                    r.metric_date,
+                    start_date=run.start_date,
+                    end_date=run.end_date,
+                )
             for r in query_rows:
                 validate_query_row(r)
+                _assert_within_window(
+                    r.metric_date,
+                    start_date=run.start_date,
+                    end_date=run.end_date,
+                )
         except (ExternalProviderError, ExternalProviderDataError) as exc:
             self._runs.mark_failed(
                 run,
@@ -200,7 +227,7 @@ class SearchConsoleImportService:
                 "property_uri": run.property_uri,
                 "start_date": run.start_date.isoformat(),
                 "end_date": run.end_date.isoformat(),
-                "dimension_sets": [list(d) for d in V1_DIMENSION_SETS],
+                "dimension_sets": [list(d) for d in DIMENSION_SETS],
                 "page_rows_received": len(page_rows),
                 "query_rows_received": len(query_rows),
                 "page_rows_upserted": page_upserted,

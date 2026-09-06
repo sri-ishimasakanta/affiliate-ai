@@ -309,6 +309,110 @@ def test_execute_empty_query_string_marks_failed(session: Session) -> None:
     assert _page_count(session) == 0  # nothing persisted on validation failure
 
 
+# ==================== import window integrity (C1-B.1) ==============
+_BEFORE = date(2026, 8, 31)  # < _D1
+_AFTER = date(2026, 9, 6)  # > _D2
+
+
+def test_execute_page_row_before_start_date_fails_no_metrics(session: Session) -> None:
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[_page(_BEFORE, _PAGE, 1, 10, 0.1, 5.0)], query_rows=[]
+    )
+    with pytest.raises(ExternalProviderDataError) as exc:
+        _svc(session).execute(run.id, provider=provider)
+    assert "outside the import window" in str(exc.value)
+    for banned in ("token", "Authorization", "private_key", "Bearer"):
+        assert banned not in str(exc.value)
+    assert session.get(SearchConsoleImportRun, run.id).status == "failed"
+    assert _page_count(session) == 0 and _query_count(session) == 0
+
+
+def test_execute_page_row_after_end_date_fails_no_metrics(session: Session) -> None:
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[_page(_AFTER, _PAGE, 1, 10, 0.1, 5.0)], query_rows=[]
+    )
+    with pytest.raises(ExternalProviderDataError):
+        _svc(session).execute(run.id, provider=provider)
+    assert session.get(SearchConsoleImportRun, run.id).status == "failed"
+    assert _page_count(session) == 0 and _query_count(session) == 0
+
+
+def test_execute_query_row_before_start_date_fails_no_metrics(session: Session) -> None:
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[_page(_D1, _PAGE, 1, 10, 0.1, 5.0)],
+        query_rows=[_query(_BEFORE, _PAGE, "q", 1, 10, 0.1, 5.0)],
+    )
+    with pytest.raises(ExternalProviderDataError):
+        _svc(session).execute(run.id, provider=provider)
+    assert session.get(SearchConsoleImportRun, run.id).status == "failed"
+    assert _page_count(session) == 0 and _query_count(session) == 0
+
+
+def test_execute_query_row_after_end_date_fails_no_metrics(session: Session) -> None:
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[_page(_D1, _PAGE, 1, 10, 0.1, 5.0)],
+        query_rows=[_query(_AFTER, _PAGE, "q", 1, 10, 0.1, 5.0)],
+    )
+    with pytest.raises(ExternalProviderDataError):
+        _svc(session).execute(run.id, provider=provider)
+    assert session.get(SearchConsoleImportRun, run.id).status == "failed"
+    assert _page_count(session) == 0 and _query_count(session) == 0
+
+
+def test_execute_page_rows_on_inclusive_boundaries_are_accepted(session: Session) -> None:
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[
+            _page(_D1, _PAGE + "a/", 1, 10, 0.1, 5.0),  # == start_date
+            _page(_D2, _PAGE + "b/", 2, 20, 0.1, 6.0),  # == end_date
+        ],
+        query_rows=[],
+    )
+    out = _svc(session).execute(run.id, provider=provider)
+    assert out.status == "succeeded"
+    assert _page_count(session) == 2
+
+
+def test_execute_query_rows_on_inclusive_boundaries_are_accepted(session: Session) -> None:
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[_page(_D1, _PAGE, 1, 10, 0.1, 5.0)],
+        query_rows=[
+            _query(_D1, _PAGE, "start q", 1, 10, 0.1, 5.0),
+            _query(_D2, _PAGE, "end q", 1, 10, 0.1, 5.0),
+        ],
+    )
+    out = _svc(session).execute(run.id, provider=provider)
+    assert out.status == "succeeded"
+    assert _query_count(session) == 2
+
+
+def test_execute_out_of_window_query_row_leaves_no_partial_page_metrics(
+    session: Session,
+) -> None:
+    """valid な page 行があっても、window 外の query 行があれば page も永続化されない。"""
+
+    run = _prepare(session)
+    provider = FakeSearchConsoleProvider(
+        page_rows=[
+            _page(_D1, _PAGE + "a/", 1, 10, 0.1, 5.0),
+            _page(_D2, _PAGE + "b/", 2, 20, 0.1, 6.0),
+        ],
+        query_rows=[_query(_AFTER, _PAGE, "late q", 9, 99, 0.09, 3.0)],
+    )
+    with pytest.raises(ExternalProviderDataError):
+        _svc(session).execute(run.id, provider=provider)
+    persisted = session.get(SearchConsoleImportRun, run.id)
+    assert persisted.status == "failed"
+    assert persisted.page_rows_upserted is None
+    assert _page_count(session) == 0
+    assert _query_count(session) == 0
+
+
 # ==================== lifecycle guards ==============================
 def test_execute_missing_run_404(session: Session) -> None:
     with pytest.raises(EntityNotFoundError):

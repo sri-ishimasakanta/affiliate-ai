@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 
 import pytest
 
+from app.article.draft_input_canonical import canonical_json
 from app.models.search_console_import_run import (
     SC_IMPORT_CANCELLED,
     SC_IMPORT_FAILED,
@@ -17,12 +19,28 @@ from app.models.search_console_import_run import (
     sc_import_transition_allowed,
 )
 from app.search_console.import_identity import (
-    V1_DIMENSION_SETS,
+    AGGREGATION_TYPE,
+    DATA_STATE,
+    DIMENSION_SETS,
+    IMPORT_VERSION,
+    PAGE_DIMENSIONS,
+    QUERY_DIMENSIONS,
+    SEARCH_TYPE,
     compute_import_identity_hash,
     dimensions_json,
 )
 
 _PROP = "sc-domain:example.test"
+
+
+def test_v2_contract_constants() -> None:
+    assert SEARCH_TYPE == "web"
+    assert AGGREGATION_TYPE == "auto"
+    assert DATA_STATE == "final"
+    assert IMPORT_VERSION == 2
+    assert PAGE_DIMENSIONS == ("date", "page")
+    assert QUERY_DIMENSIONS == ("date", "page", "query")
+    assert DIMENSION_SETS == (PAGE_DIMENSIONS, QUERY_DIMENSIONS)
 
 
 def test_dimensions_json_is_canonical_and_stable() -> None:
@@ -69,8 +87,49 @@ def test_import_identity_hash_changes_per_component() -> None:
     )
 
 
-def test_v1_dimension_sets_shape() -> None:
-    assert V1_DIMENSION_SETS == (("date", "page"), ("date", "page", "query"))
+def test_v2_identity_differs_from_old_bypage_v1_semantics() -> None:
+    """byPage / import_version=1 / dataState 無し の旧 identity とはハッシュが変わる。"""
+
+    current = compute_import_identity_hash(
+        property_uri=_PROP, start_date=date(2026, 9, 1), end_date=date(2026, 9, 6)
+    )
+    old_identity = {
+        "property_uri": _PROP,
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-06",
+        "dimension_sets": [["date", "page"], ["date", "page", "query"]],
+        "search_type": "web",
+        "aggregation_type": "byPage",
+        "import_version": 1,
+    }
+    old_hash = hashlib.sha256(
+        canonical_json(old_identity).encode("utf-8")
+    ).hexdigest()
+    assert current != old_hash
+
+
+def test_v2_identity_binds_aggregation_and_datastate() -> None:
+    """identity 本体に aggregationType=auto / dataState=final / version=2 が入る。"""
+
+    current = compute_import_identity_hash(
+        property_uri=_PROP, start_date=date(2026, 9, 1), end_date=date(2026, 9, 6)
+    )
+    expected = hashlib.sha256(
+        canonical_json(
+            {
+                "property_uri": _PROP,
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-06",
+                "page_dimensions": ["date", "page"],
+                "query_dimensions": ["date", "page", "query"],
+                "search_type": "web",
+                "aggregation_type": "auto",
+                "data_state": "final",
+                "import_version": 2,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
+    assert current == expected
 
 
 @pytest.mark.parametrize(

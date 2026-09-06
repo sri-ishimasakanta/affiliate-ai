@@ -13,6 +13,7 @@ dependencies = [
     "mistune>=3.3.4",
     "pydantic-settings>=2.15.0",
     "sqlalchemy>=2.0",
+    "tzdata>=2026.3",
 ]
 
 [dependency-groups]
