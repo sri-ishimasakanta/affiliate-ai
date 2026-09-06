@@ -23,6 +23,8 @@ from app.wordpress.schemas import (
     WordPressDraftRunRead,
     WordPressDraftRunSummaryRead,
     WordPressPreviewResponse,
+    WordPressPublicationRunExecuteRequest,
+    WordPressPublicationRunExecuteResponse,
     WordPressPublicationRunPrepareRequest,
     WordPressPublicationRunPrepareResponse,
     WordPressPublicationRunRead,
@@ -254,3 +256,24 @@ def get_wordpress_publication_run(
     article_id: int, run_id: int, service: WordPressPublicationRunServiceDep
 ) -> WordPressPublicationRunRead:
     return _wp_pubrun_detail(service.get(article_id, run_id))
+
+
+@router.post(
+    "/{article_id}/wordpress-publication-runs/{run_id}/execute",
+    response_model=WordPressPublicationRunExecuteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="prepared publication run を実行し、WordPress へ厳密に 1 回だけ publish POST を送る",
+)
+def execute_wordpress_publication_run(
+    article_id: int,
+    run_id: int,
+    payload: WordPressPublicationRunExecuteRequest,
+    service: WordPressPublicationRunServiceDep,
+) -> WordPressPublicationRunExecuteResponse:
+    return service.execute(
+        article_id,
+        run_id,
+        expected_target_publication_request_identity_hash=(
+            payload.expected_target_publication_request_identity_hash
+        ),
+    )

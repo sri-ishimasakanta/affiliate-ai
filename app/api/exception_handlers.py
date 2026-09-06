@@ -36,9 +36,14 @@ from app.exceptions import (
     RenderedCandidateChangedError,
     SnapshotInputChangedError,
     WordPressAmbiguousOutcomeError,
+    WordPressAmbiguousPublishOutcomeError,
     WordPressDraftRunStateError,
     WordPressExternalCreateLocalPersistFailedError,
+    WordPressPublicationExternalSuccessLocalPersistFailedError,
+    WordPressPublicationPreflightError,
+    WordPressPublicationReadbackFailedError,
     WordPressPublicationRunConflictError,
+    WordPressPublicationRunExecutionError,
     WordPressPublicationRunPreparationError,
     WordPressTargetError,
 )
@@ -65,6 +70,31 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
         "wordpress_publication_run_preparation_error",
     ),
     (WordPressPublicationRunConflictError, 409, "wordpress_publication_run_conflict"),
+    (
+        WordPressPublicationRunExecutionError,
+        409,
+        "wordpress_publication_run_execution_error",
+    ),
+    (
+        WordPressPublicationPreflightError,
+        409,
+        "wordpress_publication_preflight_error",
+    ),
+    (
+        WordPressAmbiguousPublishOutcomeError,
+        502,
+        "wordpress_ambiguous_publish_outcome",
+    ),
+    (
+        WordPressPublicationReadbackFailedError,
+        500,
+        "external_publish_confirmed_readback_failed",
+    ),
+    (
+        WordPressPublicationExternalSuccessLocalPersistFailedError,
+        500,
+        "external_publish_succeeded_local_persist_failed",
+    ),
     (WordPressTargetError, 422, "wordpress_target_invalid"),
     (WordPressAmbiguousOutcomeError, 502, "wordpress_ambiguous_outcome"),
     (

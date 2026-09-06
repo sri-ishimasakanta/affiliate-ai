@@ -264,6 +264,67 @@ class WordPressPublicationRunConflictError(ApplicationError):
         self.reason = reason
 
 
+class WordPressPublicationRunExecutionError(ApplicationError):
+    """WordPressPublicationRun の execute を許さない state にある (WordPress 通信前の guard
+    失敗、または既に running/terminal な run への再実行要求)。credential は含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress publication run execution error: {reason}")
+        self.reason = reason
+
+
+class WordPressPublicationPreflightError(ApplicationError):
+    """execute 直前の read-only preflight GET が期待外の WordPress post state を報告した
+    (post 不在 / id 不一致 / status が draft でない / title・slug・excerpt drift /
+    content.raw hash drift / category 未設定 など)。publish POST は送らない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress publication preflight error: {reason}")
+        self.reason = reason
+
+
+class WordPressAmbiguousPublishOutcomeError(ApplicationError):
+    """publish POST 送信後、timeout / 接続断でレスポンスを受け取れず、WordPress 側で
+    publish が成功したか不明 (定義的な 4xx/5xx とは区別する)。絶対に自動再送しない。
+    Human が WordPress を直接確認してから判断する。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(f"ambiguous_wordpress_publish_outcome: {message}")
+
+
+class WordPressPublicationReadbackFailedError(ApplicationError):
+    """publish POST は 200/status=publish で成功が確認できたが、その後の read-back GET が
+    失敗した (timeout / 接続断 / 期待外レスポンス)。external publication 成功は既知。
+    絶対に再 POST しない。durable run は running のまま。Human reconciliation が必要。
+    """
+
+    def __init__(self, wordpress_post_id: str) -> None:
+        super().__init__(
+            "external_publish_confirmed_readback_failed: "
+            f"wordpress_post_id={wordpress_post_id!r} is published on WordPress but the "
+            "read-back could not confirm it; do not retry; Human reconciliation required"
+        )
+        self.wordpress_post_id = wordpress_post_id
+
+
+class WordPressPublicationExternalSuccessLocalPersistFailedError(ApplicationError):
+    """publish POST + read-back の両方で publish 成功が確認できたが、ローカル DB の
+    finalization commit に失敗した。WordPress 側は publish 済み。絶対に再 POST しない。
+    durable run は running のまま。Human reconciliation が必要。
+    """
+
+    def __init__(self, wordpress_post_id: str) -> None:
+        super().__init__(
+            "external_publish_succeeded_local_persist_failed: "
+            f"wordpress_post_id={wordpress_post_id!r} is published on WordPress but local "
+            "finalization failed; do not retry; Human reconciliation required"
+        )
+        self.wordpress_post_id = wordpress_post_id
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

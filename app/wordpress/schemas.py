@@ -266,3 +266,36 @@ class WordPressPublicationRunSummaryRead(BaseModel):
 class WordPressPublicationRunRead(WordPressPublicationRunSummaryRead):
     publish_payload_json: str
     response_snapshot: dict | None
+
+
+# --- WordPressPublicationRun execute (実 WordPress publish) ----------------
+
+
+class WordPressPublicationRunExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # prepare 時に Human が承認した target_publication_request_identity_hash と一致しなければ拒否。
+    expected_target_publication_request_identity_hash: str = Field(
+        min_length=64, max_length=64
+    )
+
+
+class WordPressPublicationRunExecuteResponse(BaseModel):
+    run_id: int
+    status: str  # 成功時は常に "succeeded" (失敗は例外 -> HTTP エラーで返る)
+    article_id: int
+
+    target_base_url: str
+    target_publication_request_identity_hash: str
+
+    wordpress_post_id: str
+    wordpress_post_status: str
+    wordpress_post_url: str
+    published_at_source: str
+
+    article_status: str
+    article_published_url: str
+    article_published_at: datetime
+
+    started_at: datetime
+    finished_at: datetime

@@ -6,15 +6,19 @@ scope:
 - 凍結済み payload をそのまま送る draft 作成 POST 1 種のみ
   (``POST /wp-json/wp/v2/posts``, status は必ず ``draft``)
 - 作成後の read-back read-only GET (``GET /wp-json/wp/v2/posts/{id}``)
+- 既存 post を publish する POST 1 種のみ
+  (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"status":"publish"}``)
 
-publish / update / delete / bulk create / media upload は一切実装しない。
+generic update / delete / bulk / media upload / 任意 status 設定 / content・title・
+category 変更は一切実装しない。
 
 credential (username / app password) は ``httpx.BasicAuth`` を通じてのみ transport 層へ
 渡し、このモジュールの外へ Authorization 値を一切構築・露出しない。エラーメッセージには
 credential・レスポンス本文・環境変数を含めない。
 
-create の POST は :func:`WordPressClient.create_draft_post_exact` が 1 回だけ送る。
-自動リトライは一切行わない (呼び出し側も含め、このモジュールはリトライ機構を持たない)。
+書き込み POST は :func:`WordPressClient.create_draft_post_exact` /
+:func:`WordPressClient.publish_existing_post_exact` が 1 回だけ送る。自動リトライは一切
+行わない (呼び出し側も含め、このモジュールはリトライ機構を持たない)。
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ _TIMEOUT_SECONDS = 10.0
 _USERS_ME_PATH = "/wp-json/wp/v2/users/me"
 _POSTS_PATH = "/wp-json/wp/v2/posts"
 _DRAFT_STATUS = "draft"
+_PUBLISH_STATUS = "publish"
 
 # WordPress core: draft を作成 (公開はしない) するのに必要な最小 capability。
 _DRAFT_CREATE_CAPABILITY_KEYS = ("edit_posts",)
@@ -63,6 +68,16 @@ class WordPressCreatedPost(BaseModel):
     status: str
     slug: str
     link: str | None
+
+
+class WordPressPublishedPost(BaseModel):
+    """publish_existing_post_exact() の安全な戻り値。credential・生 response は含まない。"""
+
+    id: int
+    status: str
+    link: str
+    slug: str | None
+    date_gmt: str | None
 
 
 class WordPressClient:
@@ -190,6 +205,63 @@ class WordPressClient:
             link=str(link) if isinstance(link, str) else None,
         )
 
+    def publish_existing_post_exact(
+        self, wordpress_post_id: int, publish_payload_json: str
+    ) -> WordPressPublishedPost:
+        """既存 post を publish する。``POST /wp-json/wp/v2/posts/{id}`` を **1 回だけ**。
+
+        - body は exact な frozen bytes (``content=`` で送る。``json=`` は使わない)。
+        - payload は logically ちょうど ``{"status":"publish"}`` でなければ拒否
+          (title / content / excerpt / slug / date / date_gmt / categories / meta /
+          author など第 2 のキーが 1 つでもあれば ``ValueError``)。この client は
+          別の WordPress mutation を構造的に行えない。
+        - リトライは一切しない。timeout / 接続断はレスポンス未確定として
+          :class:`WordPressAmbiguousOutcomeError` を送出する。
+        """
+
+        _assert_exact_publish_payload(publish_payload_json)
+
+        body = publish_payload_json.encode("utf-8")
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_POSTS_PATH}/{wordpress_post_id}",
+            content=body,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        data = _expect_json_object(_check_status(response, expected_status=200))
+
+        post_id = data.get("id")
+        wp_status = data.get("status")
+        link = data.get("link")
+        slug = data.get("slug")
+        date_gmt = data.get("date_gmt")
+
+        if post_id != wordpress_post_id:
+            raise ExternalProviderError(
+                _PROVIDER,
+                f"publish response post id {post_id!r} != expected {wordpress_post_id!r}",
+            )
+        if wp_status != _PUBLISH_STATUS:
+            raise ExternalProviderError(
+                _PROVIDER, f"unexpected post status {wp_status!r} (expected publish)"
+            )
+        link_ok = isinstance(link, str) and (
+            link == self._base_url or link.startswith(f"{self._base_url}/")
+        )
+        if not link_ok:
+            raise ExternalProviderError(
+                _PROVIDER, "publish response link is missing or not same-origin https"
+            )
+
+        return WordPressPublishedPost(
+            id=post_id,
+            status=str(wp_status),
+            link=link,
+            slug=str(slug) if isinstance(slug, str) else None,
+            date_gmt=str(date_gmt) if isinstance(date_gmt, str) and date_gmt else None,
+        )
+
     # -- transport --------------------------------------------------------
     def _send(
         self,
@@ -234,6 +306,23 @@ class WordPressClient:
                     "request failed; WordPress outcome unknown"
                 ) from exc
             raise ExternalProviderError(_PROVIDER, "request failed") from exc
+
+
+def _assert_exact_publish_payload(publish_payload_json: str) -> None:
+    """logically ちょうど ``{"status":"publish"}`` であることを検証する。
+
+    それ以外 (第 2 のキー / 別の status 値 / dict でない) は ``ValueError``。
+    """
+
+    parsed = json.loads(publish_payload_json)
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != {"status"}
+        or parsed.get("status") != _PUBLISH_STATUS
+    ):
+        raise ValueError(
+            "publish_existing_post_exact only accepts an exact {\"status\":\"publish\"} payload"
+        )
 
 
 def _check_status(response: httpx.Response, *, expected_status: int) -> httpx.Response:

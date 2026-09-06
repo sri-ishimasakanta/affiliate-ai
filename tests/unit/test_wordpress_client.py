@@ -199,7 +199,10 @@ def test_non_https_target_rejected_before_any_network_call() -> None:
         _client(handler, wordpress_base_url="http://wp.example.test")
 
 
-# -- API surface: only the one approved write operation ------------------
+_PUBLISH_PAYLOAD_JSON = '{"status":"publish"}'
+
+
+# -- API surface: only the two approved write operations -----------------
 def test_client_exposes_only_approved_operations() -> None:
     public_attrs = {name for name in dir(WordPressClient) if not name.startswith("_")}
     assert public_attrs == {
@@ -207,11 +210,13 @@ def test_client_exposes_only_approved_operations() -> None:
         "find_draft_posts_by_slug",
         "get_post",
         "create_draft_post_exact",
+        "publish_existing_post_exact",
         "target_base_url",
     }
     forbidden_names = (
         "update_post", "delete_post", "publish_post",
         "bulk_create", "upload_media", "publish", "put", "patch", "delete",
+        "set_status", "update_content",
     )
     for forbidden in forbidden_names:
         assert forbidden not in public_attrs
@@ -395,3 +400,142 @@ def test_get_post_returns_parsed_json() -> None:
     data = _client(handler).get_post(42)
     assert data["id"] == 42
     assert data["status"] == "draft"
+
+
+# ==================== publish_existing_post_exact =========================
+_PUB_OK = {
+    "id": 25, "status": "publish", "slug": "s",
+    "link": "https://wp.example.test/?p=25",
+    "date_gmt": "2026-09-06T13:45:12",
+}
+
+
+def test_publish_sends_exact_bytes_endpoint_and_content_type() -> None:
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["content_type"] = request.headers.get("content-type")
+        seen["body"] = request.content
+        seen["headers"] = {k.lower() for k in request.headers.keys()}
+        return httpx.Response(200, json=_PUB_OK)
+
+    result = _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/wp-json/wp/v2/posts/25"
+    assert seen["content_type"] == "application/json; charset=utf-8"
+    assert seen["body"] == b'{"status":"publish"}'
+    import hashlib
+    assert hashlib.sha256(seen["body"]).hexdigest() == \
+        "dab7748c3198a299a28dbe21850c004280bd53a5ef6f4e21658a04c80e332460"
+    assert "authorization" in seen["headers"]
+    assert result.id == 25 and result.status == "publish"
+    assert result.link == "https://wp.example.test/?p=25"
+    assert result.date_gmt == "2026-09-06T13:45:12"
+
+
+def test_publish_rejects_extra_payload_field() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("must not be called for a non-exact payload")
+
+    for bad in (
+        '{"status":"publish","title":"x"}',
+        '{"status":"publish","content":"x"}',
+        '{"status":"draft"}',
+        '{"status":"publish","date_gmt":"2026-01-01T00:00:00"}',
+        '{"foo":"bar"}',
+        '{}',
+    ):
+        with pytest.raises(ValueError):
+            _client(handler).publish_existing_post_exact(25, bad)
+
+
+def test_publish_200_publish_parsed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_PUB_OK)
+
+    r = _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert r.status == "publish"
+
+
+def test_publish_unexpected_returned_id_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**_PUB_OK, "id": 99})
+
+    with pytest.raises(ExternalProviderError) as e:
+        _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert "99" in str(e.value)
+
+
+def test_publish_unexpected_returned_status_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**_PUB_OK, "status": "draft"})
+
+    with pytest.raises(ExternalProviderError) as e:
+        _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert "publish" in str(e.value)
+
+
+def test_publish_cross_origin_link_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**_PUB_OK, "link": "https://evil.example/x"})
+
+    with pytest.raises(ExternalProviderError):
+        _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+
+
+def test_publish_401_403_500_sanitized_no_credentials() -> None:
+    for code in (401, 403, 500):
+        def handler(request: httpx.Request, _c=code) -> httpx.Response:
+            return httpx.Response(_c, json={"code": "x"})
+
+        with pytest.raises(ExternalProviderError) as e:
+            _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+        assert _USERNAME not in str(e.value)
+        assert _APP_PASSWORD not in str(e.value)
+
+
+def test_publish_redirect_blocked() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "https://evil.example/x"})
+
+    with pytest.raises(ExternalProviderError) as e:
+        _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert "redirect" in str(e.value)
+
+
+def test_publish_timeout_is_ambiguous_one_attempt() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.TimeoutException("simulated timeout")
+
+    with pytest.raises(WordPressAmbiguousOutcomeError):
+        _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert calls["n"] == 1
+
+
+def test_publish_connection_loss_is_ambiguous_one_attempt() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("simulated connection drop")
+
+    with pytest.raises(WordPressAmbiguousOutcomeError):
+        _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert calls["n"] == 1
+
+
+def test_publish_exactly_one_post_on_success() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        assert request.method == "POST"
+        return httpx.Response(200, json=_PUB_OK)
+
+    _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
+    assert calls["n"] == 1
