@@ -1,0 +1,32 @@
+{
+  "description": "HMAC v1 vectors; PHP BFL_Hmac::verify must accept each",
+  "max_skew_seconds": 300,
+  "note": "synthetic secret; never a production value",
+  "shared_secret": "synthetic-shared-secret-for-fixtures-only",
+  "vectors": [
+    {
+      "body_sha256": "019ac81aeaceee4153c5e477492bb27965210e24764d1ba1cbe50ac67e617b4d",
+      "body_utf8": "{\"schema_version\":1,\"targets\":[]}",
+      "method": "POST",
+      "signature": "687a5ef3b10dbb879ffde657bcf3809daf0d5fd9578da48fd815d0e79290fb75",
+      "signed_path": "/wp-json/affiliate-ai/v1/target-projections",
+      "timestamp": 1760000000
+    },
+    {
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "body_utf8": "",
+      "method": "GET",
+      "signature": "cd3238e686c94be5401b745e92d83d2d6cf71c13b5b153be2c63cd79bdd01cd4",
+      "signed_path": "/wp-json/affiliate-ai/v1/outbound-clicks?limit=1000&since_id=0",
+      "timestamp": 1760000123
+    },
+    {
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "body_utf8": "",
+      "method": "GET",
+      "signature": "50b0f480a7166eb15e81866116f8554430b57b34912ec3c9bcdc4d3f75b389e1",
+      "signed_path": "/wp-json/affiliate-ai/v1/outbound-clicks?limit=50&since_id=987",
+      "timestamp": 1760000999
+    }
+  ]
+}

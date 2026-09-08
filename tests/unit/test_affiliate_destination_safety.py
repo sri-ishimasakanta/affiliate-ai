@@ -73,6 +73,17 @@ def test_whitespace_and_control_chars_rejected(url: str) -> None:
         validate_destination_url(url)
 
 
+@pytest.mark.parametrize("cp", [0x2028, 0x2029])
+def test_unicode_line_and_paragraph_separators_rejected(cp: int) -> None:
+    # D-C0.1: both runtimes forbid U+2028 / U+2029 in the destination URL so
+    # there is no silent canonical-JSON serialization difference between the
+    # Python control plane and the PHP runtime. str.isspace() catches them here;
+    # BFL_Destination_Validator's regex catches them in PHP.
+    url = "https://affiliate.example.test/a" + chr(cp) + "b"
+    with pytest.raises(AffiliateDestinationError):
+        validate_destination_url(url)
+
+
 @pytest.mark.parametrize("url", ["https:///x", "https://", "https://:443/x"])
 def test_missing_or_invalid_host_rejected(url: str) -> None:
     with pytest.raises(AffiliateDestinationError):

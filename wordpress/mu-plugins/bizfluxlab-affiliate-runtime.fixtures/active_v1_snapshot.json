@@ -1,0 +1,32 @@
+{
+  "description": "one active ASCII-host target (version 1)",
+  "expected": {
+    "entries": [
+      {
+        "projection_entry_hash": "44f07f6ec44a9098d8bd45cdddc2b51f3f45149b3e80d6aaba71358810963818",
+        "projection_version": 1,
+        "status": "active",
+        "token": "AAAA0000tokenone00000"
+      }
+    ],
+    "projection_snapshot_hash": "7b45352eaf2d24e1efe4f680a187b2656936fcf8d218a5543b03d6fc71de744a"
+  },
+  "note": "synthetic fixture; no real ASP URL / no production token",
+  "request_body": {
+    "projection_snapshot_hash": "7b45352eaf2d24e1efe4f680a187b2656936fcf8d218a5543b03d6fc71de744a",
+    "schema_version": 1,
+    "targets": [
+      {
+        "activated_at": "2026-09-01T12:00:00+00:00",
+        "destination_host": "aff.example.test",
+        "destination_url": "https://aff.example.test/track/x?a8mat=SYNTH1&utm_source=n#f",
+        "disabled_at": null,
+        "link_identity_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "projection_entry_hash": "44f07f6ec44a9098d8bd45cdddc2b51f3f45149b3e80d6aaba71358810963818",
+        "projection_version": 1,
+        "status": "active",
+        "token": "AAAA0000tokenone00000"
+      }
+    ]
+  }
+}

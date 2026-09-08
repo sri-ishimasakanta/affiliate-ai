@@ -37,6 +37,21 @@ def body_sha256(body: bytes) -> str:
     return hashlib.sha256(bytes(body)).hexdigest()
 
 
+def canonical_request_target(base_path: str, params: dict[str, str | int]) -> str:
+    """署名対象に使う deterministic な request target (``path?key=v&key=v``)。
+
+    query パラメータをキー昇順で並べ、値は文字列化して連結する。cursor
+    (``since_id`` 等) を署名文字列に確実に束縛するために使う。呼び出し側は
+    **実効値 (default 適用後)** を渡し、server は同じ規則で再構築して検証する。
+    空 params なら ``base_path`` をそのまま返す。
+    """
+
+    if not params:
+        return base_path
+    ordered = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    return f"{base_path}?{ordered}"
+
+
 def build_signing_string(
     *, method: str, path: str, timestamp: int, body_sha256_hex: str
 ) -> str:

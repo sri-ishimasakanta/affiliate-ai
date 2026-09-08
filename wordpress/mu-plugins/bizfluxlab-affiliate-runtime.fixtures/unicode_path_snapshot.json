@@ -1,0 +1,32 @@
+{
+  "description": "active target whose URL path/query contains non-ASCII (host stays ASCII)",
+  "expected": {
+    "entries": [
+      {
+        "projection_entry_hash": "605f5b7a24519b5c89c2007c12cc182f8a63f42e5fd19d9130402bb4db9dc603",
+        "projection_version": 1,
+        "status": "active",
+        "token": "CCCC0000tokenthree000"
+      }
+    ],
+    "projection_snapshot_hash": "e8bb05c4434e10a1a2c228c572017bb0dcfcffdfee41f1a5ea65e1f82da9b407"
+  },
+  "note": "synthetic fixture; no real ASP URL / no production token",
+  "request_body": {
+    "projection_snapshot_hash": "e8bb05c4434e10a1a2c228c572017bb0dcfcffdfee41f1a5ea65e1f82da9b407",
+    "schema_version": 1,
+    "targets": [
+      {
+        "activated_at": "2026-09-01T12:00:00+00:00",
+        "destination_host": "aff.example.test",
+        "destination_url": "https://aff.example.test/検索/日本語?q=あ&x=1#フラグ",
+        "disabled_at": null,
+        "link_identity_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "projection_entry_hash": "605f5b7a24519b5c89c2007c12cc182f8a63f42e5fd19d9130402bb4db9dc603",
+        "projection_version": 1,
+        "status": "active",
+        "token": "CCCC0000tokenthree000"
+      }
+    ]
+  }
+}

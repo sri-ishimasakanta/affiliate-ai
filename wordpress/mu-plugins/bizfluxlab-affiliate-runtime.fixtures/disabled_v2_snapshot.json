@@ -1,0 +1,32 @@
+{
+  "description": "one disabled target (version 2)",
+  "expected": {
+    "entries": [
+      {
+        "projection_entry_hash": "7c6ab0e0ea38802a48fb61debb65d9a86af1559db2fdcf5d98bcf630a051f44e",
+        "projection_version": 2,
+        "status": "disabled",
+        "token": "BBBB0000tokentwo00000"
+      }
+    ],
+    "projection_snapshot_hash": "f628a943b86e24c3f1edc0e86bf9f24be4938061aa0f7d2682b6c66c8d9698da"
+  },
+  "note": "synthetic fixture; no real ASP URL / no production token",
+  "request_body": {
+    "projection_snapshot_hash": "f628a943b86e24c3f1edc0e86bf9f24be4938061aa0f7d2682b6c66c8d9698da",
+    "schema_version": 1,
+    "targets": [
+      {
+        "activated_at": "2026-09-01T12:00:00+00:00",
+        "destination_host": "aff.example.test",
+        "destination_url": "https://aff.example.test/track/x?a8mat=SYNTH1&utm_source=n#f",
+        "disabled_at": "2026-09-03T09:30:00+00:00",
+        "link_identity_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+        "projection_entry_hash": "7c6ab0e0ea38802a48fb61debb65d9a86af1559db2fdcf5d98bcf630a051f44e",
+        "projection_version": 2,
+        "status": "disabled",
+        "token": "BBBB0000tokentwo00000"
+      }
+    ]
+  }
+}

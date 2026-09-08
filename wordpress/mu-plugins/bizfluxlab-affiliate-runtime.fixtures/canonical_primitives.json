@@ -1,0 +1,111 @@
+{
+  "cases": [
+    {
+      "canonical_json": "\"plain ascii value\"",
+      "canonical_json_sha256": "a1acd17df7e8a90d1205b6e2946ebde7e61f7053214d2f496ad9a6422accff35",
+      "name": "ascii_string",
+      "value": "plain ascii value"
+    },
+    {
+      "canonical_json": "\"https://a.example/x/y?q=1#f\"",
+      "canonical_json_sha256": "5fbc55bc7f87c9aa8b70c27e8cdf7dcc6f117054845a474df3caee444b4a6189",
+      "name": "slash_not_escaped",
+      "value": "https://a.example/x/y?q=1#f"
+    },
+    {
+      "canonical_json": "\"a \\\"quote\\\" and a \\\\ backslash\"",
+      "canonical_json_sha256": "f70e814cef8afc3d3c82971034a3af35422a58d160268ba20f70398074f20575",
+      "name": "quote_and_backslash",
+      "value": "a \"quote\" and a \\ backslash"
+    },
+    {
+      "canonical_json": "\"日本語 検索 テスト\"",
+      "canonical_json_sha256": "f7c910e487ad721770874763ec29e534d18176e7d271048428b4ec23a2140e49",
+      "name": "cjk_raw_utf8",
+      "value": "日本語 検索 テスト"
+    },
+    {
+      "canonical_json": "\"before after\"",
+      "canonical_json_sha256": "f56c9f1460daacf2d0998a2f5810b35be4d2f5c296b0f9c9a768ad1a6c1e68ec",
+      "name": "u2028_line_separator",
+      "value": "before after"
+    },
+    {
+      "canonical_json": "\"x y\"",
+      "canonical_json_sha256": "e163c124cdca7a7bffa11dfac8dfb783c058312db504d3525ad05aed0735c5ef",
+      "name": "u2029_paragraph_separator",
+      "value": "x y"
+    },
+    {
+      "canonical_json": "\"tab\\tnewline\\nend\"",
+      "canonical_json_sha256": "4e1ec2dedaa36f5e127c2ceb42242ae4d136e427f7f720c67fa424ace2d70a06",
+      "name": "control_char_escaped",
+      "value": "tab\tnewline\nend"
+    },
+    {
+      "canonical_json": "{\"A\":4,\"_z\":3,\"a\":1,\"b\":2}",
+      "canonical_json_sha256": "cbb77d6ae4b5012a7d633ac1b7cf655f90ef63208f004345cb785a041c2ad534",
+      "name": "key_sort",
+      "value": {
+        "A": 4,
+        "_z": 3,
+        "a": 1,
+        "b": 2
+      }
+    },
+    {
+      "canonical_json": "[\"z\",\"a\",\"m\",\"a\"]",
+      "canonical_json_sha256": "336f6b18bebac1ab33484552fad3256a5832a13c496c1b08478847c61d8c50cb",
+      "name": "list_order_preserved",
+      "value": [
+        "z",
+        "a",
+        "m",
+        "a"
+      ]
+    },
+    {
+      "canonical_json": "{\"i\":42,\"n\":null,\"zero\":0}",
+      "canonical_json_sha256": "621b414011ed3ae871fea440fb024f7e0255a4ed226b8f1c7a4bdf2801bcd069",
+      "name": "null_and_int",
+      "value": {
+        "i": 42,
+        "n": null,
+        "zero": 0
+      }
+    },
+    {
+      "canonical_json": "{\"arr\":[{\"k\":\"v\"},{\"a\":null}],\"nested\":{\"x\":2,\"y\":1}}",
+      "canonical_json_sha256": "185bc97bf273cebc5e3fd423b2add86ce5750d0ebd41185b0bdbd9fc5da56d05",
+      "name": "nested",
+      "value": {
+        "arr": [
+          {
+            "k": "v"
+          },
+          {
+            "a": null
+          }
+        ],
+        "nested": {
+          "x": 2,
+          "y": 1
+        }
+      }
+    },
+    {
+      "canonical_json": "{}",
+      "canonical_json_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "name": "empty_object",
+      "value": {}
+    },
+    {
+      "canonical_json": "[]",
+      "canonical_json_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "name": "empty_list",
+      "value": []
+    }
+  ],
+  "description": "direct BFL_Canonical::encode parity vectors; PHP recomputes sha256(encode(value)) and must equal canonical_json_sha256",
+  "note": "synthetic; exercises U+2028/U+2029 raw-UTF-8 emission"
+}

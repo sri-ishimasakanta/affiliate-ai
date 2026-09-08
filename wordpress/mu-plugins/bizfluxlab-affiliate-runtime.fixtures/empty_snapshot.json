@@ -1,0 +1,13 @@
+{
+  "description": "empty snapshot",
+  "expected": {
+    "entries": [],
+    "projection_snapshot_hash": "019ac81aeaceee4153c5e477492bb27965210e24764d1ba1cbe50ac67e617b4d"
+  },
+  "note": "synthetic fixture; no real ASP URL / no production token",
+  "request_body": {
+    "projection_snapshot_hash": "019ac81aeaceee4153c5e477492bb27965210e24764d1ba1cbe50ac67e617b4d",
+    "schema_version": 1,
+    "targets": []
+  }
+}
