@@ -85,3 +85,20 @@ def test_search_console_configured_needs_property_and_credentials_file(
     assert full.search_console_configured is True
     # Settings は path しか持たない (secret 本体は持たない)
     assert full.search_console_credentials_file == fake_path
+
+
+def test_affiliate_runtime_push_configured_needs_base_url_and_secret(monkeypatch) -> None:
+    for key in ("WORDPRESS_BASE_URL", "AFFILIATE_RUNTIME_SHARED_SECRET"):
+        monkeypatch.delenv(key, raising=False)
+
+    unset = Settings(_env_file=None)
+    assert unset.affiliate_runtime_shared_secret is None
+    assert unset.affiliate_runtime_push_configured is False
+
+    monkeypatch.setenv("WORDPRESS_BASE_URL", "https://runtime.example.test")
+    base_only = Settings(_env_file=None)
+    assert base_only.affiliate_runtime_push_configured is False  # secret still missing
+
+    monkeypatch.setenv("AFFILIATE_RUNTIME_SHARED_SECRET", "synthetic-secret")
+    full = Settings(_env_file=None)
+    assert full.affiliate_runtime_push_configured is True

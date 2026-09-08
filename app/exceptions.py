@@ -361,6 +361,27 @@ class AffiliateLinkTargetError(ApplicationError):
         self.reason = reason
 
 
+class AffiliateProjectionPushError(ApplicationError):
+    """affiliate runtime (WordPress MU-plugin) への projection push が失敗した。
+
+    config 不足 / 署名不可 / 通信失敗 (結果不明) / サーバ拒否 / 200 レスポンス不整合。
+    shared secret / signature / 生 request body / destination URL はメッセージに
+    一切含めない。``server_code`` は既知の安全な machine code のみ。
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        http_status: int | None = None,
+        server_code: str | None = None,
+    ) -> None:
+        super().__init__(f"affiliate projection push error: {reason}")
+        self.reason = reason
+        self.http_status = http_status
+        self.server_code = server_code
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

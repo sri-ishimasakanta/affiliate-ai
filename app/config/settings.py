@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # secret 本体は Settings にも DB にも入れない。
     search_console_credentials_file: str | None = None
 
+    # Affiliate redirect runtime (WordPress MU-plugin, Phase 3C-5F-D)。
+    # base URL は wordpress_base_url を再利用する。共有 HMAC 鍵は projection を
+    # **push (execute)** するときだけ必須。plan / dry-run では不要。default は置かない。
+    # 実値は絶対に print / log / commit / CLI 出力 / test snapshot に含めない。
+    affiliate_runtime_shared_secret: str | None = None
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
@@ -86,6 +92,13 @@ class Settings(BaseSettings):
         (JSON の妥当性検証は :mod:`app.search_console.credentials` の責務)。"""
 
         return bool(self.search_console_property_uri and self.search_console_credentials_file)
+
+    @property
+    def affiliate_runtime_push_configured(self) -> bool:
+        """affiliate projection を WordPress runtime へ push (execute) するのに必要な
+        設定が揃っているか。dry-run / plan では不要。"""
+
+        return bool(self.wordpress_base_url and self.affiliate_runtime_shared_secret)
 
     @property
     def google_ads_configured(self) -> bool:
