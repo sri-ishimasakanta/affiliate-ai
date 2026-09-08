@@ -382,6 +382,27 @@ class AffiliateProjectionPushError(ApplicationError):
         self.server_code = server_code
 
 
+class AffiliateClickImportError(ApplicationError):
+    """WordPress runtime からの outbound click 取り込みが失敗した。
+
+    cursor integrity mismatch / config 不足 / 通信失敗 / サーバ拒否 / レスポンス不整合 /
+    source click drift / post-import cursor invariant 違反。shared secret / signature /
+    raw response body / headers / token 値 はメッセージに一切含めない。
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        http_status: int | None = None,
+        server_code: str | None = None,
+    ) -> None:
+        super().__init__(f"affiliate click import error: {reason}")
+        self.reason = reason
+        self.http_status = http_status
+        self.server_code = server_code
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

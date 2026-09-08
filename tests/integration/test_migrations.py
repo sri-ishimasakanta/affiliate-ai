@@ -409,3 +409,130 @@ def test_wordpress_draft_runs_table_shape_at_head(tmp_path: Path) -> None:
     assert ("idempotency_key",) in uniques
     assert ("articles", ("article_id",), "RESTRICT") in fks
     assert ("article_draft_promotions", ("source_promotion_id",), "RESTRICT") in fks
+
+
+# ---------------------------------------------------------------------------
+# Phase 3C-5F-D-C3-B1: outbound click import foundation (2 chained migrations)
+# ---------------------------------------------------------------------------
+_CLICK_RUNS_MIGRATION = "4cb3c9ea6507"  # add affiliate_click_import_runs
+_CLICKS_MIGRATION = "a0674bcc7cb2"  # add affiliate_outbound_clicks
+_BEFORE_CLICK_RUNS = "821856f0c58d"  # add affiliate_link_targets
+
+
+def _indexes(url: str, table: str) -> set[str]:
+    engine = build_engine(url)
+    try:
+        return {ix["name"] for ix in inspect(engine).get_indexes(table)}
+    finally:
+        engine.dispose()
+
+
+def test_affiliate_click_import_runs_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'click_import_runs.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_CLICK_RUNS)
+    before_tables = _table_names(url)
+    link_cols_before = _existing_table_columns(url, "affiliate_link_targets")
+    assert "affiliate_click_import_runs" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _CLICK_RUNS_MIGRATION)
+
+    assert _table_names(url) - before_tables == {"affiliate_click_import_runs"}
+    assert _existing_table_columns(url, "affiliate_link_targets") == link_cols_before
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_CLICK_RUNS)
+    assert _table_names(url) == before_tables
+
+
+def test_affiliate_outbound_clicks_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'outbound_clicks.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _CLICK_RUNS_MIGRATION)
+    before_tables = _table_names(url)
+    runs_cols_before = _existing_table_columns(url, "affiliate_click_import_runs")
+    assert "affiliate_outbound_clicks" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _CLICKS_MIGRATION)
+
+    assert _table_names(url) - before_tables == {"affiliate_outbound_clicks"}
+    assert (
+        _existing_table_columns(url, "affiliate_click_import_runs") == runs_cols_before
+    )
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _CLICK_RUNS_MIGRATION)
+    assert _table_names(url) == before_tables
+
+
+def test_affiliate_click_import_runs_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'click_runs_shape.db'}"
+    _upgrade_head(url)
+    cols = _existing_table_columns(url, "affiliate_click_import_runs")
+    assert "updated_at" not in cols  # append-only run record
+    assert {
+        "status", "requested_since_id", "requested_limit", "http_status",
+        "server_code", "response_count", "response_next_since_id",
+        "inserted_count", "duplicate_count", "unresolved_token_count",
+        "first_source_click_id", "last_source_click_id", "has_more",
+        "error_message", "response_snapshot", "created_at", "started_at",
+        "finished_at",
+    } <= cols
+    # secret / signature / raw body / headers を保持しない
+    assert cols.isdisjoint(
+        {"shared_secret", "signature", "response_body", "raw_body", "headers"}
+    )
+    assert _indexes(url, "affiliate_click_import_runs") >= {
+        "ix_affiliate_click_import_runs_status",
+        "ix_affiliate_click_import_runs_created_id",
+    }
+
+
+def test_affiliate_outbound_clicks_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'outbound_clicks_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("affiliate_outbound_clicks")}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("affiliate_outbound_clicks")
+        }
+        fks = {
+            (
+                fk["referred_table"],
+                tuple(fk["constrained_columns"]),
+                fk.get("options", {}).get("ondelete"),
+            )
+            for fk in insp.get_foreign_keys("affiliate_outbound_clicks")
+        }
+    finally:
+        engine.dispose()
+
+    assert cols == {
+        "id", "source_click_id", "token", "clicked_at",
+        "source_import_run_id", "created_at",
+    }
+    assert "updated_at" not in cols  # append-only replica
+    # PII / destination / attribution FK を持たない
+    assert cols.isdisjoint(
+        {
+            "ip", "hashed_ip", "user_agent", "referer", "cookie", "session_id",
+            "user_id", "email", "device", "destination_url", "article_id",
+            "affiliate_program_id", "source_event_hash",
+        }
+    )
+    assert ("source_click_id",) in uniques
+    assert ("affiliate_click_import_runs", ("source_import_run_id",), "RESTRICT") in fks
+    # affiliate_link_targets への FK は張らない
+    assert not any(ref == "affiliate_link_targets" for ref, _, _ in fks)
+    assert _indexes(url, "affiliate_outbound_clicks") >= {
+        "ix_affiliate_outbound_clicks_source_click_id",
+        "ix_affiliate_outbound_clicks_token",
+        "ix_affiliate_outbound_clicks_source_import_run_id",
+    }

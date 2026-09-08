@@ -1,5 +1,7 @@
 from app.models import (
+    AffiliateClickImportRun,
     AffiliateLinkTarget,
+    AffiliateOutboundClick,
     AffiliateProgram,
     Article,
     ArticleAffiliateProgram,
@@ -46,6 +48,10 @@ IMMUTABLE_HISTORY_MODELS = (
     SearchConsoleQueryDaily,
     # 狭い lifecycle (active -> disabled/superseded) のみ。updated_at は持たない。
     AffiliateLinkTarget,
+    # append-only な取り込み実行記録 (running -> succeeded/failed)。updated_at なし。
+    AffiliateClickImportRun,
+    # provider-faithful な click replica (append-only)。updated_at なし。
+    AffiliateOutboundClick,
 )
 
 
@@ -72,6 +78,8 @@ def test_all_tables_registered() -> None:
         "search_console_page_daily",
         "search_console_query_daily",
         "affiliate_link_targets",
+        "affiliate_click_import_runs",
+        "affiliate_outbound_clicks",
     }
 
 

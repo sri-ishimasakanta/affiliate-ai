@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -29,6 +28,7 @@ from app.affiliate.projection_signing import (
     compute_signature,
     verify_signature,
 )
+from app.affiliate.runtime_http import known_server_code, require_https_origin
 from app.article.draft_input_canonical import canonical_json
 from app.exceptions import AffiliateProjectionPushError
 
@@ -67,37 +67,6 @@ _KNOWN_SERVER_CODES = frozenset(
         "persist_failed",
     }
 )
-
-
-def _require_https_origin(base_url: str) -> str:
-    """base URL を **WordPress origin のみ** に制限して返す (``https://host[:port]``)。
-
-    ``Settings.wordpress_base_url`` には検証が無いため、実行境界の安全性はこの client
-    が担保する: scheme は https 固定 / userinfo 不可 / host 必須 / query・fragment・
-    path を持たない。signed endpoint path (:data:`PROJECTION_ENDPOINT_PATH`) は
-    caller から差し替えられない。
-    """
-
-    parts = urlsplit((base_url or "").strip())
-    if parts.scheme.lower() != "https":
-        raise AffiliateProjectionPushError(
-            "affiliate runtime base URL must be https"
-        )
-    if parts.username or parts.password or "@" in (parts.netloc or ""):
-        raise AffiliateProjectionPushError(
-            "affiliate runtime base URL must not contain userinfo"
-        )
-    if not parts.hostname:
-        raise AffiliateProjectionPushError("affiliate runtime base URL has no host")
-    if parts.query or parts.fragment:
-        raise AffiliateProjectionPushError(
-            "affiliate runtime base URL must not carry a query or fragment"
-        )
-    if parts.path not in ("", "/"):
-        raise AffiliateProjectionPushError(
-            "affiliate runtime base URL must be an origin only (no path)"
-        )
-    return f"https://{parts.netloc.lower()}"
 
 
 @dataclass(frozen=True)
@@ -149,7 +118,7 @@ def prepare_projection_push(
         raise AffiliateProjectionPushError(
             "shared secret is required to sign a projection push"
         )
-    origin = _require_https_origin(base_url)
+    origin = require_https_origin(base_url, error_cls=AffiliateProjectionPushError)
 
     payload = build_projection_batch_request(snapshot)
     # ここで **一度だけ** serialize。以降この bytes をそのまま hash / sign / send する。
@@ -201,17 +170,6 @@ def verify_prepared_signature(
         body_sha256_hex=body_sha256(prepared.body_bytes()),
         provided_signature=signature_of(prepared),
     )
-
-
-def _safe_server_code(response: httpx.Response) -> str | None:
-    try:
-        data = response.json()
-    except ValueError:
-        return None
-    if not isinstance(data, dict):
-        return None
-    code = (data.get("error") or {}).get("code") if isinstance(data.get("error"), dict) else None
-    return code if isinstance(code, str) and code in _KNOWN_SERVER_CODES else None
 
 
 def _validate_success(
@@ -312,7 +270,7 @@ def execute_projection_push(
         )
 
     if response.status_code != 200:
-        code = _safe_server_code(response)
+        code = known_server_code(response, _KNOWN_SERVER_CODES)
         raise AffiliateProjectionPushError(
             f"projection endpoint returned HTTP {response.status_code}"
             + (f" ({code})" if code else ""),

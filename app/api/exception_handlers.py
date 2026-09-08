@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions import (
+    AffiliateClickImportError,
     AffiliateLinkTargetError,
     AffiliateProjectionPushError,
     ApplicationError,
@@ -72,6 +73,7 @@ _ERROR_MAP: tuple[tuple[type[ApplicationError], int, str], ...] = (
     (SearchConsoleCredentialError, 503, "search_console_credential_error"),
     (AffiliateLinkTargetError, 409, "affiliate_link_target_error"),
     (AffiliateProjectionPushError, 502, "affiliate_projection_push_error"),
+    (AffiliateClickImportError, 502, "affiliate_click_import_error"),
     (
         WordPressPublicationRunPreparationError,
         409,

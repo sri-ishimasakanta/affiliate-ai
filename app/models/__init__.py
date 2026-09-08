@@ -1,3 +1,12 @@
+from app.models.affiliate_click_import_run import (
+    ACI_FAILED,
+    ACI_RUNNING,
+    ACI_STATUSES,
+    ACI_SUCCEEDED,
+    ACI_TERMINAL_STATUSES,
+    AffiliateClickImportRun,
+    aci_transition_allowed,
+)
 from app.models.affiliate_link_target import (
     ALT_ACTIVE,
     ALT_DISABLED,
@@ -7,6 +16,7 @@ from app.models.affiliate_link_target import (
     AffiliateLinkTarget,
     alt_transition_allowed,
 )
+from app.models.affiliate_outbound_click import AffiliateOutboundClick
 from app.models.affiliate_program import AffiliateProgram
 from app.models.article import Article
 from app.models.article_affiliate_program import ArticleAffiliateProgram
@@ -100,8 +110,15 @@ __all__ = [
     "SC_IMPORT_STATUSES",
     "SC_IMPORT_TERMINAL_STATUSES",
     "SNAPSHOT_VERSION",
+    "ACI_FAILED",
+    "ACI_RUNNING",
+    "ACI_STATUSES",
+    "ACI_SUCCEEDED",
+    "ACI_TERMINAL_STATUSES",
+    "AffiliateClickImportRun",
     "AffiliateLinkTarget",
     "AffiliateLinkTargetStatus",
+    "AffiliateOutboundClick",
     "AffiliateProgram",
     "AffiliateProgramStatus",
     "Article",
@@ -134,5 +151,6 @@ __all__ = [
     "WP_RUN_TERMINAL_STATUSES",
     "WordPressDraftRun",
     "WordPressPublicationRun",
+    "aci_transition_allowed",
     "alt_transition_allowed",
 ]
