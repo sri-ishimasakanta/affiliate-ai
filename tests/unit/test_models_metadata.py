@@ -3,6 +3,7 @@ from app.models import (
     AffiliateLinkTarget,
     AffiliateOutboundClick,
     AffiliateProgram,
+    AffiliateTargetProjectionPushRun,
     Article,
     ArticleAffiliateProgram,
     ArticleDraftPromotion,
@@ -52,6 +53,9 @@ IMMUTABLE_HISTORY_MODELS = (
     AffiliateClickImportRun,
     # provider-faithful な click replica (append-only)。updated_at なし。
     AffiliateOutboundClick,
+    # projection push の auditable な実行記録 (running -> succeeded/failed/
+    # outcome_unknown)。updated_at なし。
+    AffiliateTargetProjectionPushRun,
 )
 
 
@@ -80,6 +84,7 @@ def test_all_tables_registered() -> None:
         "affiliate_link_targets",
         "affiliate_click_import_runs",
         "affiliate_outbound_clicks",
+        "affiliate_target_projection_push_runs",
     }
 
 

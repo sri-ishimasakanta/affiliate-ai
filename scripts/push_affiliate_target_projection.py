@@ -3,9 +3,13 @@
     uv run python scripts/push_affiliate_target_projection.py            # PLAN のみ (無通信)
     uv run python scripts/push_affiliate_target_projection.py --execute  # 実 POST 1 回
 
-- default は PLAN / DRY-RUN。0 WordPress request。secret も署名も要らない。
+- default は PLAN / DRY-RUN。0 WordPress request。secret も署名も要らない。0 DB 書き込み。
 - ``--execute`` のときだけ ``AFFILIATE_RUNTIME_SHARED_SECRET`` + ``WORDPRESS_BASE_URL``
   が必須。POST は **ちょうど 1 回**。auto retry しない。ネットワーク不明時はそう報告する。
+  :class:`~app.services.affiliate_target_projection_push_service.AffiliateTargetProjectionPushService`
+  の二段階 transaction 契約 (running row を POST 前に commit → 1 回 POST → terminal
+  state を commit) を使い、``AffiliateTargetProjectionPushRun`` として acknowledgement
+  証跡を残す (D-D1A)。
 - 出力に secret / signature / destination_url / affiliate query / full token を
   一切含めない。token は先頭 4 文字だけ表示する。
 """
@@ -24,16 +28,15 @@ from app.affiliate.projection import (  # noqa: E402
     PROJECTION_STATUS_DISABLED,
     build_snapshot_from_targets,
 )
-from app.affiliate.projection_push_client import (  # noqa: E402
-    execute_projection_push,
-    prepare_projection_push,
-)
 from app.affiliate.projection_signing import PROJECTION_ENDPOINT_PATH  # noqa: E402
 from app.config.database import SessionLocal  # noqa: E402
 from app.config.settings import get_settings  # noqa: E402
 from app.exceptions import AffiliateProjectionPushError  # noqa: E402
 from app.repositories.affiliate_link_target_repository import (  # noqa: E402
     AffiliateLinkTargetRepository,
+)
+from app.services.affiliate_target_projection_push_service import (  # noqa: E402
+    AffiliateTargetProjectionPushService,
 )
 
 EXIT_OK = 0
@@ -104,18 +107,9 @@ def run(
         )
         return EXIT_NOT_CONFIGURED
 
+    service = AffiliateTargetProjectionPushService(session_factory=session_factory)
     try:
-        prepared = prepare_projection_push(
-            snapshot,
-            base_url=settings.wordpress_base_url,
-            shared_secret=settings.affiliate_runtime_shared_secret,
-            now=now,
-        )
-        result = execute_projection_push(
-            prepared,
-            transport=transport,
-            verify_tls=settings.wordpress_verify_tls,
-        )
+        outcome = service.push(settings=settings, transport=transport, now=now)
     except AffiliateProjectionPushError as exc:
         # exc の文言に secret / signature / body / destination は含まれない。
         print(f"PUSH FAILED: {exc.reason}")
@@ -123,7 +117,9 @@ def run(
             print(f"server_code = {exc.server_code}")
         return EXIT_PUSH_ERROR
 
+    result = outcome.result
     print("=== executed (exactly 1 request) ===")
+    print(f"run_id                   = {outcome.run_id}")
     print(f"http_status              = {result.http_status}")
     print(f"projection_snapshot_hash = {result.projection_snapshot_hash}")
     print(f"received_count           = {result.received_count}")

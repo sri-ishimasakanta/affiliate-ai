@@ -18,6 +18,16 @@ from app.models.affiliate_link_target import (
 )
 from app.models.affiliate_outbound_click import AffiliateOutboundClick
 from app.models.affiliate_program import AffiliateProgram
+from app.models.affiliate_target_projection_push_run import (
+    ATPP_FAILED,
+    ATPP_OUTCOME_UNKNOWN,
+    ATPP_RUNNING,
+    ATPP_STATUSES,
+    ATPP_SUCCEEDED,
+    ATPP_TERMINAL_STATUSES,
+    AffiliateTargetProjectionPushRun,
+    atpp_transition_allowed,
+)
 from app.models.article import Article
 from app.models.article_affiliate_program import ArticleAffiliateProgram
 from app.models.article_draft_promotion import ArticleDraftPromotion
@@ -115,12 +125,19 @@ __all__ = [
     "ACI_STATUSES",
     "ACI_SUCCEEDED",
     "ACI_TERMINAL_STATUSES",
+    "ATPP_FAILED",
+    "ATPP_OUTCOME_UNKNOWN",
+    "ATPP_RUNNING",
+    "ATPP_STATUSES",
+    "ATPP_SUCCEEDED",
+    "ATPP_TERMINAL_STATUSES",
     "AffiliateClickImportRun",
     "AffiliateLinkTarget",
     "AffiliateLinkTargetStatus",
     "AffiliateOutboundClick",
     "AffiliateProgram",
     "AffiliateProgramStatus",
+    "AffiliateTargetProjectionPushRun",
     "Article",
     "ArticleAffiliateProgram",
     "ArticleDraftPromotion",
@@ -153,4 +170,5 @@ __all__ = [
     "WordPressPublicationRun",
     "aci_transition_allowed",
     "alt_transition_allowed",
+    "atpp_transition_allowed",
 ]

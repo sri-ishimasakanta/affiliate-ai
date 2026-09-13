@@ -9,7 +9,16 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AffiliateLinkTarget, Article, ArticleAffiliateProgram
+from app.models import (
+    AffiliateLinkTarget,
+    AffiliateTargetProjectionPushRun,
+    Article,
+    ArticleAffiliateProgram,
+)
+from app.models.affiliate_target_projection_push_run import (
+    ATPP_FAILED,
+    ATPP_SUCCEEDED,
+)
 from app.models.enums import AffiliateProgramStatus
 from app.repositories.affiliate_program_repository import AffiliateProgramRepository
 from app.services.affiliate_link_target_service import AffiliateLinkTargetService
@@ -166,3 +175,67 @@ def test_execute_server_conflict_maps_to_safe_exit(session: Session, capsys) -> 
     assert "PUSH FAILED" in out
     assert "server_code = conflict_stale_version" in out
     assert _SECRET not in out
+
+
+# ==================== D-D1A: acknowledgement run persistence ===========
+def _run_count(session: Session) -> int:
+    return session.scalar(
+        select(func.count()).select_from(AffiliateTargetProjectionPushRun)
+    )
+
+
+def test_plan_mode_creates_no_push_run_row(session: Session) -> None:
+    boom = httpx.MockTransport(
+        lambda req: (_ for _ in ()).throw(AssertionError("no HTTP in plan"))
+    )
+    run(execute=False, settings=_settings(), session_factory=_sf(session), transport=boom)
+    assert _run_count(session) == 0
+
+
+def test_execute_success_creates_exactly_one_succeeded_run_row(
+    session: Session, capsys
+) -> None:
+    code = run(
+        execute=True,
+        settings=_settings(),
+        session_factory=_sf(session),
+        transport=httpx.MockTransport(_ok_empty_handler),
+        now=1_760_000_000,
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_OK
+    assert "run_id" in out
+    assert _run_count(session) == 1
+    row = session.scalars(select(AffiliateTargetProjectionPushRun)).one()
+    assert row.status == ATPP_SUCCEEDED
+    assert row.snapshot_scope == "full"
+    assert row.runtime_origin == _BASE
+
+
+def test_execute_failure_creates_exactly_one_failed_run_row(session: Session) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"error": {"code": "conflict_stale_version"}})
+
+    run(
+        execute=True,
+        settings=_settings(),
+        session_factory=_sf(session),
+        transport=httpx.MockTransport(handler),
+        now=1_760_000_000,
+    )
+    assert _run_count(session) == 1
+    row = session.scalars(select(AffiliateTargetProjectionPushRun)).one()
+    assert row.status == ATPP_FAILED
+    assert row.server_code == "conflict_stale_version"
+
+
+def _ok_empty_handler(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "schema_version": 1,
+            "projection_snapshot_hash": _EMPTY_HASH,
+            "received_count": 0, "inserted_count": 0, "updated_count": 0,
+            "unchanged_count": 0,
+        },
+    )

@@ -536,3 +536,62 @@ def test_affiliate_outbound_clicks_shape_at_head(tmp_path: Path) -> None:
         "ix_affiliate_outbound_clicks_token",
         "ix_affiliate_outbound_clicks_source_import_run_id",
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3C-5F-D-D1A: projection push acknowledgement foundation (1 migration)
+# ---------------------------------------------------------------------------
+_PUSH_RUNS_MIGRATION = "ee06dfb7a72c"  # add affiliate_target_projection_push_runs
+_BEFORE_PUSH_RUNS = "a0674bcc7cb2"  # add affiliate_outbound_clicks
+
+
+def test_affiliate_target_projection_push_runs_migration_is_add_only(
+    tmp_path: Path,
+) -> None:
+    url = f"sqlite:///{tmp_path / 'push_runs.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_PUSH_RUNS)
+    before_tables = _table_names(url)
+    clicks_cols_before = _existing_table_columns(url, "affiliate_outbound_clicks")
+    assert "affiliate_target_projection_push_runs" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _PUSH_RUNS_MIGRATION)
+
+    assert (
+        _table_names(url) - before_tables
+        == {"affiliate_target_projection_push_runs"}
+    )
+    assert _existing_table_columns(url, "affiliate_outbound_clicks") == clicks_cols_before
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_PUSH_RUNS)
+    assert _table_names(url) == before_tables
+
+
+def test_affiliate_target_projection_push_runs_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'push_runs_shape.db'}"
+    _upgrade_head(url)
+    cols = _existing_table_columns(url, "affiliate_target_projection_push_runs")
+
+    assert cols == {
+        "id", "status", "snapshot_scope", "runtime_origin",
+        "requested_snapshot_hash", "requested_target_count",
+        "request_manifest_json", "http_status", "server_code",
+        "response_projection_snapshot_hash", "received_count",
+        "inserted_count", "updated_count", "unchanged_count",
+        "error_message", "created_at", "started_at", "finished_at",
+    }
+    assert "updated_at" not in cols  # append-only run record
+    # secret / signature / raw body / headers / full token / destination を保持しない
+    assert cols.isdisjoint(
+        {
+            "shared_secret", "secret", "signature", "response_body", "raw_body",
+            "headers", "token", "full_token", "destination_url",
+        }
+    )
+    assert _indexes(url, "affiliate_target_projection_push_runs") >= {
+        "ix_affiliate_target_projection_push_runs_origin_created_id",
+        "ix_affiliate_target_projection_push_runs_status",
+    }
