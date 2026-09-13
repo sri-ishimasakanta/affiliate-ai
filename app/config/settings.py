@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # 実値は絶対に print / log / commit / CLI 出力 / test snapshot に含めない。
     affiliate_runtime_shared_secret: str | None = None
 
+    # D-C3-C synthetic runtime click probe (production runtime-only, no local
+    # AffiliateLinkTarget)。probe の外部 state file (token を含む) のパス。
+    # 未設定でも通常のアプリ動作には一切影響しない。実 Human パスはコードに
+    # ハードコードしない — ここか CLI の --state-file で明示的に与える。
+    affiliate_probe_state_file: str | None = None
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
