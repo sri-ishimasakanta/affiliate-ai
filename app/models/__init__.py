@@ -32,7 +32,17 @@ from app.models.article import Article
 from app.models.article_affiliate_program import ArticleAffiliateProgram
 from app.models.article_draft_promotion import ArticleDraftPromotion
 from app.models.article_fact import ArticleFact
+from app.models.article_link_substitution_mapping import (
+    ALSM_ACTIVE,
+    ALSM_REVOKED,
+    ALSM_STATUSES,
+    ALSM_SUPERSEDED,
+    ALSM_TERMINAL_STATUSES,
+    ArticleLinkSubstitutionMapping,
+    alsm_transition_allowed,
+)
 from app.models.article_metric import ArticleMetric
+from app.models.article_publication_artifact import ArticlePublicationArtifact
 from app.models.base import Base, TimestampMixin
 from app.models.draft_generation_run import (
     EXECUTION_MODES,
@@ -125,6 +135,11 @@ __all__ = [
     "ACI_STATUSES",
     "ACI_SUCCEEDED",
     "ACI_TERMINAL_STATUSES",
+    "ALSM_ACTIVE",
+    "ALSM_REVOKED",
+    "ALSM_STATUSES",
+    "ALSM_SUPERSEDED",
+    "ALSM_TERMINAL_STATUSES",
     "ATPP_FAILED",
     "ATPP_OUTCOME_UNKNOWN",
     "ATPP_RUNNING",
@@ -142,7 +157,9 @@ __all__ = [
     "ArticleAffiliateProgram",
     "ArticleDraftPromotion",
     "ArticleFact",
+    "ArticleLinkSubstitutionMapping",
     "ArticleMetric",
+    "ArticlePublicationArtifact",
     "ArticleStatus",
     "Base",
     "DraftGenerationRun",
@@ -169,6 +186,7 @@ __all__ = [
     "WordPressDraftRun",
     "WordPressPublicationRun",
     "aci_transition_allowed",
+    "alsm_transition_allowed",
     "alt_transition_allowed",
     "atpp_transition_allowed",
 ]

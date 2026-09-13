@@ -403,6 +403,32 @@ class AffiliateClickImportError(ApplicationError):
         self.server_code = server_code
 
 
+class ArticleLinkSubstitutionMappingError(ApplicationError):
+    """ArticleLinkSubstitutionMapping の create / supersede / revoke が業務ルール上不可。
+
+    target 不在 / target が別 article 所属 / occurrence 形式不正 / 既に active な
+    mapping がある / idempotency_key 競合 / 許可されない status 遷移 / self-supersede
+    など。full token / destination_url はメッセージに含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"article link substitution mapping error: {reason}")
+        self.reason = reason
+
+
+class ArticlePublicationArtifactError(ApplicationError):
+    """ArticlePublicationArtifact の生成/承認が業務ルール上不可。
+
+    manifest 不正 (D-D0.1 §17 の canonicalization/replacement_href 検証違反) /
+    承認済みの artifact_hash 不一致 / 二重承認 など。full token 以外の secret 相当値
+    (destination_url / credential / HMAC 値) はメッセージに含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"article publication artifact error: {reason}")
+        self.reason = reason
+
+
 class PlanApprovalError(ApplicationError):
     """Article Plan の承認要求が検証で拒否された (企画側の入力・状態の問題)。
 

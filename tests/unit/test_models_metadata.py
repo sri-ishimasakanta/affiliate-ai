@@ -8,7 +8,9 @@ from app.models import (
     ArticleAffiliateProgram,
     ArticleDraftPromotion,
     ArticleFact,
+    ArticleLinkSubstitutionMapping,
     ArticleMetric,
+    ArticlePublicationArtifact,
     Base,
     DraftGenerationRun,
     DraftInputSnapshot,
@@ -56,6 +58,11 @@ IMMUTABLE_HISTORY_MODELS = (
     # projection push の auditable な実行記録 (running -> succeeded/failed/
     # outcome_unknown)。updated_at なし。
     AffiliateTargetProjectionPushRun,
+    # 狭い lifecycle (active -> superseded/revoked) のみ。updated_at は持たない。
+    ArticleLinkSubstitutionMapping,
+    # immutable-content + set-once 承認 (approved_at/approved_artifact_hash のみ
+    # NULL -> 値へ 1 回遷移)。updated_at は持たない。
+    ArticlePublicationArtifact,
 )
 
 
@@ -85,6 +92,8 @@ def test_all_tables_registered() -> None:
         "affiliate_click_import_runs",
         "affiliate_outbound_clicks",
         "affiliate_target_projection_push_runs",
+        "article_link_substitution_mappings",
+        "article_publication_artifacts",
     }
 
 

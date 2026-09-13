@@ -595,3 +595,162 @@ def test_affiliate_target_projection_push_runs_shape_at_head(tmp_path: Path) -> 
         "ix_affiliate_target_projection_push_runs_origin_created_id",
         "ix_affiliate_target_projection_push_runs_status",
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3C-5F-D-D1: publication substitution foundation (2 chained migrations)
+# ---------------------------------------------------------------------------
+_MAPPINGS_MIGRATION = "942d7351ca05"  # add article_link_substitution_mappings
+_ARTIFACTS_MIGRATION = "45ed2fbd00c6"  # add article_publication_artifacts
+_BEFORE_MAPPINGS = "ee06dfb7a72c"  # add affiliate_target_projection_push_runs
+
+
+def test_article_link_substitution_mappings_migration_is_add_only(
+    tmp_path: Path,
+) -> None:
+    url = f"sqlite:///{tmp_path / 'mappings.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_MAPPINGS)
+    before_tables = _table_names(url)
+    push_runs_cols_before = _existing_table_columns(
+        url, "affiliate_target_projection_push_runs"
+    )
+    assert "article_link_substitution_mappings" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _MAPPINGS_MIGRATION)
+
+    assert (
+        _table_names(url) - before_tables
+        == {"article_link_substitution_mappings"}
+    )
+    assert (
+        _existing_table_columns(url, "affiliate_target_projection_push_runs")
+        == push_runs_cols_before
+    )
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_MAPPINGS)
+    assert _table_names(url) == before_tables
+
+
+def test_article_publication_artifacts_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'artifacts.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _MAPPINGS_MIGRATION)
+    before_tables = _table_names(url)
+    mappings_cols_before = _existing_table_columns(
+        url, "article_link_substitution_mappings"
+    )
+    assert "article_publication_artifacts" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _ARTIFACTS_MIGRATION)
+
+    assert _table_names(url) - before_tables == {"article_publication_artifacts"}
+    assert (
+        _existing_table_columns(url, "article_link_substitution_mappings")
+        == mappings_cols_before
+    )
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _MAPPINGS_MIGRATION)
+    assert _table_names(url) == before_tables
+
+
+def test_article_link_substitution_mappings_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'mappings_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("article_link_substitution_mappings")}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("article_link_substitution_mappings")
+        }
+        fks = {
+            (
+                fk["referred_table"],
+                tuple(fk["constrained_columns"]),
+                fk.get("options", {}).get("ondelete"),
+            )
+            for fk in insp.get_foreign_keys("article_link_substitution_mappings")
+        }
+    finally:
+        engine.dispose()
+
+    assert cols == {
+        "id", "article_id", "occurrence_identity_hash", "original_href",
+        "affiliate_link_target_id", "status", "superseded_by_id", "approved_at",
+        "idempotency_key", "created_at",
+    }
+    assert "updated_at" not in cols
+    assert ("idempotency_key",) in uniques
+    assert ("articles", ("article_id",), "RESTRICT") in fks
+    assert ("affiliate_link_targets", ("affiliate_link_target_id",), "RESTRICT") in fks
+    assert (
+        "article_link_substitution_mappings",
+        ("superseded_by_id",),
+        "RESTRICT",
+    ) in fks
+    assert _indexes(url, "article_link_substitution_mappings") >= {
+        "uq_article_link_substitution_mappings_active_occurrence",
+        "ix_article_link_substitution_mappings_article_id",
+        "ix_article_link_substitution_mappings_occurrence_identity_hash",
+        "ix_article_link_substitution_mappings_affiliate_link_target_id",
+    }
+    # active-occurrence partial unique index が実際に unique であることを確認。
+    active_idx = next(
+        ix
+        for ix in inspect(build_engine(url)).get_indexes(
+            "article_link_substitution_mappings"
+        )
+        if ix["name"] == "uq_article_link_substitution_mappings_active_occurrence"
+    )
+    assert bool(active_idx["unique"]) is True
+
+
+def test_article_publication_artifacts_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'artifacts_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("article_publication_artifacts")}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("article_publication_artifacts")
+        }
+        fks = {
+            (
+                fk["referred_table"],
+                tuple(fk["constrained_columns"]),
+                fk.get("options", {}).get("ondelete"),
+            )
+            for fk in insp.get_foreign_keys("article_publication_artifacts")
+        }
+    finally:
+        engine.dispose()
+
+    assert cols == {
+        "id", "article_id", "canonical_body_hash", "renderer_version",
+        "artifact_schema_version", "substitution_manifest_json", "artifact_hash",
+        "tracked_html", "tracked_html_hash", "substitution_count", "approved_at",
+        "approved_artifact_hash", "generated_at", "created_at",
+    }
+    assert "updated_at" not in cols
+    # destination_url / credential / HMAC 相当値のカラムを一切持たない
+    assert cols.isdisjoint(
+        {
+            "destination_url", "shared_secret", "secret", "signature", "headers",
+            "full_token",
+        }
+    )
+    assert ("artifact_hash",) in uniques
+    assert ("articles", ("article_id",), "RESTRICT") in fks
+    assert _indexes(url, "article_publication_artifacts") >= {
+        "ix_article_publication_artifacts_article_id",
+    }
