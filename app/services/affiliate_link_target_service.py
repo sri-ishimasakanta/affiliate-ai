@@ -128,7 +128,14 @@ class AffiliateLinkTargetService:
             raise AffiliateLinkTargetError(
                 "could not create affiliate link target (uniqueness conflict)"
             ) from exc
-        self._session.refresh(target)
+        # D-F2B: commit is the LAST local DB operation. No post-commit refresh --
+        # AffiliateLinkTargetRepository.add() already flush()es internally
+        # (populating id/created_at via RETURNING), and SessionLocal is built with
+        # expire_on_commit=False (app/config/database.py), so `target`'s in-memory
+        # attributes are already correct and do not go stale on commit. A
+        # post-commit refresh() here would be an unnecessary fallible DB
+        # round-trip that, if it failed, would raise an unrelated, undocumented
+        # exception even though the target was already durably created.
         return target
 
     # -- disable ---------------------------------------------------
@@ -144,8 +151,11 @@ class AffiliateLinkTargetService:
                 f"target {target_id} status {target.status!r} cannot be disabled"
             )
         self._repo.mark_disabled(target, disabled_at=to_storage_utc(now))
+        # D-F2B: commit is the LAST local DB operation. No post-commit refresh --
+        # mark_disabled() already flush()es internally, and expire_on_commit=False
+        # means `target`'s in-memory attributes already reflect exactly what was
+        # committed. See create_target()'s comment above for the full rationale.
         self._session.commit()
-        self._session.refresh(target)
         return target
 
     # -- supersede -----------------------------------------------
@@ -194,7 +204,14 @@ class AffiliateLinkTargetService:
                     and existing.affiliate_program_id == old.affiliate_program_id
                     and existing.link_identity_hash == link_hash
                 ):
-                    self._session.refresh(old)
+                    # D-F2B: no DB round-trip is needed to return `old` here --
+                    # nothing has mutated `old` since it was loaded via
+                    # get_by_id() a few lines above in this same call (this
+                    # replay branch returns before any repository mutation
+                    # method runs), so its in-memory attributes already exactly
+                    # match what get_by_id() just read. A refresh() here would
+                    # be an unnecessary fallible DB round-trip on a path that
+                    # performs no mutation at all.
                     return old, existing
                 raise AffiliateLinkTargetError(
                     f"idempotency_key {idempotency_key!r} already used for a different "
@@ -219,14 +236,24 @@ class AffiliateLinkTargetService:
             )
             # 3. supersede pointer。
             self._repo.link_supersede(old, superseded_by_id=new.id)
+            # D-F2B: commit remains the last statement inside this try block,
+            # exactly as before -- only IntegrityError is translated to
+            # AffiliateLinkTargetError here (unchanged rollback/exception
+            # contract). No post-commit refresh -- begin_supersede()/add()/
+            # link_supersede() all flush() internally (populating id/created_at/
+            # superseded_by_id via RETURNING or direct in-memory assignment
+            # before flush), and expire_on_commit=False means `old`/`new`'s
+            # in-memory attributes already reflect exactly what was committed.
+            # A post-commit refresh() here would be an unnecessary fallible DB
+            # round-trip that, if it failed, would raise an unrelated,
+            # undocumented exception even though the atomic supersede had
+            # already durably succeeded.
             self._session.commit()
         except IntegrityError as exc:
             self._session.rollback()
             raise AffiliateLinkTargetError(
                 "could not supersede affiliate link target (uniqueness conflict)"
             ) from exc
-        self._session.refresh(old)
-        self._session.refresh(new)
         return old, new
 
     # -- reads -----------------------------------------------------
