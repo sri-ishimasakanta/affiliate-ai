@@ -154,14 +154,42 @@ def test_create_fails_closed_when_provider_has_no_policy(session: Session) -> No
     assert _count(session) == 0
 
 
-def test_create_fails_closed_with_empty_default_policy(session: Session) -> None:
+def test_create_fails_closed_with_production_default_policy_for_unapproved_pair(
+    session: Session,
+) -> None:
     aid, pid = _seed(session)
-    # policy 未注入 -> production DEFAULT (空) -> fail closed
+    # policy 未注入 -> production DEFAULT_DESTINATION_HOST_POLICY を使う。
+    # D-F1 時点で production policy は "make" -> "www.make.com" の 1 件のみを
+    # 承認しているが、この provider ("a8") / host (aff.example.test) はどちらも
+    # それと一致しないため、依然として fail closed であること。
     with pytest.raises(AffiliateLinkTargetError, match="not independently approved"):
         AffiliateLinkTargetService(session).create_target(
             article_id=aid, affiliate_program_id=pid
         )
     assert _count(session) == 0
+
+
+def test_create_passes_host_policy_gate_for_make_under_production_default_policy(
+    session: Session,
+) -> None:
+    """D-F1 §13: production DEFAULT_DESTINATION_HOST_POLICY に "make" ->
+    "www.make.com" を追加したことで、この exact (provider, host) の組み合わせ
+    だけが独立ホスト承認ゲートを通過できるようになったことを、実際の
+    production default policy (注入なし) に対して証明する。
+
+    tracking_url は完全に架空のテスト用 pc 値であり、実際の Make affiliate
+    code ではない。production 行は一切作成しない (in-memory DB のみ)。
+    """
+
+    fake_tracking_url = "https://www.make.com/en/hq/product?pc=FAKE_TEST_CODE_NOT_REAL"
+    aid, pid = _seed(session, provider="make", tracking_url=fake_tracking_url)
+
+    target = AffiliateLinkTargetService(session).create_target(
+        article_id=aid, affiliate_program_id=pid
+    )
+    assert target.destination_host == "www.make.com"
+    assert target.destination_url == fake_tracking_url  # 無改変で凍結
+    assert _count(session) == 1
 
 
 def test_tracking_url_host_does_not_authorize_itself(session: Session) -> None:
