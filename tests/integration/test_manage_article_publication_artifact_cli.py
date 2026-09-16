@@ -7,6 +7,7 @@ in-memory DB に対して検証する。production には一切触れない。
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,7 @@ from app.config.database import build_engine  # noqa: E402
 from app.config.settings import Settings  # noqa: E402
 from app.models import (  # noqa: E402
     AffiliateLinkTarget,
+    AffiliateProgram,
     Article,
     ArticlePublicationArtifact,
     Base,
@@ -89,6 +91,72 @@ def _patch_session_local(monkeypatch, cli_session_factory) -> None:
     )
 
 
+def _seed_substituted_article(cli_session_factory, *, slug: str = "p-sub") -> int:
+    """article + program + active target + active mapping + matching succeeded
+    projection push run。substitution_count == 1 な artifact を persist できる
+    ようにする共有 fixture (D-E1 approval-coupling テスト用)。"""
+
+    settings = Settings(wordpress_base_url="https://bizfluxlab.com")
+    with cli_session_factory() as session:
+        art = Article(title="t", slug=slug, keyword_id=None, body=f"[tool]({_HREF})\n")
+        session.add(art)
+        session.commit()
+        program = AffiliateProgram(name="Test ASP", provider="test-asp", status="active")
+        session.add(program)
+        session.commit()
+        target = AffiliateLinkTarget(
+            token=_REAL_TOKEN,
+            article_id=art.id,
+            affiliate_program_id=program.id,
+            destination_url="https://aff.example.test/x",
+            destination_host="aff.example.test",
+            status="active",
+            link_identity_hash="1" * 64,
+        )
+        session.add(target)
+        session.commit()
+        preview = ArticleLinkOccurrencePreviewService(session, settings=settings).preview(art.id)
+        occ0 = preview.occurrences[0]
+        ArticleLinkSubstitutionService(session).create_mapping(
+            article_id=art.id,
+            occurrence_identity_hash=occ0.occurrence_identity_hash,
+            original_href=occ0.original_href,
+            affiliate_link_target_id=target.id,
+        )
+        proj = projection_from_target(target)
+        manifest = [
+            {
+                "affiliate_link_target_id": target.id,
+                "token_fingerprint": token_fingerprint(target.token),
+                "link_identity_hash": target.link_identity_hash,
+                "status": PROJECTION_STATUS_ACTIVE,
+                "projection_version": PROJECTION_VERSION_ACTIVE,
+                "entry_hash": proj.projection_entry_hash,
+            }
+        ]
+        run_repo = AffiliateTargetProjectionPushRunRepository(session)
+        run = run_repo.add_running(
+            snapshot_scope="full",
+            runtime_origin="https://bizfluxlab.com",
+            requested_snapshot_hash="a" * 64,
+            requested_target_count=1,
+            request_manifest_json=serialize_manifest(manifest),
+            started_at=datetime.now(UTC),
+        )
+        run_repo.mark_succeeded(
+            run,
+            http_status=200,
+            response_projection_snapshot_hash="a" * 64,
+            received_count=1,
+            inserted_count=1,
+            updated_count=0,
+            unchanged_count=0,
+            finished_at=datetime.now(UTC),
+        )
+        session.commit()
+        return art.id
+
+
 # ==================== plan (read-only) ========================================
 def test_plan_is_read_only(cli_session_factory, monkeypatch, capsys) -> None:
     article_id = _seed_article(cli_session_factory)
@@ -132,10 +200,13 @@ def test_inspect_masks_full_token(cli_session_factory, monkeypatch, capsys) -> N
         art = Article(title="t", slug="p2", keyword_id=None, body=f"[tool]({_HREF})\n")
         session.add(art)
         session.commit()
+        program = AffiliateProgram(name="Test ASP", provider="test-asp", status="active")
+        session.add(program)
+        session.commit()
         target = AffiliateLinkTarget(
             token=_REAL_TOKEN,
             article_id=art.id,
-            affiliate_program_id=1,
+            affiliate_program_id=program.id,
             destination_url="https://aff.example.test/x",
             destination_host="aff.example.test",
             status="active",
@@ -196,9 +267,11 @@ def test_inspect_masks_full_token(cli_session_factory, monkeypatch, capsys) -> N
     assert inspect_code == 0
     out = capsys.readouterr().out
     assert _REAL_TOKEN not in out
-    assert "aff.example.test" not in out
+    assert "https://aff.example.test/x" not in out  # full destination_url は出さない
     assert "https://bizfluxlab.com/go/<masked>" in out
-    assert "artifact_hash_valid          = True" in out
+    assert "artifact_hash_valid             = True" in out
+    # D-E1: destination_host は CURRENT evidence として意図的に表示される。
+    assert "destination_host=aff.example.test" in out
 
 
 def test_inspect_missing_artifact_not_found(cli_session_factory, monkeypatch, capsys) -> None:
@@ -296,3 +369,243 @@ def test_approve_wrong_hash_rejected(cli_session_factory, monkeypatch, capsys) -
     with cli_session_factory() as session:
         artifact = session.get(ArticlePublicationArtifact, artifact_id)
         assert artifact.approved_at is None
+
+
+# ==================== D-E1: preview always runs, before any write =============
+def test_approve_prints_preview_even_without_approve_flag(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    article_id = _seed_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+
+    code = main(
+        ["approve", "--artifact-id", str(artifact_id), "--expected-artifact-hash", artifact_hash]
+    )
+    assert code == 4
+    out = capsys.readouterr().out
+    # D-E1: --approve が無くても inspection/preview は必ず先に表示される。
+    assert "Publication Artifact Inspection" in out
+    assert "artifact_hash_valid" in out
+    assert "REFUSED" in out
+
+
+def test_approve_substituted_artifact_shows_frozen_and_current_sections(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    article_id = _seed_substituted_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+
+    code = main(
+        [
+            "approve",
+            "--artifact-id",
+            str(artifact_id),
+            "--expected-artifact-hash",
+            artifact_hash,
+            "--approve",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "[FROZEN]" in out
+    assert "[CURRENT]" in out
+    assert "destination_host=aff.example.test" in out
+    assert "mapping_status=active" in out
+    assert "target_status=active" in out
+    assert "Approved" in out
+
+
+# ==================== D-E1: frozen integrity gate blocks approval =============
+def test_approve_refuses_when_tracked_html_hash_invalid(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    article_id = _seed_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+        artifact.tracked_html_hash = "f" * 64
+        session.commit()
+
+    code = main(
+        [
+            "approve",
+            "--artifact-id",
+            str(artifact_id),
+            "--expected-artifact-hash",
+            artifact_hash,
+            "--approve",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "REJECTED" in out
+    assert "tracked_html_hash_valid is False" in out
+
+    with cli_session_factory() as session:
+        artifact = session.get(ArticlePublicationArtifact, artifact_id)
+        assert artifact.approved_at is None
+
+
+# ==================== D-E1: CURRENT evidence gate blocks approval =============
+# D-E1.1 §5: mapping/target/program のどの理由で unresolvable になっても、
+# cmd_approve の gate は単一の集約フラグ insp.all_current_evidence_resolvable
+# だけを見る (_approval_gate_failures に fail_reason ごとの分岐は無い)。よって
+# この 1 本の mapping-missing テストが、target-missing/program-missing でも
+# 承認が 0 書き込みになることを既に証明している -- 個別の CLI テストを追加で
+# 複製しても新たなコードパスは検証しない (fail_reason ごとの分岐が無いため)。
+# サービス層の fail_reason 別の正確性は
+# test_article_publication_artifact_inspection_service.py の
+# test_current_evidence_target_missing_fails_closed /
+# test_current_evidence_program_missing_fails_closed が検証する。
+def test_approve_refuses_when_mapping_is_missing_for_substituted_artifact(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    article_id = _seed_substituted_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+        manifest = json.loads(artifact.substitution_manifest_json)
+        manifest[0]["mapping_id"] = 999999
+        artifact.substitution_manifest_json = json.dumps(manifest)
+        session.commit()
+
+    code = main(
+        [
+            "approve",
+            "--artifact-id",
+            str(artifact_id),
+            "--expected-artifact-hash",
+            artifact_hash,
+            "--approve",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "REJECTED" in out
+    assert "UNRESOLVABLE fail_reason=mapping_missing" in out
+    assert "unresolvable CURRENT" in out
+
+    with cli_session_factory() as session:
+        artifact = session.get(ArticlePublicationArtifact, artifact_id)
+        assert artifact.approved_at is None
+
+
+def test_approve_proceeds_with_operational_warnings_shown(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    """D-E0.3/D-E1: Human 承認は ARTIFACT を pin するのであって、mapping/target/
+    program の現在の運用状態を永久に固定するものではない -- resolvable な
+    CURRENT evidence があれば、状態が active でなくても承認自体は進める
+    (警告として表示するだけ)。D-E2 が実行境界で改めて fresh に強制する。"""
+
+    article_id = _seed_substituted_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+        target = session.execute(select(AffiliateLinkTarget)).scalar_one()
+        target.status = "disabled"
+        session.commit()
+
+    code = main(
+        [
+            "approve",
+            "--artifact-id",
+            str(artifact_id),
+            "--expected-artifact-hash",
+            artifact_hash,
+            "--approve",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "target_status=disabled" in out
+    assert "Approved" in out
+
+    with cli_session_factory() as session:
+        artifact = session.get(ArticlePublicationArtifact, artifact_id)
+        assert artifact.approved_at is not None
+
+
+# ==================== D-E1: zero-substitution unaffected =======================
+def test_approve_zero_substitution_needs_no_mapping_target_program_lookup(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    article_id = _seed_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+        assert artifact.substitution_count == 0
+
+    code = main(
+        [
+            "approve",
+            "--artifact-id",
+            str(artifact_id),
+            "--expected-artifact-hash",
+            artifact_hash,
+            "--approve",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "all_current_evidence_resolvable = True" in out
+    assert "Approved" in out
+
+
+# ==================== D-E1: security regression (approve output) ==============
+def test_approve_output_never_leaks_full_token_or_destination_url(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    article_id = _seed_substituted_article(cli_session_factory)
+    _patch_session_local(monkeypatch, cli_session_factory)
+    main(["persist", "--article-id", str(article_id), "--execute"])
+    capsys.readouterr()
+
+    with cli_session_factory() as session:
+        artifact = session.execute(select(ArticlePublicationArtifact)).scalar_one()
+        artifact_id, artifact_hash = artifact.id, artifact.artifact_hash
+
+    main(
+        [
+            "approve",
+            "--artifact-id",
+            str(artifact_id),
+            "--expected-artifact-hash",
+            artifact_hash,
+            "--approve",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert _REAL_TOKEN not in out
+    assert "https://aff.example.test/x" not in out
+    assert "Authorization" not in out
+    assert "AFFILIATE_RUNTIME_SHARED_SECRET" not in out
+    assert "hmac" not in out.lower()

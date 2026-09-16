@@ -18,6 +18,13 @@ persist / inspect / Human 承認 (D-D4)。
 出力は安全な要約のみ: full token / destination_url / runtime secret / HMAC は
 一切出力しない。tracked HTML 全文・manifest JSON 全文もデフォルトでは出力しない
 (manifest JSON には full token が含まれるため)。
+
+D-E1: ``approve`` は同一の呼び出しの中で **必ず** 最新の
+``ArticlePublicationArtifactInspectionService.inspect()`` を実行し、FROZEN
+artifact 証跡 + CURRENT mapping/target/program 証跡の安全なプレビューを表示して
+から (``--approve`` の有無に関わらず)、frozen 整合性ゲート + CURRENT evidence
+resolvability ゲートの両方を通った場合に限り、明示された ``--approve`` を条件に
+既存の ``approve_artifact()`` を呼ぶ。inspect を経由しない承認経路は存在しない。
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ from app.exceptions import (  # noqa: E402
     EntityNotFoundError,
 )
 from app.services.article_publication_artifact_inspection_service import (  # noqa: E402
+    CURRENT_CANONICAL_MATCH,
     ArticlePublicationArtifactInspectionService,
 )
 from app.services.article_publication_artifact_persistence_service import (  # noqa: E402
@@ -111,52 +119,129 @@ def cmd_persist(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# ==================== shared safe renderer (inspect + approve) ================
+def _print_inspection(insp) -> None:
+    """FROZEN artifact 証跡 + CURRENT control-plane 証跡を明示的に分けて表示する。
+
+    ``inspect`` と ``approve`` の両方がこの **1 つ** の renderer を再利用する
+    (D-E1 §21: フォーマット実装を 2 つ作らない -- drift 防止)。"""
+
+    print("=== Publication Artifact Inspection (READ-ONLY) ===")
+    print(f"artifact_id                     = {insp.artifact_id}")
+    print(f"article_id                      = {insp.article_id}")
+    print(f"article_title                   = {insp.article_title}")
+    print(f"canonical_body_hash             = {insp.canonical_body_hash}")
+    print(f"renderer_version                = {insp.renderer_version}")
+    print(f"artifact_schema_version         = {insp.artifact_schema_version}")
+    print(f"substitution_count              = {insp.substitution_count}")
+    print(f"artifact_hash                   = {insp.artifact_hash}")
+    print(f"tracked_html_hash               = {insp.tracked_html_hash}")
+    print(f"approved                        = {insp.approved}")
+    print(f"approved_at                     = {insp.approved_at}")
+    print(f"approved_artifact_hash          = {_fp(insp.approved_artifact_hash, 64)}")
+    print(f"generated_at                    = {insp.generated_at}")
+    print(f"created_at                      = {insp.created_at}")
+    print()
+    print(f"artifact_hash_valid             = {insp.artifact_hash_valid}")
+    print(f"tracked_html_hash_valid         = {insp.tracked_html_hash_valid}")
+    print(f"manifest_valid                  = {insp.manifest_valid}")
+    print(f"strict_html_validation_valid    = {insp.strict_html_validation_valid}")
+    print(f"current_canonical_status        = {insp.current_canonical_status}")
+    print(f"all_current_evidence_resolvable = {insp.all_current_evidence_resolvable}")
+    print()
+    print(
+        "occurrences (FROZEN artifact evidence vs. CURRENT control-plane "
+        "evidence; full token never shown):"
+    )
+    for e in insp.manifest_summary:
+        print(
+            f"  Occurrence {e.occurrence_ordinal} "
+            f"(is_affiliate_substitution={e.is_affiliate_substitution})"
+        )
+        print(
+            f"    [FROZEN]  original_host={e.original_host} mapping_id={e.mapping_id} "
+            f"target_id={e.affiliate_link_target_id} "
+            f"target_projection_version={e.target_projection_version} "
+            f"replacement={e.replacement_href_masked} "
+            f"token_fp={_fp(e.token_fingerprint)} "
+            f"rel_before={e.rel_before!r} rel_after={e.rel_after!r}"
+        )
+        c = e.current
+        if not c.resolvable:
+            print(f"    [CURRENT] UNRESOLVABLE fail_reason={c.fail_reason}")
+            continue
+        print(
+            f"    [CURRENT] mapping_status={c.mapping_status} "
+            f"target_status={c.target_status} program_name={c.program_name} "
+            f"program_provider={c.program_provider} program_status={c.program_status} "
+            f"destination_host={c.destination_host} "
+            f"current_projection_version={c.current_projection_version} "
+            f"projection_eligible={c.projection_eligible} "
+            f"host_policy_eligible={c.host_policy_eligible}"
+        )
+
+
+def _approval_gate_failures(insp, expected_artifact_hash: str) -> list[str]:
+    """D-E1 §18: approve_artifact() を呼ぶ前に必須の frozen 整合性 + CURRENT
+    evidence resolvability ゲート。1 つでも欠けたら書き込み 0。"""
+
+    failures: list[str] = []
+    if insp.artifact_hash != expected_artifact_hash:
+        failures.append(
+            "--expected-artifact-hash does not match the inspected artifact_hash"
+        )
+    if not insp.artifact_hash_valid:
+        failures.append("artifact_hash_valid is False")
+    if not insp.tracked_html_hash_valid:
+        failures.append("tracked_html_hash_valid is False")
+    if not insp.manifest_valid:
+        failures.append("manifest_valid is False")
+    if not insp.strict_html_validation_valid:
+        failures.append("strict_html_validation_valid is False")
+    if insp.current_canonical_status != CURRENT_CANONICAL_MATCH:
+        failures.append(
+            f"current_canonical_status is {insp.current_canonical_status!r}, "
+            f"not {CURRENT_CANONICAL_MATCH!r}"
+        )
+    if not insp.all_current_evidence_resolvable:
+        failures.append(
+            "one or more substituted occurrences have unresolvable CURRENT "
+            "mapping/target/program evidence"
+        )
+    return failures
+
+
 # ==================== inspect (read-only) =====================================
 def cmd_inspect(args: argparse.Namespace) -> int:
     with SessionLocal() as session:
         insp = ArticlePublicationArtifactInspectionService(session).inspect(args.artifact_id)
 
-    print("=== Publication Artifact Inspection (READ-ONLY) ===")
-    print(f"artifact_id                  = {insp.artifact_id}")
-    print(f"article_id                   = {insp.article_id}")
-    print(f"article_title                = {insp.article_title}")
-    print(f"canonical_body_hash          = {insp.canonical_body_hash}")
-    print(f"renderer_version             = {insp.renderer_version}")
-    print(f"artifact_schema_version      = {insp.artifact_schema_version}")
-    print(f"substitution_count           = {insp.substitution_count}")
-    print(f"artifact_hash                = {insp.artifact_hash}")
-    print(f"tracked_html_hash            = {insp.tracked_html_hash}")
-    print(f"approved                     = {insp.approved}")
-    print(f"approved_at                  = {insp.approved_at}")
-    print(f"approved_artifact_hash       = {_fp(insp.approved_artifact_hash, 64)}")
-    print(f"generated_at                 = {insp.generated_at}")
-    print(f"created_at                   = {insp.created_at}")
-    print()
-    print(f"artifact_hash_valid          = {insp.artifact_hash_valid}")
-    print(f"tracked_html_hash_valid      = {insp.tracked_html_hash_valid}")
-    print(f"manifest_valid               = {insp.manifest_valid}")
-    print(f"strict_html_validation_valid = {insp.strict_html_validation_valid}")
-    print(f"current_canonical_status     = {insp.current_canonical_status}")
-    print()
-    print("manifest (safe summary; full token never shown):")
-    for e in insp.manifest_summary:
-        print(
-            f"  [{e.occurrence_ordinal}] mapping_id={e.mapping_id} "
-            f"target_id={e.affiliate_link_target_id} host={e.original_host} "
-            f"replacement={e.replacement_href_masked} "
-            f"token_fp={_fp(e.token_fingerprint)} "
-            f"projection_version={e.target_projection_version}"
-        )
+    _print_inspection(insp)
     return EXIT_OK
 
 
 # ==================== approve (write, gated) ==================================
 def cmd_approve(args: argparse.Namespace) -> int:
-    if not args.approve:
-        print("REFUSED: approval requires --approve (no default write).")
-        return EXIT_BAD_INPUT
-
     with SessionLocal() as session:
+        # D-E1: 承認は必ず同じ呼び出しの中で fresh な inspection を経由する。
+        # inspect を経由しない承認経路は存在しない (--approve の有無に関わらず
+        # プレビューは常に表示する)。
+        insp = ArticlePublicationArtifactInspectionService(session).inspect(args.artifact_id)
+        _print_inspection(insp)
+
+        failures = _approval_gate_failures(insp, args.expected_artifact_hash)
+        if failures:
+            print()
+            print("REJECTED: approval preconditions not met:")
+            for f in failures:
+                print(f"  - {f}")
+            return EXIT_REJECTED
+
+        if not args.approve:
+            print()
+            print("REFUSED: approval requires --approve (no default write).")
+            return EXIT_BAD_INPUT
+
         svc = ArticlePublicationArtifactService(session)
         artifact = svc.approve_artifact(
             args.artifact_id, expected_artifact_hash=args.expected_artifact_hash
@@ -164,6 +249,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         artifact_id = artifact.id
         approved_at = artifact.approved_at
 
+    print()
     print("=== Publication Artifact Approved ===")
     print(f"artifact_id  = {artifact_id}")
     print(f"approved_at  = {approved_at}")
