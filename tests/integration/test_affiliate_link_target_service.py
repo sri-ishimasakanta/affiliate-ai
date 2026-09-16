@@ -5,8 +5,6 @@ Google / WordPress へは一切通信しない。host policy はテストが明�
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pytest
 from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.affiliate.link_identity import compute_link_identity_hash
 from app.affiliate.token import is_well_formed_token
-from app.article.fact_freshness import to_storage_utc
 from app.exceptions import AffiliateLinkTargetError, EntityNotFoundError
 from app.models import (
     AffiliateLinkTarget,
@@ -22,9 +19,6 @@ from app.models import (
     ArticleAffiliateProgram,
 )
 from app.models.enums import AffiliateProgramStatus
-from app.repositories.affiliate_link_target_repository import (
-    AffiliateLinkTargetRepository,
-)
 from app.repositories.affiliate_program_repository import AffiliateProgramRepository
 from app.services.affiliate_link_target_service import AffiliateLinkTargetService
 
@@ -575,72 +569,187 @@ def test_supersede_target_durable_via_independent_session(
         indep.close()
 
 
-# -- supersede_target idempotent-replay path -------------------------------------
-def test_supersede_replay_path_never_calls_refresh_and_makes_no_new_write(
+# -- supersede_target idempotent-replay path (D-F2B.1: genuine reachable state) --
+# D-F2B は idempotency-key チェックが transition guard の**後**にあったため、
+# 「前回の supersede が実際に成功し old が既に superseded になっている」自然な
+# 再試行では replay 分岐に到達できず、forged (実際には発生し得ない) fixture
+# でしか exercise できなかった。D-F2B.1 は idempotency 解決を transition guard
+# より先に動かす (かつ old.status == superseded / old.superseded_by_id ==
+# existing.id という historical linkage を要求する) ことでこれを修正した。
+# 以下は forged fixture を使わず、実際に 1 回目の supersede_target() を成功
+# させてから同じ引数で 2 回目を呼ぶ、genuinely reachable な状態のみを使う。
+
+
+def _raise_if_commit_called(*_a, **_kw):
+    raise AssertionError("session.commit() must not be called on a genuine replay (D-F2B.1)")
+
+
+def test_supersede_genuine_retry_returns_same_old_and_new_ids(session: Session) -> None:
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=RETRYCHECK"
+    session.commit()
+
+    old_1, new_1 = svc.supersede_target(old.id, idempotency_key="retry-key")
+    old_2, new_2 = svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    assert old_2.id == old_1.id
+    assert new_2.id == new_1.id
+    assert old_2.status == "superseded"
+    assert old_2.superseded_by_id == new_2.id
+    assert new_2.status == "active"
+
+
+def test_supersede_genuine_retry_creates_no_new_row(session: Session) -> None:
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=RETRYCHECK"
+    session.commit()
+
+    svc.supersede_target(old.id, idempotency_key="retry-key")
+    before = _count(session)
+    svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    assert _count(session) == before == 2  # old + new のみ (third row は作られない)
+
+
+def test_supersede_genuine_retry_does_not_commit(session: Session, monkeypatch) -> None:
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=RETRYCHECK"
+    session.commit()
+    svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    monkeypatch.setattr(session, "commit", _raise_if_commit_called)
+    old_2, new_2 = svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    assert old_2.status == "superseded"
+    assert new_2.status == "active"
+
+
+def test_supersede_genuine_retry_does_not_refresh(session: Session, monkeypatch) -> None:
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=RETRYCHECK"
+    session.commit()
+    svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    monkeypatch.setattr(session, "refresh", _raise_if_refresh_called)
+    old_2, new_2 = svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    assert old_2.status == "superseded"
+    assert new_2.status == "active"
+
+
+def test_supersede_genuine_retry_does_not_mint_new_token(
     session: Session, monkeypatch
 ) -> None:
-    """D-F2B §13: replay path を実際に到達させる。
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
 
-    注意 (正直な開示): この replay 分岐は ``alt_transition_allowed(old.status,
-    ALT_SUPERSEDED)`` の遷移チェックが idempotency-key チェックより **先** に
-    実行されるため、「前回の supersede が実際に成功していて old が既に
-    superseded になっている」自然な再試行シナリオでは到達できない
-    (その場合はこのチェックで "cannot be superseded" として弾かれる)。ここでは
-    仕様が明示的に要求する "arrange an existing idempotent result" の手法で、
-    old を active のままにし、同じ idempotency_key を持つ「既に作られた
-    replacement」を repository 経由で直接用意することで、この分岐を意図的に
-    到達させる。
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=RETRYCHECK"
+    session.commit()
+    _old_1, new_1 = svc.supersede_target(old.id, idempotency_key="retry-key")
 
-    さらなる証拠: forged replacement を ``status="active"`` で作ろうとすると
-    ``(article_id, affiliate_program_id)`` の partial unique active index に
-    違反する (IntegrityError) -- old が active のままである以上、同じ
-    (article, program) に 2 つ目の active row は DB レベルで作れない。これは
-    「old が active のまま」かつ「replacement が既に存在する」という、この
-    replay 分岐が前提とする状態の組み合わせが、実際の DB 制約の下では
-    **一貫した状態として存在し得ない** ことを経験的にも証明している --
-    replay 分岐は自然な再試行シナリオでは到達不能というだけでなく、
-    forged fixture でさえ replacement を active にはできない。ここでは
-    replay の照合ロジック自体 (``existing.status`` を一切見ない) を exercise
-    するためだけに、DB 制約を満たす ``status="disabled"`` で forge する --
-    これは実際に発生しうる状態を模したものではなく、純粋にコードパスの
-    refresh-回避動作を検証するための人工的な fixture である。この分岐が
-    実務上いつ自然に到達するかは別途の設計課題として報告済み (D-F2B の
-    スコープ外、この diff では変更しない)。"""
+    def _raise_if_mint_called():
+        raise AssertionError(
+            "_mint_token() must not be called on a genuine replay (D-F2B.1)"
+        )
+
+    monkeypatch.setattr(svc, "_mint_token", _raise_if_mint_called)
+    _old_2, new_2 = svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    assert new_2.token == new_1.token
+
+
+def test_supersede_same_key_different_destination_is_conflict(session: Session) -> None:
+    # 同じ idempotency_key を、program の destination が変わった**後**に
+    # 再利用するのは「同じ request の replay」ではない -- conflict のまま。
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=FIRSTDEST"
+    session.commit()
+    svc.supersede_target(old.id, idempotency_key="retry-key")
+
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=SECONDDEST"
+    session.commit()
+
+    with pytest.raises(AffiliateLinkTargetError, match="different"):
+        svc.supersede_target(old.id, idempotency_key="retry-key")
+
+
+def test_supersede_already_superseded_different_key_still_rejected(
+    session: Session,
+) -> None:
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=FIRSTDEST"
+    session.commit()
+    svc.supersede_target(old.id, idempotency_key="first-key")
+
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=THIRDDEST"
+    session.commit()
+    with pytest.raises(AffiliateLinkTargetError, match="cannot be superseded"):
+        svc.supersede_target(old.id, idempotency_key="never-used-key")
+
+
+def test_supersede_already_superseded_no_key_still_rejected(session: Session) -> None:
+    aid, pid = _seed(session)
+    svc = _svc(session)
+    old = svc.create_target(article_id=aid, affiliate_program_id=pid)
+
+    prog = AffiliateProgramRepository(session).get_by_id(pid)
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=FIRSTDEST"
+    session.commit()
+    svc.supersede_target(old.id, idempotency_key="first-key")
+
+    with pytest.raises(AffiliateLinkTargetError, match="cannot be superseded"):
+        svc.supersede_target(old.id)
+
+
+def test_supersede_active_old_with_unrelated_idempotency_key_is_conflict(
+    session: Session,
+) -> None:
+    """old が active のまま、無関係な行が同じ idempotency_key を持つ場合は
+    conflict のまま (§5.F / §16) -- identity が一致しても
+    old.superseded_by_id がその行を指していない限り replay として返さない。"""
 
     aid, pid = _seed(session)
     svc = _svc(session)
     old = svc.create_target(article_id=aid, affiliate_program_id=pid)
 
-    new_tracking = f"https://{_ALT_HOST}/track?a8mat=REPLAYCHECK"
+    art2 = _article(session, slug="a2")
+    pid2 = _program(session, name="P2")
+    _link(session, art2.id, pid2)
+    unrelated = svc.create_target(
+        article_id=art2.id, affiliate_program_id=pid2, idempotency_key="shared-key"
+    )
+    assert unrelated.id != old.id
+
     prog = AffiliateProgramRepository(session).get_by_id(pid)
-    prog.tracking_url = new_tracking
+    prog.tracking_url = f"https://{_ALT_HOST}/track?a8mat=UNRELATED"
     session.commit()
 
-    link_hash = compute_link_identity_hash(
-        article_id=aid, affiliate_program_id=pid, destination_url=new_tracking
-    )
-    forged_existing = AffiliateLinkTargetRepository(session).add(
-        token="FORGEDREPLAYTOKEN0001AA",
-        article_id=aid,
-        affiliate_program_id=pid,
-        destination_url=new_tracking,
-        destination_host=_ALT_HOST,
-        status="disabled",  # active は partial unique index に違反する (上記参照)
-        link_identity_hash=link_hash,
-        idempotency_key="replay-key",
-        created_at=to_storage_utc(datetime.now(UTC)),
-    )
-    session.commit()
-
-    before = _count(session)
-    monkeypatch.setattr(session, "refresh", _raise_if_refresh_called)
-
-    old_returned, existing_returned = svc.supersede_target(
-        old.id, idempotency_key="replay-key"
-    )
-
-    assert existing_returned.id == forged_existing.id
-    assert old_returned.id == old.id
-    # replay 分岐は何も mutate しない -- old は依然として active のまま。
-    assert old_returned.status == "active"
-    assert _count(session) == before
+    with pytest.raises(AffiliateLinkTargetError, match="different"):
+        svc.supersede_target(old.id, idempotency_key="shared-key")
+    assert svc.get(old.id).status == "active"

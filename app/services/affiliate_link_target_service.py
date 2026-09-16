@@ -171,12 +171,58 @@ class AffiliateLinkTargetService:
         新 destination をまず検証し、old を active から外し、新 target を作り、
         supersede pointer を張る — すべて 1 transaction。途中で失敗したら rollback で
         old は active のまま。戻り値 ``(old_superseded, new_active)``。
+
+        ``idempotency_key`` が既存行に解決する場合、その判定は通常の
+        transition guard より **先** に行う (D-F2B.1)。そうしないと「既に
+        成功した supersede の再試行」は old が既に superseded であるが故に
+        常に "cannot be superseded" で弾かれ、replay 判定へ到達できない
+        (transition guard が先に落とす)。genuine replay と認めるのは、
+        identity (article_id / affiliate_program_id / destination の
+        link_identity_hash) が要求内容と完全一致し、かつ
+        ``old.status == superseded`` かつ ``old.superseded_by_id ==
+        existing.id`` という historical linkage が実在する場合のみ。
+        いずれか一つでも欠ける場合は replay とはみなさず fail closed で
+        conflict を報告する (無関係な行を誤って返さない -- 同じ
+        idempotency_key を指す既存行があっても、それが「この old を実際に
+        supersede して作られたものだ」という証拠がなければ信用しない)。
         """
 
         now = now or datetime.now(UTC)
         old = self._repo.get_by_id(target_id)
         if old is None:
             raise EntityNotFoundError("AffiliateLinkTarget", target_id)
+
+        if idempotency_key is not None:
+            existing = self._repo.get_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                # D-F2B.1: idempotency 解決は transition guard より先。
+                # read-only -- flush/commit/token mint は一切行わない。
+                program = self._require_program(old.affiliate_program_id)
+                facts = self._validate_program_destination(program)
+                link_hash = compute_link_identity_hash(
+                    article_id=old.article_id,
+                    affiliate_program_id=old.affiliate_program_id,
+                    destination_url=facts.destination_url,
+                )
+                if (
+                    existing.article_id == old.article_id
+                    and existing.affiliate_program_id == old.affiliate_program_id
+                    and existing.link_identity_hash == link_hash
+                    and old.status == ALT_SUPERSEDED
+                    and old.superseded_by_id == existing.id
+                ):
+                    # Genuine, already-committed replay of THIS exact
+                    # supersede call. `existing` の**現在の** status は見ない
+                    # (このリクエストが成功した後、別の操作で existing 自身が
+                    # disabled/superseded になっていても、この呼び出しが既に
+                    # 成功したという historical fact は変わらない -- D-F2B の
+                    # refresh 除去方針を踏襲し refresh もしない)。
+                    return old, existing
+                raise AffiliateLinkTargetError(
+                    f"idempotency_key {idempotency_key!r} already used for a "
+                    "different target identity"
+                )
+
         if not alt_transition_allowed(old.status, ALT_SUPERSEDED):
             raise AffiliateLinkTargetError(
                 f"target {target_id} status {old.status!r} cannot be superseded"
@@ -195,28 +241,6 @@ class AffiliateLinkTargetService:
             affiliate_program_id=old.affiliate_program_id,
             destination_url=facts.destination_url,
         )
-
-        if idempotency_key is not None:
-            existing = self._repo.get_by_idempotency_key(idempotency_key)
-            if existing is not None:
-                if (
-                    existing.article_id == old.article_id
-                    and existing.affiliate_program_id == old.affiliate_program_id
-                    and existing.link_identity_hash == link_hash
-                ):
-                    # D-F2B: no DB round-trip is needed to return `old` here --
-                    # nothing has mutated `old` since it was loaded via
-                    # get_by_id() a few lines above in this same call (this
-                    # replay branch returns before any repository mutation
-                    # method runs), so its in-memory attributes already exactly
-                    # match what get_by_id() just read. A refresh() here would
-                    # be an unnecessary fallible DB round-trip on a path that
-                    # performs no mutation at all.
-                    return old, existing
-                raise AffiliateLinkTargetError(
-                    f"idempotency_key {idempotency_key!r} already used for a different "
-                    "target identity"
-                )
 
         token = self._mint_token()
         try:
