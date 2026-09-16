@@ -12,7 +12,12 @@ execute() の contract:
       -> CONTENT_NOOP / WORDPRESS_CURRENT_CONTENT_DRIFT / local gate 不通過:
          run を一切作らない。WordPress write 0。ContentUpdateExecutionResult を返す。
       -> UPDATE_REQUIRED:
-         Transaction A (running 行を insert して commit -- POST の前に確定)
+         (D-E2) artifact.substitution_count > 0 の場合のみ、affiliate
+         publication readiness (mapping/target/program の現在の active 状態 /
+         destination host policy / projection acknowledgement / frozen-vs-
+         current projection version) を fresh に評価する。fail closed なら
+         run を一切作らず POST もしない。substitution_count == 0 は無関与。
+         -> Transaction A (running 行を insert して commit -- POST の前に確定)
          -> 厳密に 1 回だけ content-update POST
          -> mandatory read-back GET
          -> Transaction B (succeeded / outcome_unknown を mark して commit)
@@ -54,6 +59,12 @@ from app.repositories.article_publication_artifact_repository import (
 )
 from app.repositories.wordpress_content_update_run_repository import (
     WordPressContentUpdateRunRepository,
+)
+from app.services.affiliate_publication_readiness import (
+    evaluate_affiliate_publication_readiness,
+)
+from app.services.article_publication_artifact_inspection_service import (
+    ArticlePublicationArtifactInspectionService,
 )
 from app.services.wordpress_content_update_preflight_service import (
     CLASSIFICATION_UPDATE_REQUIRED,
@@ -160,6 +171,36 @@ class WordPressContentUpdateExecutionService:
             raise WordPressContentUpdateRunError(
                 "artifact disappeared between classification and execution"
             )
+
+        # -- D-E2: mandatory affiliate publication readiness gate ------------
+        # substitution_count == 0 の artifact には一切関与しない (既存の
+        # D-D5D 経路を無変更のまま通す)。substitution_count > 0 のときだけ、
+        # D-E1 の fresh inspection (mapping/target/program/projection/host-policy
+        # の CURRENT evidence を再解決ロジックの重複無しに再利用) を経由して
+        # readiness を評価し、fail closed なら Transaction A より前に refuse
+        # する -- run 行は一切作らず、POST も一切行わない。Human 承認は
+        # 「どの frozen artifact が承認されたか」を証明するだけで、mapping/
+        # target/program/projection acknowledgement の現在の運用状態を永久に
+        # 固定しない (D-E0.3/D-E1) ため、承認済みでも毎回 fresh に再評価する。
+        #
+        # concurrency 注記 (正直に明示する -- 完全な race-freedom は主張しない):
+        # この読み取りから直後の POST までの間、別セッションが mapping/target/
+        # program/acknowledgement を変更しうる小さな window は残る。外部 HTTP
+        # 呼び出しをまたいで DB row をロックすることはしない (この codebase の
+        # 既存アーキテクチャもそうしていない) -- D-D5C の live GET と POST の
+        # 間の window と同種の、許容された残存リスク。
+        if artifact.substitution_count > 0:
+            inspection = ArticlePublicationArtifactInspectionService(self._session).inspect(
+                artifact_id
+            )
+            readiness = evaluate_affiliate_publication_readiness(inspection)
+            if not readiness.ready:
+                raise WordPressContentUpdateRunError(
+                    "affiliate publication readiness failed before Transaction A "
+                    f"(no run created, no POST attempted): "
+                    f"{', '.join(readiness.failure_reasons)}"
+                )
+
         candidate = build_wordpress_content_update_request(
             wordpress_post_id=classification.wordpress_post_id,
             article_publication_artifact_id=artifact_id,
