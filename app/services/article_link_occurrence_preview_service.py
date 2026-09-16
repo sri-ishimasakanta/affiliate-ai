@@ -12,6 +12,14 @@ occurrence 抽出は :mod:`app.wordpress.link_occurrence` (pure) を使い、can
 occurrence discovery (pure・常に valid) と eligibility 判定 (current DB state 依存・
 lifecycle で変化しうる) を明確に区別する — このファイルは後者を「今この瞬間」の
 値として返すだけで、どちらも一切変更しない。
+
+D-D3: :meth:`resolve_eligibility` は元々 ``preview()`` 内部だけの private ロジック
+だったものを public 化したもの。1 occurrence につき mapping/target ORM を
+**1 回だけ** 読み、その同じオブジェクト参照を eligibility 判定・DTO 構築・(D-D3
+preparation service の) manifest 構築のどれにも使い回す — "eligibility を v1 で
+判定してから manifest を v2 から組む" ような state drift を構造的に防止する
+(D-D3 §24)。D-D3 の preparation service はこのメソッドをそのまま呼んで再利用し、
+mapping/target/acknowledgement ロジックを再実装しない。
 """
 
 from __future__ import annotations
@@ -95,6 +103,20 @@ _REASON_TEXT = {
 
 
 @dataclass(frozen=True)
+class OccurrenceEligibility:
+    """1 occurrence の eligibility 判定結果 + それに使った frozen ORM 参照。
+
+    ``mapping`` / ``target`` はこの解決の間に **1 回だけ** 読み込まれたオブジェクト
+    参照そのもの — 呼び出し側 (D-D3 preparation service 含む) はこれをそのまま
+    再利用し、別途再取得しないこと (state drift 防止)。"""
+
+    mapping: object | None
+    target: object | None
+    eligible: bool
+    reason: str
+
+
+@dataclass(frozen=True)
 class OccurrencePreview:
     occurrence_ordinal: int
     occurrence_identity_hash: str
@@ -153,19 +175,22 @@ class ArticleLinkOccurrencePreviewService:
             renderer_version=rendered.renderer_version,
         )
 
-        runtime_origin = self._resolve_runtime_origin()
-
         previews: list[OccurrencePreview] = []
         active_mapping_count = 0
         eligible_count = 0
         for occ in occurrences:
-            preview = self._preview_one(
+            elig = self.resolve_eligibility(
                 article_id=article_id,
                 occurrence_identity_hash=occ.occurrence_identity_hash,
+            )
+            preview = self._result(
                 occurrence_ordinal=occ.occurrence_ordinal,
+                occurrence_identity_hash=occ.occurrence_identity_hash,
                 original_href=occ.original_href,
                 original_host=occ.original_host,
-                runtime_origin=runtime_origin,
+                mapping=elig.mapping,
+                target=elig.target,
+                reason=elig.reason,
             )
             previews.append(preview)
             if preview.mapped:
@@ -185,76 +210,49 @@ class ArticleLinkOccurrencePreviewService:
             occurrences=previews,
         )
 
-    # -- per-occurrence resolution ---------------------------------------
-    def _preview_one(
-        self,
-        *,
-        article_id: int,
-        occurrence_identity_hash: str,
-        occurrence_ordinal: int,
-        original_href: str,
-        original_host: str | None,
-        runtime_origin: str | None,
-    ) -> OccurrencePreview:
+    # -- shared eligibility resolution (reused by D-D3) -------------------
+    def resolve_eligibility(
+        self, *, article_id: int, occurrence_identity_hash: str
+    ) -> OccurrenceEligibility:
+        """1 occurrence の mapping/target/runtime acknowledgement eligibility を
+        1 回だけ読み込んで判定する。mapping/target の ORM 参照はこの呼び出し内で
+        読み込んだものをそのまま返す (再取得しない — D-D3 §24 の drift guard)。"""
+
         mapping = self._mappings.get_active_for_occurrence(
             article_id, occurrence_identity_hash
         )
         if mapping is None:
-            return self._result(
-                occurrence_ordinal=occurrence_ordinal,
-                occurrence_identity_hash=occurrence_identity_hash,
-                original_href=original_href,
-                original_host=original_host,
-                mapping=None,
-                target=None,
+            return OccurrenceEligibility(
+                mapping=None, target=None, eligible=False,
                 reason=REASON_NO_ACTIVE_MAPPING,
             )
 
         target = self._targets.get_by_id(mapping.affiliate_link_target_id)
         if target is None:
-            return self._result(
-                occurrence_ordinal=occurrence_ordinal,
-                occurrence_identity_hash=occurrence_identity_hash,
-                original_href=original_href,
-                original_host=original_host,
-                mapping=mapping,
-                target=None,
+            return OccurrenceEligibility(
+                mapping=mapping, target=None, eligible=False,
                 reason=REASON_MAPPING_TARGET_MISSING,
             )
 
         if target.article_id != article_id:
-            return self._result(
-                occurrence_ordinal=occurrence_ordinal,
-                occurrence_identity_hash=occurrence_identity_hash,
-                original_href=original_href,
-                original_host=original_host,
-                mapping=mapping,
-                target=target,
+            return OccurrenceEligibility(
+                mapping=mapping, target=target, eligible=False,
                 reason=REASON_TARGET_ARTICLE_MISMATCH,
             )
 
         if target.status != ALT_ACTIVE:
-            return self._result(
-                occurrence_ordinal=occurrence_ordinal,
-                occurrence_identity_hash=occurrence_identity_hash,
-                original_href=original_href,
-                original_host=original_host,
-                mapping=mapping,
-                target=target,
+            return OccurrenceEligibility(
+                mapping=mapping, target=target, eligible=False,
                 reason=REASON_TARGET_NOT_ACTIVE,
             )
 
+        runtime_origin = self._resolve_runtime_origin()
         reason = self._resolve_runtime_eligibility(
             target=target, runtime_origin=runtime_origin
         )
-        return self._result(
-            occurrence_ordinal=occurrence_ordinal,
-            occurrence_identity_hash=occurrence_identity_hash,
-            original_href=original_href,
-            original_host=original_host,
-            mapping=mapping,
-            target=target,
-            reason=reason,
+        return OccurrenceEligibility(
+            mapping=mapping, target=target,
+            eligible=(reason == REASON_ELIGIBLE), reason=reason,
         )
 
     def _resolve_runtime_origin(self) -> str | None:
