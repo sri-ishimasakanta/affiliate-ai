@@ -211,6 +211,7 @@ def test_client_exposes_only_approved_operations() -> None:
         "get_post",
         "create_draft_post_exact",
         "publish_existing_post_exact",
+        "update_post_content_exact",
         "target_base_url",
     }
     forbidden_names = (

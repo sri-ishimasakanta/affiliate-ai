@@ -337,6 +337,24 @@ class WordPressContentUpdateRunError(ApplicationError):
         self.reason = reason
 
 
+class WordPressContentUpdateTerminalPersistFailedError(ApplicationError):
+    """D-D5D: content-update の write boundary (Transaction A commit 後) を越えた後、
+    外部への POST 結果 (成功 / 曖昧 / read-back 失敗のいずれか) は確定しているが、その
+    結果を ``WordPressContentUpdateRun`` へ terminal 状態として commit すること自体に
+    失敗した。WordPress 側の実際の状態は不明なまま (POST は既に送信済み)。絶対に
+    再 POST しない。durable row は ``running`` のまま。Human reconciliation が必要。
+    """
+
+    def __init__(self, wordpress_post_id: str) -> None:
+        super().__init__(
+            "wordpress_content_update_terminal_persist_failed: "
+            f"wordpress_post_id={wordpress_post_id!r} may have been updated but the "
+            "terminal outcome could not be durably recorded; do not retry; Human "
+            "reconciliation required"
+        )
+        self.wordpress_post_id = wordpress_post_id
+
+
 class SearchConsoleImportStateError(ApplicationError):
     """SearchConsoleImportRun の prepare / execute を許さない state にある
     (guard 失敗、既に running/terminal な run への再実行要求、無効な期間など)。

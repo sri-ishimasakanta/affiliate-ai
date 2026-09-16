@@ -8,17 +8,21 @@ scope:
 - 作成後の read-back read-only GET (``GET /wp-json/wp/v2/posts/{id}``)
 - 既存 post を publish する POST 1 種のみ
   (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"status":"publish"}``)
+- 既存 (published 済み) post の content を update する POST 1 種のみ (D-D5D)
+  (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"content": <tracked_html>}``)
 
-generic update / delete / bulk / media upload / 任意 status 設定 / content・title・
-category 変更は一切実装しない。
+generic update / delete / bulk / media upload / 任意 status 設定 / title・category
+変更は一切実装しない。``update_post_content_exact`` は ``content`` 以外のキーを構造的に
+拒否する -- ``publish_existing_post_exact`` (status-only) とは完全に別の凍結契約。
 
 credential (username / app password) は ``httpx.BasicAuth`` を通じてのみ transport 層へ
 渡し、このモジュールの外へ Authorization 値を一切構築・露出しない。エラーメッセージには
 credential・レスポンス本文・環境変数を含めない。
 
 書き込み POST は :func:`WordPressClient.create_draft_post_exact` /
-:func:`WordPressClient.publish_existing_post_exact` が 1 回だけ送る。自動リトライは一切
-行わない (呼び出し側も含め、このモジュールはリトライ機構を持たない)。
+:func:`WordPressClient.publish_existing_post_exact` /
+:func:`WordPressClient.update_post_content_exact` がそれぞれ 1 回だけ送る。自動リトライは
+一切行わない (呼び出し側も含め、このモジュールはリトライ機構を持たない)。
 """
 
 from __future__ import annotations
@@ -78,6 +82,20 @@ class WordPressPublishedPost(BaseModel):
     link: str
     slug: str | None
     date_gmt: str | None
+
+
+class WordPressUpdatedPost(BaseModel):
+    """update_post_content_exact() の安全な戻り値。
+
+    D-D5D §10: POST レスポンスの ``content.raw`` は normative な post-update
+    baseline として扱わない (それを証明する既存 API 契約は無い) -- 含めない。
+    そのための authoritative な検証源は、この POST とは別の mandatory read-back
+    GET (``WordPressClient.get_post``) である。
+    """
+
+    id: int
+    status: str
+    link: str | None
 
 
 class WordPressClient:
@@ -262,6 +280,50 @@ class WordPressClient:
             date_gmt=str(date_gmt) if isinstance(date_gmt, str) and date_gmt else None,
         )
 
+    def update_post_content_exact(
+        self, wordpress_post_id: int, update_payload_json: str
+    ) -> WordPressUpdatedPost:
+        """既に published 済みの post の content を update する。
+        ``POST /wp-json/wp/v2/posts/{id}`` を **1 回だけ** (D-D5D)。
+
+        - body は exact な frozen bytes (``content=`` で送る。``json=`` は使わない)。
+        - payload は logically ちょうど ``{"content": <tracked_html>}`` でなければ拒否
+          (title / excerpt / slug / status / meta / categories / tags など第 2 の
+          キーが 1 つでもあれば ``ValueError``)。``publish_existing_post_exact`` の
+          status-only 凍結契約とは別物 -- 混用しない。
+        - リトライは一切しない。timeout / 接続断はレスポンス未確定として
+          :class:`WordPressAmbiguousOutcomeError` を送出する。
+        - 返り値の post id が ``wordpress_post_id`` と一致するかどうかは **ここでは
+          判定しない** -- write request 送信後の post-id 不一致は呼び出し側 (service)
+          が conservative に ``outcome_unknown`` として扱う設計上の判断であり、この
+          client 層で例外にして握りつぶさない (D-D5D §18)。
+        """
+
+        _assert_exact_content_update_payload(update_payload_json)
+
+        body = update_payload_json.encode("utf-8")
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_POSTS_PATH}/{wordpress_post_id}",
+            content=body,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        data = _expect_json_object(_check_status(response, expected_status=200))
+
+        post_id = data.get("id")
+        wp_status = data.get("status")
+        link = data.get("link")
+
+        if not isinstance(post_id, int) or post_id <= 0:
+            raise ExternalProviderError(_PROVIDER, "response did not include a valid post id")
+
+        return WordPressUpdatedPost(
+            id=post_id,
+            status=str(wp_status) if isinstance(wp_status, str) else "",
+            link=str(link) if isinstance(link, str) else None,
+        )
+
     # -- transport --------------------------------------------------------
     def _send(
         self,
@@ -322,6 +384,23 @@ def _assert_exact_publish_payload(publish_payload_json: str) -> None:
     ):
         raise ValueError(
             "publish_existing_post_exact only accepts an exact {\"status\":\"publish\"} payload"
+        )
+
+
+def _assert_exact_content_update_payload(update_payload_json: str) -> None:
+    """logically ちょうど ``{"content": <str>}`` であることを検証する。
+
+    それ以外 (第 2 のキー / content が str でない / dict でない) は ``ValueError``。
+    """
+
+    parsed = json.loads(update_payload_json)
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != {"content"}
+        or not isinstance(parsed.get("content"), str)
+    ):
+        raise ValueError(
+            'update_post_content_exact only accepts an exact {"content": <str>} payload'
         )
 
 
