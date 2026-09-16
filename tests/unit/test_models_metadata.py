@@ -22,6 +22,7 @@ from app.models import (
     SearchConsolePageDaily,
     SearchConsoleQueryDaily,
     Source,
+    WordPressContentUpdateRun,
     WordPressDraftRun,
     WordPressPublicationRun,
 )
@@ -63,6 +64,9 @@ IMMUTABLE_HISTORY_MODELS = (
     # immutable-content + set-once 承認 (approved_at/approved_artifact_hash のみ
     # NULL -> 値へ 1 回遷移)。updated_at は持たない。
     ArticlePublicationArtifact,
+    # content update の auditable な実行記録 (running -> succeeded/failed/
+    # outcome_unknown)。prepared を持たず running から直接始まる。updated_at なし。
+    WordPressContentUpdateRun,
 )
 
 
@@ -94,6 +98,7 @@ def test_all_tables_registered() -> None:
         "affiliate_target_projection_push_runs",
         "article_link_substitution_mappings",
         "article_publication_artifacts",
+        "wordpress_content_update_runs",
     }
 
 

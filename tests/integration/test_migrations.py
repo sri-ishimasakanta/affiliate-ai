@@ -754,3 +754,222 @@ def test_article_publication_artifacts_shape_at_head(tmp_path: Path) -> None:
     assert _indexes(url, "article_publication_artifacts") >= {
         "ix_article_publication_artifacts_article_id",
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3C-5F-D-D5B / D-D5B.1: WordPressContentUpdateRun foundation (1 migration)
+# ---------------------------------------------------------------------------
+_CONTENT_UPDATE_RUNS_MIGRATION = "3d98dc94680c"  # add wordpress content update runs
+_BEFORE_CONTENT_UPDATE_RUNS = "45ed2fbd00c6"  # add article publication artifacts
+
+
+def test_wordpress_content_update_runs_migration_is_add_only(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'content_update_runs.db'}"
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _BEFORE_CONTENT_UPDATE_RUNS)
+    before_tables = _table_names(url)
+    artifacts_cols_before = _existing_table_columns(url, "article_publication_artifacts")
+    assert "wordpress_content_update_runs" not in before_tables
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _CONTENT_UPDATE_RUNS_MIGRATION)
+
+    assert _table_names(url) - before_tables == {"wordpress_content_update_runs"}
+    assert (
+        _existing_table_columns(url, "article_publication_artifacts")
+        == artifacts_cols_before
+    )
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_CONTENT_UPDATE_RUNS)
+    assert _table_names(url) == before_tables
+
+    # roundtrip: 再度 upgrade しても同じ shape に戻る
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), _CONTENT_UPDATE_RUNS_MIGRATION)
+    assert _table_names(url) - before_tables == {"wordpress_content_update_runs"}
+
+
+def test_wordpress_content_update_runs_shape_at_head(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'content_update_runs_shape.db'}"
+    _upgrade_head(url)
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        raw_cols = insp.get_columns("wordpress_content_update_runs")
+        cols = {c["name"] for c in raw_cols}
+        nullable_by_name = {c["name"]: bool(c["nullable"]) for c in raw_cols}
+        uniques = {
+            tuple(u["column_names"])
+            for u in insp.get_unique_constraints("wordpress_content_update_runs")
+        }
+        fks = {
+            (
+                fk["referred_table"],
+                tuple(fk["constrained_columns"]),
+                fk.get("options", {}).get("ondelete"),
+            )
+            for fk in insp.get_foreign_keys("wordpress_content_update_runs")
+        }
+        check_names = {
+            ck["name"] for ck in insp.get_check_constraints("wordpress_content_update_runs")
+        }
+    finally:
+        engine.dispose()
+
+    assert cols == {
+        "id", "article_id", "wordpress_post_id", "article_publication_artifact_id",
+        "artifact_hash", "status", "method", "endpoint_path", "update_payload_json",
+        "update_payload_hash", "content_update_request_identity_hash",
+        "target_content_update_request_identity_hash", "target_base_url",
+        "request_content_hash", "expected_pre_update_wordpress_raw_content_hash",
+        "observed_pre_update_wordpress_raw_content_hash",
+        "observed_pre_update_modified_gmt_raw", "response_content_raw_hash",
+        "response_content_rendered_hash", "wordpress_modified_at",
+        "wordpress_modified_gmt_raw", "http_status", "provider_error_code",
+        "error_message", "response_snapshot", "idempotency_key", "created_at",
+        "started_at", "finished_at",
+    }
+    assert "updated_at" not in cols  # append-only run record
+    # credential / secret / HMAC / full-token / destination_url 相当のカラムを持たない
+    assert cols.isdisjoint(
+        {
+            "username", "password", "application_password", "authorization",
+            "shared_secret", "secret", "signature", "hmac", "access_token",
+            "destination_url", "full_token",
+        }
+    )
+    assert ("idempotency_key",) in uniques
+    assert ("articles", ("article_id",), "RESTRICT") in fks
+    assert (
+        "article_publication_artifacts",
+        ("article_publication_artifact_id",),
+        "RESTRICT",
+    ) in fks
+    assert _indexes(url, "wordpress_content_update_runs") >= {
+        "ix_wordpress_content_update_runs_article_created_id",
+        "ix_wordpress_content_update_runs_article_id",
+        "ix_wordpress_content_update_runs_article_publication_artifact_id",
+        "ix_wordpress_content_update_runs_target_content_update_request_identity_hash",
+    }
+    # D-D5B.1: running は preflight 成功後にのみ作られるため、observed raw hash も
+    # expected と同じく NOT NULL (D-D5B では誤って nullable だった。修正済み)。
+    assert nullable_by_name["expected_pre_update_wordpress_raw_content_hash"] is False
+    assert nullable_by_name["observed_pre_update_wordpress_raw_content_hash"] is False
+    # provider タイムスタンプは informational/audit only のまま -- normative gate
+    # にしないため nullable を維持する。
+    assert nullable_by_name["observed_pre_update_modified_gmt_raw"] is True
+    # D-D5B.2: 永続化された running 行は expected/observed raw hash が必ず一致する
+    # (D-D5A.1 §4-5: 不一致は run を作らず fail closed) -- DB CHECK constraint で
+    # defense-in-depth として保証する。
+    assert "ck_wordpress_content_update_runs_pre_update_raw_match" in check_names
+
+
+def test_wordpress_content_update_runs_pre_update_raw_match_check_constraint(
+    tmp_path: Path,
+) -> None:
+    """D-D5B.2 §10 -- 一致する expected/observed raw hash は insert でき、
+    不一致は CHECK constraint 違反で拒否される (migration が実際に作る DB 上で、
+    ORM を経由せず直接検証する)。"""
+
+    import sqlite3
+
+    db_path = tmp_path / "pre_update_raw_match_check.db"
+    _upgrade_head(f"sqlite:///{db_path}")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        columns = (
+            "article_id, wordpress_post_id, article_publication_artifact_id, "
+            "artifact_hash, status, method, endpoint_path, update_payload_json, "
+            "update_payload_hash, content_update_request_identity_hash, "
+            "target_content_update_request_identity_hash, target_base_url, "
+            "request_content_hash, expected_pre_update_wordpress_raw_content_hash, "
+            "observed_pre_update_wordpress_raw_content_hash"
+        )
+        placeholders = ", ".join(["?"] * 15)
+        base_values = (
+            1, "25", 1, "a" * 64, "running", "POST", "/wp-json/wp/v2/posts/25",
+            '{"content":"x"}', "b" * 64, "c" * 64, "d" * 64, "https://example.test",
+            "f" * 64,
+        )
+
+        # 一致する raw hash -- insert できる (FK 制約は articles/artifacts 行が
+        # 無いため別途 off にする必要はない -- SQLite は既定で FK 強制しないため
+        # ここでは CHECK constraint の単体挙動のみを検証する)。
+        conn.execute(
+            f"INSERT INTO wordpress_content_update_runs ({columns}) "
+            f"VALUES ({placeholders})",
+            (*base_values, "1" * 64, "1" * 64),
+        )
+        conn.commit()
+
+        # 不一致な raw hash -- CHECK constraint 違反で拒否される。
+        rejected = False
+        try:
+            conn.execute(
+                f"INSERT INTO wordpress_content_update_runs ({columns}) "
+                f"VALUES ({placeholders})",
+                (*base_values, "2" * 64, "3" * 64),
+            )
+        except sqlite3.IntegrityError:
+            rejected = True
+        assert rejected, "mismatched pre-update raw hashes must violate the CHECK constraint"
+    finally:
+        conn.close()
+
+
+_CONTENT_UPDATE_RUNS_ROUNDTRIP_UNCHANGED = (
+    "articles",
+    "article_publication_artifacts",
+)
+
+
+def test_wordpress_content_update_runs_downgrade_upgrade_roundtrip(tmp_path: Path) -> None:
+    """D-D5B.2 §10 -- downgrade で table が消え、re-upgrade で同じ制約 (CHECK
+    含む) が復元され、``alembic check`` が drift 無しと報告することを確認する。"""
+
+    url = f"sqlite:///{tmp_path / 'content_update_runs_roundtrip.db'}"
+    _upgrade_head(url)
+    assert "wordpress_content_update_runs" in _table_names(url)
+
+    with _database_url(url):
+        command.downgrade(Config(str(ALEMBIC_INI)), _BEFORE_CONTENT_UPDATE_RUNS)
+    assert "wordpress_content_update_runs" not in _table_names(url)
+
+    with _database_url(url):
+        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+    assert "wordpress_content_update_runs" in _table_names(url)
+
+    engine = build_engine(url)
+    try:
+        insp = inspect(engine)
+        check_names = {
+            ck["name"] for ck in insp.get_check_constraints("wordpress_content_update_runs")
+        }
+    finally:
+        engine.dispose()
+    assert "ck_wordpress_content_update_runs_pre_update_raw_match" in check_names
+
+    def include_name(name: str | None, type_: str, parent_names: dict) -> bool:
+        if type_ == "table":
+            return name != "alembic_version"
+        return True
+
+    engine = build_engine(url)
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(
+                connection,
+                opts={
+                    "compare_type": True,
+                    "render_as_batch": True,
+                    "include_name": include_name,
+                    "target_metadata": Base.metadata,
+                },
+            )
+            diffs = compare_metadata(context, Base.metadata)
+    finally:
+        engine.dispose()
+    assert diffs == [], f"roundtrip 後に metadata と DB の差分があります: {diffs}"

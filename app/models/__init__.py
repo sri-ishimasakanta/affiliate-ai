@@ -88,6 +88,16 @@ from app.models.search_console_import_run import (
 from app.models.search_console_page_daily import SearchConsolePageDaily
 from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.source import Source
+from app.models.wordpress_content_update_run import (
+    WP_CONTENT_UPDATE_FAILED,
+    WP_CONTENT_UPDATE_OUTCOME_UNKNOWN,
+    WP_CONTENT_UPDATE_RUNNING,
+    WP_CONTENT_UPDATE_STATUSES,
+    WP_CONTENT_UPDATE_SUCCEEDED,
+    WP_CONTENT_UPDATE_TERMINAL_STATUSES,
+    WordPressContentUpdateRun,
+    wp_content_update_run_transition_allowed,
+)
 from app.models.wordpress_draft_run import (
     WP_RUN_ACTIVE_STATUSES,
     WP_RUN_PREPARED,
@@ -175,6 +185,12 @@ __all__ = [
     "SearchConsoleQueryDaily",
     "Source",
     "TimestampMixin",
+    "WP_CONTENT_UPDATE_FAILED",
+    "WP_CONTENT_UPDATE_OUTCOME_UNKNOWN",
+    "WP_CONTENT_UPDATE_RUNNING",
+    "WP_CONTENT_UPDATE_STATUSES",
+    "WP_CONTENT_UPDATE_SUCCEEDED",
+    "WP_CONTENT_UPDATE_TERMINAL_STATUSES",
     "WP_PUBRUN_ACTIVE_STATUSES",
     "WP_PUBRUN_PREPARED",
     "WP_PUBRUN_STATUSES",
@@ -183,10 +199,12 @@ __all__ = [
     "WP_RUN_PREPARED",
     "WP_RUN_STATUSES",
     "WP_RUN_TERMINAL_STATUSES",
+    "WordPressContentUpdateRun",
     "WordPressDraftRun",
     "WordPressPublicationRun",
     "aci_transition_allowed",
     "alsm_transition_allowed",
     "alt_transition_allowed",
     "atpp_transition_allowed",
+    "wp_content_update_run_transition_allowed",
 ]

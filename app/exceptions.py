@@ -325,6 +325,18 @@ class WordPressPublicationExternalSuccessLocalPersistFailedError(ApplicationErro
         self.wordpress_post_id = wordpress_post_id
 
 
+class WordPressContentUpdateRunError(ApplicationError):
+    """WordPressContentUpdateRun への不正な操作 (running でない run への terminal
+    遷移要求、terminal な run への再遷移要求、succeeded に必要な証跡の欠落など)。
+    credential 値はメッセージに含めない (D-D5B: local foundation のみ -- 実際の
+    live preflight / WordPress write はこの phase では行わない)。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress content update run error: {reason}")
+        self.reason = reason
+
+
 class SearchConsoleImportStateError(ApplicationError):
     """SearchConsoleImportRun の prepare / execute を許さない state にある
     (guard 失敗、既に running/terminal な run への再実行要求、無効な期間など)。
