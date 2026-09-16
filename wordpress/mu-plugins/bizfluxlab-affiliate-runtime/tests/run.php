@@ -250,6 +250,15 @@ eq(
 	'validate_entry: active must not carry disabled_at'
 );
 
+/* ---- 8. click recording HTTP method policy (D-F8.1) ------------ */
+eq( bfl_affiliate_should_record_click( 'GET' ), true, 'click_policy: GET recorded' );
+eq( bfl_affiliate_should_record_click( 'HEAD' ), false, 'click_policy: HEAD not recorded' );
+eq( bfl_affiliate_should_record_click( 'head' ), false, 'click_policy: lowercase head not recorded' );
+eq( bfl_affiliate_should_record_click( 'Head' ), false, 'click_policy: mixed-case Head not recorded' );
+eq( bfl_affiliate_should_record_click( 'POST' ), true, 'click_policy: POST recorded (out of scope, unchanged)' );
+eq( bfl_affiliate_should_record_click( 'OPTIONS' ), true, 'click_policy: OPTIONS recorded (out of scope, unchanged)' );
+eq( bfl_affiliate_should_record_click( '' ), true, 'click_policy: empty method recorded (defaults to prior behavior)' );
+
 /* ---- summary ------------------------------------------------- */
 fwrite( STDOUT, "\n{$PASS} passed, {$FAIL} failed\n" );
 exit( $FAIL > 0 ? 1 : 0 );

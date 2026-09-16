@@ -389,3 +389,19 @@ function bfl_affiliate_validate_entry( $e ) : array {
 	}
 	return array( true, 'ok' );
 }
+
+/**
+ * D-F8.1: whether a /go/{token} request of this HTTP method should append a
+ * raw click row. Redirection itself is NEVER gated by this (a HEAD request
+ * still receives the exact same 302 + Location as GET -- RFC 7231 §4.3.2
+ * requires a HEAD response to be identical to what GET would return, minus
+ * the body, and HEAD is the standard method for "testing hypertext links for
+ * validity" without it counting as a visit). Only whether the click itself is
+ * recorded is affected. Case-insensitive (HTTP methods are conventionally
+ * uppercase, but this does not trust that). Every method other than HEAD
+ * (GET and anything else) is recorded, unchanged from prior behavior -- this
+ * phase's investigation covers HEAD specifically, not other verbs.
+ */
+function bfl_affiliate_should_record_click( string $method ) : bool {
+	return 'HEAD' !== strtoupper( $method );
+}

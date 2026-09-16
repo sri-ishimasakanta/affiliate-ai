@@ -500,10 +500,18 @@ function bfl_affiliate_maybe_handle_go() : void {
 	}
 
 	// Safe resolution complete. Fail-OPEN for click persistence ONLY.
-	try {
-		BFL_Runtime_Repo::append_click( (int) $row['id'], $token, bfl_affiliate_now_utc() );
-	} catch ( Throwable $e ) {
-		error_log( 'bfl-affiliate: click persistence failed (generic)' );
+	// D-F8.1: HEAD is the standard HTTP method for checking a link without
+	// "using" it (link checkers, unfurlers, security/email scanners). The
+	// redirect below is issued unconditionally for every method (a HEAD
+	// response must mirror GET per RFC 7231) -- only the click *record* is
+	// skipped for HEAD, via the pure, independently-tested policy function.
+	$request_method = isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : 'GET';
+	if ( bfl_affiliate_should_record_click( $request_method ) ) {
+		try {
+			BFL_Runtime_Repo::append_click( (int) $row['id'], $token, bfl_affiliate_now_utc() );
+		} catch ( Throwable $e ) {
+			error_log( 'bfl-affiliate: click persistence failed (generic)' );
+		}
 	}
 
 	if ( ! headers_sent() ) {
