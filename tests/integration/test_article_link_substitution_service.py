@@ -15,8 +15,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.exceptions import ArticleLinkSubstitutionMappingError, EntityNotFoundError
 from app.models import AffiliateLinkTarget, Article, ArticleLinkSubstitutionMapping
@@ -400,3 +401,213 @@ def test_model_has_no_pii_or_destination_columns() -> None:
         "signature", "ip", "email", "updated_at",
     }
     assert cols.isdisjoint(forbidden)
+
+
+# ==================== D-F0: post-commit refresh elimination ====================
+# 同じクラスの defect (D-D4.2/D-D5D.2 で既に一度ずつ修正済み) が
+# ArticleLinkSubstitutionService の create_mapping/remap_occurrence/
+# revoke_mapping に残っていた: commit 成功後に session.refresh() を呼んでおり、
+# refresh 単体の失敗が「実際には durable に成功した mutation」を呼び出し側に
+# 例外として見せてしまう危険があった。以下は (a) refresh が呼ばれれば raise する
+# monkeypatch で成功パスが本当に refresh を呼ばないことを証明し、(b) 独立した
+# 別セッション (同一 engine 経由) から読み直して durability そのものも証明する。
+
+
+def _independent_factory(engine: Engine):
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    def _make() -> Session:
+        return factory()
+
+    return _make
+
+
+def _raise_if_refresh_called(*_a, **_kw):
+    raise AssertionError("session.refresh() must not be called on the success path (D-F0)")
+
+
+# -- create_mapping ---------------------------------------------------------
+def test_create_mapping_success_never_calls_refresh(
+    session: Session, monkeypatch
+) -> None:
+    art = _seed_article(session)
+    target = _seed_target(session, article_id=art.id)
+    monkeypatch.setattr(session, "refresh", _raise_if_refresh_called)
+
+    m = _svc(session).create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target.id,
+    )
+    assert m.status == ALSM_ACTIVE
+    assert m.id is not None
+    assert m.created_at is not None
+
+
+def test_create_mapping_durable_via_independent_session(
+    session: Session, engine: Engine
+) -> None:
+    art = _seed_article(session)
+    target = _seed_target(session, article_id=art.id)
+    created = _svc(session).create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target.id,
+    )
+    mapping_id, expected_href = created.id, created.original_href
+
+    indep = _independent_factory(engine)()
+    try:
+        row = indep.get(ArticleLinkSubstitutionMapping, mapping_id)
+        assert row is not None
+        assert row.status == ALSM_ACTIVE
+        assert row.article_id == art.id
+        assert row.affiliate_link_target_id == target.id
+        assert row.original_href == expected_href
+        assert row.occurrence_identity_hash == "a" * 64
+        assert row.approved_at is not None
+        assert row.created_at is not None
+    finally:
+        indep.close()
+
+
+# -- remap_occurrence ---------------------------------------------------------
+def test_remap_occurrence_success_never_calls_refresh(
+    session: Session, monkeypatch
+) -> None:
+    art = _seed_article(session)
+    target1 = _seed_target(
+        session, article_id=art.id, token="AAAA0000tokenone00000", affiliate_program_id=1
+    )
+    target2 = _seed_target(
+        session, article_id=art.id, token="BBBB0000tokentwoo0000", affiliate_program_id=2
+    )
+    svc = _svc(session)
+    old = svc.create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target1.id,
+    )
+
+    monkeypatch.setattr(session, "refresh", _raise_if_refresh_called)
+    new = svc.remap_occurrence(old.id, new_affiliate_link_target_id=target2.id)
+
+    assert new.status == ALSM_ACTIVE
+    assert old.status == ALSM_SUPERSEDED
+    assert old.superseded_by_id == new.id
+
+
+def test_remap_occurrence_durable_via_independent_session(
+    session: Session, engine: Engine
+) -> None:
+    art = _seed_article(session)
+    target1 = _seed_target(
+        session, article_id=art.id, token="AAAA0000tokenone00000", affiliate_program_id=1
+    )
+    target2 = _seed_target(
+        session, article_id=art.id, token="BBBB0000tokentwoo0000", affiliate_program_id=2
+    )
+    svc = _svc(session)
+    old = svc.create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target1.id,
+    )
+    new = svc.remap_occurrence(old.id, new_affiliate_link_target_id=target2.id)
+    old_id, new_id = old.id, new.id
+
+    indep = _independent_factory(engine)()
+    try:
+        old_row = indep.get(ArticleLinkSubstitutionMapping, old_id)
+        new_row = indep.get(ArticleLinkSubstitutionMapping, new_id)
+        assert old_row.status == ALSM_SUPERSEDED
+        assert old_row.superseded_by_id == new_id
+        assert new_row.status == ALSM_ACTIVE
+        assert new_row.superseded_by_id is None
+        # remap は occurrence identity を継承する -- 独立セッションから見ても
+        # article_id/occurrence_identity_hash/original_href が old と一致すること。
+        assert new_row.article_id == old_row.article_id
+        assert new_row.occurrence_identity_hash == old_row.occurrence_identity_hash
+        assert new_row.original_href == old_row.original_href
+        assert new_row.affiliate_link_target_id == target2.id
+    finally:
+        indep.close()
+
+
+# -- revoke_mapping ---------------------------------------------------------
+def test_revoke_mapping_success_never_calls_refresh(
+    session: Session, monkeypatch
+) -> None:
+    art = _seed_article(session)
+    target = _seed_target(session, article_id=art.id)
+    svc = _svc(session)
+    m = svc.create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target.id,
+    )
+
+    monkeypatch.setattr(session, "refresh", _raise_if_refresh_called)
+    result = svc.revoke_mapping(m.id)
+
+    assert result.status == ALSM_REVOKED
+    assert result.superseded_by_id is None
+
+
+def test_revoke_mapping_durable_via_independent_session(
+    session: Session, engine: Engine
+) -> None:
+    art = _seed_article(session)
+    target = _seed_target(session, article_id=art.id)
+    svc = _svc(session)
+    m = svc.create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target.id,
+    )
+    svc.revoke_mapping(m.id)
+    mapping_id = m.id
+
+    indep = _independent_factory(engine)()
+    try:
+        row = indep.get(ArticleLinkSubstitutionMapping, mapping_id)
+        assert row.status == ALSM_REVOKED
+        assert row.superseded_by_id is None
+    finally:
+        indep.close()
+
+
+# -- guard-clause failure path must remain fully unaffected ------------------
+def test_remap_guard_clause_failure_never_commits(
+    session: Session, monkeypatch
+) -> None:
+    """D-F0 のスコープは success path の post-commit refresh 削除のみ --
+    既存の failure 契約 (guard clause で早期に fail closed するときは commit
+    されない) は無変更であること。mid-transaction rollback (mark_superseded_for_
+    remap 成功後の失敗) は既存の test_article_link_substitution_remap.py の
+    test_rollback_after_old_transition_but_before_new_insert /
+    test_rollback_after_new_insert_but_before_link が既に検証済みで、この diff
+    はその try/except ブロックを一切変更していない (両ファイル計 45 件が本
+    fix 後も無変更で通過することを別途確認済み)。"""
+
+    art = _seed_article(session)
+    target1 = _seed_target(
+        session, article_id=art.id, token="AAAA0000tokenone00000", affiliate_program_id=1
+    )
+    svc = _svc(session)
+    old = svc.create_mapping(
+        article_id=art.id, occurrence_identity_hash="a" * 64,
+        original_href=_HREF, affiliate_link_target_id=target1.id,
+    )
+
+    commit_calls = {"n": 0}
+    real_commit = session.commit
+
+    def _counting_commit():
+        commit_calls["n"] += 1
+        return real_commit()
+
+    monkeypatch.setattr(session, "commit", _counting_commit)
+
+    # new target が存在しない -> try/except ブロックへ入る前の guard clause で
+    # fail closed (mark_superseded_for_remap は一度も呼ばれない)。
+    with pytest.raises(EntityNotFoundError):
+        svc.remap_occurrence(old.id, new_affiliate_link_target_id=999999)
+
+    assert commit_calls["n"] == 0  # 失敗時は commit されない
+    refreshed_old = svc.get(old.id)
+    assert refreshed_old.status == ALSM_ACTIVE  # 何も変更されていない

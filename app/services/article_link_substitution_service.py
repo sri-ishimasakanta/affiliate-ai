@@ -116,8 +116,15 @@ class ArticleLinkSubstitutionService:
             approved_at=to_storage_utc(approved_at),
             idempotency_key=idempotency_key,
         )
+        # D-F0: commit is the LAST local DB operation. No post-commit refresh --
+        # ArticleLinkSubstitutionMappingRepository.add_active() already flush()es
+        # internally (populating id/created_at via RETURNING), and SessionLocal is
+        # built with expire_on_commit=False (app/config/database.py), so
+        # `mapping`'s in-memory attributes are already correct and do not go stale
+        # on commit. A post-commit refresh() here would be an unnecessary fallible
+        # DB round-trip that, if it failed, would raise an unrelated, undocumented
+        # exception even though the mapping was already durably created.
         self._session.commit()
-        self._session.refresh(mapping)
         return mapping
 
     # -- atomic same-occurrence remap (D-D1.2) --------------------------
@@ -197,16 +204,26 @@ class ArticleLinkSubstitutionService:
             self._session.rollback()
             raise
 
+        # D-F0: commit is the LAST local DB operation for this atomic remap. No
+        # post-commit refresh -- mark_superseded_for_remap()/add_active()/
+        # link_superseded_by() all flush() internally (populating id/created_at/
+        # superseded_by_id via RETURNING or direct in-memory assignment before
+        # flush), and expire_on_commit=False means `old`/`new_mapping`'s in-memory
+        # attributes already reflect exactly what was committed. A post-commit
+        # refresh() here would be an unnecessary fallible DB round-trip that, if
+        # it failed, would raise an unrelated, undocumented exception even though
+        # the atomic remap had already durably succeeded.
         self._session.commit()
-        self._session.refresh(old)
-        self._session.refresh(new_mapping)
         return new_mapping
 
     def revoke_mapping(self, mapping_id: int) -> ArticleLinkSubstitutionMapping:
         mapping = self._require_mapping(mapping_id)
         self._mappings.revoke(mapping)
+        # D-F0: commit is the LAST local DB operation. No post-commit refresh --
+        # revoke() already flush()es internally, and expire_on_commit=False means
+        # `mapping`'s in-memory attributes already reflect exactly what was
+        # committed. See create_mapping()'s comment above for the full rationale.
         self._session.commit()
-        self._session.refresh(mapping)
         return mapping
 
     # -- reads ----------------------------------------------------------
