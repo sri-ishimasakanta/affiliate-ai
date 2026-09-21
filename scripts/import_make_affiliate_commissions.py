@@ -73,6 +73,28 @@ def _print_plan(result) -> None:
     print("no HTTP request made, no DB write performed. Pass --execute to import.")
 
 
+def _print_execute_preflight(plan) -> None:
+    """``--execute`` 直前の要約。PLAN とは別物 (この後に HTTP と DB 書込が続く)。"""
+
+    print("=== Make Commission Import Preflight (EXECUTE MODE) ===")
+    print("mode                    = EXECUTE")
+    print(f"provider                = {plan.provider}")
+    print(f"affiliate_program_id    = {plan.affiliate_program_id}")
+    print(f"make_api_configured     = {plan.configured}")
+    print(f"date_from               = {plan.date_from}")
+    print(f"date_to                 = {plan.date_to}")
+    print()
+    if not plan.configured:
+        print(
+            "NOT CONFIGURED: MAKE_API_BASE_URL / MAKE_API_TOKEN are not both set. "
+            "Execution will fail closed before any HTTP request."
+        )
+    print(
+        "EXECUTING NOW: this run will send read-only GET requests to the Make API "
+        "and write the import run (and any commission facts) to the DB."
+    )
+
+
 def _print_execute(run) -> None:
     print("=== Make Commission Import Execution ===")
     print(f"run_id                  = {run.id}")
@@ -108,8 +130,7 @@ def cmd_import(args: argparse.Namespace) -> int:
             date_from=args.date_from,
             date_to=args.date_to,
         )
-        print("=== Pre-write safe preflight summary (about to execute) ===")
-        _print_plan(plan)
+        _print_execute_preflight(plan)
         print()
         run = service.import_commissions(
             affiliate_program_id=args.affiliate_program_id,
