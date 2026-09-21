@@ -143,6 +143,12 @@ class AffiliateCandidateRead(BaseModel):
     recommended_role: Literal[
         "primary_candidate", "secondary_candidate", "comparison_candidate"
     ]
+    # C2.5.4 (報告専用・追加): role / 並び順 / 承認可否は tier に依存しない。
+    match_tier: Literal["strong", "weak"] | None = None
+    strong_terms: list[str] = Field(default_factory=list)
+    weak_terms: list[str] = Field(default_factory=list)
+    tier_reason: str | None = None
+    tier_ambiguity: str | None = None
 
 
 class CannibalizationInfo(BaseModel):
@@ -184,6 +190,12 @@ class ArticlePlanDTO(BaseModel):
     catalog_snapshot_available: bool
     snapshot_program_ids: list[int]
     live_program_ids: list[int]
+    # C2.5.4 (報告専用・追加): candidates の tier 集計。承認・drift 判定には使わない。
+    strong_candidate_count: int | None = None
+    weak_candidate_count: int | None = None
+    no_strong_affiliate_candidate: bool | None = None
+    # alias だけで strong になった program (legacy の candidates には入らない)
+    alias_only_strong_programs: list[str] = Field(default_factory=list)
 
     cta_strategy: str
     cannibalization: CannibalizationInfo

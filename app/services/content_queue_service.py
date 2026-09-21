@@ -15,14 +15,15 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.article.cluster_plan import (
-    AffiliateMatch,
     ArticleInput,
     ClusterConfig,
     ContentQueue,
     KeywordInput,
+    affiliate_matches_from_tiered,
     build_content_queue,
 )
-from app.keyword.affiliate_matching import ProgramFacts, match_programs
+from app.keyword.affiliate_matching import ProgramFacts
+from app.keyword.affiliate_tiers import match_programs_tiered
 from app.keyword.scoring import COMPONENT_NAMES
 from app.models import AffiliateProgram, Article, Keyword
 from app.models.enums import ArticleStatus
@@ -110,10 +111,8 @@ class ContentQueueService:
                     for name in COMPONENT_NAMES
                     if self._signals.get_latest(row.id, name) is None
                 )
-            matches = tuple(
-                AffiliateMatch(program_id=m.program_id, name=m.name, provider=m.provider)
-                for m in match_programs(row.keyword, catalog)
-            )
+            # C2.5.4: legacy と同じ match 集合 (spacing なし) に tier を付ける (報告専用)。
+            matches = affiliate_matches_from_tiered(match_programs_tiered(row.keyword, catalog))
             keywords.append(
                 KeywordInput(
                     id=row.id,

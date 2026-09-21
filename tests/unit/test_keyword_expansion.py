@@ -690,3 +690,81 @@ def test_all_c23_decisions_are_unchanged_by_the_c251_changes() -> None:
     assert (plan.summary["keep"], plan.summary["merge"], plan.summary["reject"]) == (67, 38, 30)
     assert not [d for d in plan.decisions if d.reason_code == "english_idiom_noise"]
     assert not [d for d in plan.decisions if d.reason_code == "duplicate_candidate"]
+
+
+# ==========================================================================
+# C2.5.4: affiliate tier は報告専用。keep / merge / reject の判定には一切影響しない
+# ==========================================================================
+def _decision_core(plan) -> list[tuple]:
+    return [
+        (d.keyword, d.decision, d.reason_code, d.target, d.target_kind, d.intent, d.serp_family)
+        for d in plan.decisions
+    ]
+
+
+def test_affiliate_tiers_never_change_any_c23_decision() -> None:
+    plain = _c23_plan()
+    tiers = ("strong", "weak", None)
+    candidates = []
+    for i, (cluster, keyword, _decision, _target) in enumerate(CASES):
+        matches = (
+            AffiliateMatch(1, "Alpha", "direct", tier=tiers[i % 3]),
+            AffiliateMatch(2, "Beta", None, tier=tiers[(i + 1) % 3] or "weak", legacy=bool(i % 2)),
+        )
+        candidates.append(
+            IdeaCandidate(keyword=keyword, cluster=cluster, affiliate_matches=matches)
+        )
+    tiered = _plan(candidates)
+    assert _decision_core(tiered) == _decision_core(plain)
+    assert (tiered.summary["keep"], tiered.summary["merge"], tiered.summary["reject"]) == (
+        67,
+        38,
+        30,
+    )
+    assert tiered.to_dict() != plain.to_dict()  # 報告 (affiliate) だけが変わる
+    assert [d.overlap_risk for d in tiered.decisions] == [d.overlap_risk for d in plain.decisions]
+
+
+def test_keep_tier_counts_in_summary() -> None:
+    matches = {
+        "タスク管理 ツール おすすめ": (AffiliateMatch(1, "Alpha", None, tier="strong"),),
+        "プロジェクト管理 ツール おすすめ": (AffiliateMatch(2, "Beta", None, tier="weak"),),
+        "ノーコード 比較": (),
+    }
+    candidates = [
+        IdeaCandidate(keyword=k, cluster="B", affiliate_matches=m) for k, m in matches.items()
+    ]
+    plan = _plan(candidates)
+    keeps = [d for d in plan.decisions if d.decision == "keep"]
+    assert plan.summary["keep_affiliate_strong"] == sum(
+        1 for d in keeps if d.affiliate.strong_program_count
+    )
+    assert plan.summary["keep_affiliate_weak_only"] == sum(
+        1 for d in keeps if not d.affiliate.strong_program_count and d.affiliate.weak_program_count
+    )
+    assert plan.summary["keep_no_strong_affiliate_match"] == sum(
+        1 for d in keeps if d.affiliate.no_strong_affiliate_match
+    )
+    # 3 つの数は keep 候補の tier だけから決まる (decision 集計と矛盾しない)
+    assert plan.summary["keep_affiliate_strong"] + plan.summary[
+        "keep_no_strong_affiliate_match"
+    ] == len(keeps)
+
+
+def test_keep_tier_counts_ignore_candidates_without_tier_data() -> None:
+    plan = _plan([IdeaCandidate(keyword="タスク管理 ツール おすすめ", cluster="B")])
+    # tier 未算出 (match が無い候補は tier 算出済み扱い: strong 0 / no_strong True)
+    d = plan.decisions[0]
+    assert d.affiliate.strong_program_count == 0 and d.affiliate.no_strong_affiliate_match is True
+    legacy = _plan(
+        [
+            IdeaCandidate(
+                keyword="タスク管理 ツール おすすめ",
+                cluster="B",
+                affiliate_matches=(AffiliateMatch(1, "Alpha", None),),
+            )
+        ]
+    )
+    assert legacy.decisions[0].affiliate.strong_program_count is None
+    assert legacy.summary["keep_affiliate_strong"] == 0
+    assert legacy.summary["keep_no_strong_affiliate_match"] == 0  # tier 未算出は数えない

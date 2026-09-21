@@ -30,6 +30,7 @@ from typing import Any
 
 from app.article.planning import ArticleType, classify_article_type
 from app.keyword.affiliate_matching import term_matches
+from app.keyword.affiliate_tiers import TieredMatch
 from app.keyword.normalizers.site_relevance import normalize_keyword
 from app.keyword.text_similarity import text_similarity
 
@@ -596,6 +597,11 @@ class AffiliateMatch:
     program_id: int
     name: str
     provider: str | None
+    # C2.5.4 (報告専用・追加): strong | weak。None = tier 未算出 (legacy の呼び出し)。
+    tier: str | None = None
+    # legacy の match_programs でも match したか。False = alias だけで strong になった program
+    # (legacy の covered 集合には入れない)。
+    legacy: bool = True
 
 
 @dataclass(frozen=True)
@@ -622,10 +628,33 @@ class ArticleInput:
 # =================================================================== outputs
 @dataclass(frozen=True)
 class AffiliateCoverage:
+    """keyword の affiliate coverage。
+
+    ``level`` / ``program_count`` / ``providers`` / ``program_names`` は **legacy の covered 意味**
+    (legacy の ``match_programs`` で match した program) で、tier の有無・alias に関わらず不変。
+
+    C2.5.4 の tier 項目は報告専用の追加:
+
+    - ``strong_program_count`` / ``strong_program_names``: 自身の名前 / 明示 alias で match
+    - ``weak_program_count`` / ``weak_program_names``: generic な term だけで match した program
+      (legacy で match した program のみ。alias だけの program は必ず strong)
+    - ``alias_only_strong_program_names``: 明示 alias **だけ** で strong になった program。
+      legacy の covered には入らない (``program_names`` に無い) ので、ここで明示的に識別できる
+    - ``no_strong_affiliate_match``: strong が 0 件
+    - tier 未算出の match (legacy の呼び出し) を含む場合は None、match が 0 件なら 0 / True
+    """
+
     level: str  # none | single | multiple
     program_count: int
     providers: tuple[str, ...]
     program_names: tuple[str, ...]
+    # ---- C2.5.4 (報告専用・追加)
+    strong_program_count: int | None = None
+    weak_program_count: int | None = None
+    strong_program_names: tuple[str, ...] = ()
+    weak_program_names: tuple[str, ...] = ()
+    no_strong_affiliate_match: bool | None = None
+    alias_only_strong_program_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -713,15 +742,45 @@ def template_readiness(article_type: ArticleType | None) -> TemplateReadiness:
 
 
 def affiliate_coverage(matches: Iterable[AffiliateMatch]) -> AffiliateCoverage:
-    ordered = sorted(matches, key=lambda m: (m.name, m.program_id))
+    everything = sorted(matches, key=lambda m: (m.name, m.program_id))
+    # legacy の covered 意味: legacy の match_programs で match した program だけ (alias のみの
+    # strong は含めない)。この 4 項目は tier の有無に関わらず従来と同一。
+    ordered = [m for m in everything if m.legacy]
     providers = tuple(sorted({m.provider for m in ordered if m.provider}))
     count = len(ordered)
     level = "none" if count == 0 else "single" if count == 1 else "multiple"
+    tiered = all(m.tier is not None for m in everything)  # 0 件も True (strong は無い)
+    strong = tuple(m.name for m in everything if m.tier == "strong") if tiered else ()
+    weak = tuple(m.name for m in everything if m.tier == "weak") if tiered else ()
+    alias_only = (
+        tuple(m.name for m in everything if m.tier == "strong" and not m.legacy) if tiered else ()
+    )
     return AffiliateCoverage(
         level=level,
         program_count=count,
         providers=providers,
         program_names=tuple(m.name for m in ordered),
+        strong_program_count=len(strong) if tiered else None,
+        weak_program_count=len(weak) if tiered else None,
+        strong_program_names=strong,
+        weak_program_names=weak,
+        no_strong_affiliate_match=(not strong) if tiered else None,
+        alias_only_strong_program_names=alias_only,
+    )
+
+
+def affiliate_matches_from_tiered(tiered: Iterable[TieredMatch]) -> tuple[AffiliateMatch, ...]:
+    """tier 付き match を報告用の :class:`AffiliateMatch` に写す (legacy かどうかも保持)。"""
+
+    return tuple(
+        AffiliateMatch(
+            program_id=m.program_id,
+            name=m.name,
+            provider=m.provider,
+            tier=m.tier,
+            legacy=m.legacy_matched,
+        )
+        for m in tiered
     )
 
 
@@ -947,6 +1006,8 @@ def build_content_queue(
                 prerequisites.append(f"fact_research:{research.requirement}")
             if coverage.level == "none":
                 notes.append("no_affiliate_match")
+            if coverage.no_strong_affiliate_match:
+                notes.append("no_strong_affiliate_match")  # C2.5.4: 報告のみ (順序に影響しない)
         target = work.merge_target
         return QueueEntry(
             keyword_id=kw.id,

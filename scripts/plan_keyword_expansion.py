@@ -120,6 +120,19 @@ def _print_table(plan: ExpansionPlan) -> None:
         f"candidates={s['candidates']} keep={s['keep']} merge={s['merge']} reject={s['reject']} "
         f"metrics_available={s['metrics_available']}"
     )
+    if "keep_affiliate_strong" in s:
+        print(
+            f"affiliate tiers (keeps, report only): strong={s['keep_affiliate_strong']} "
+            f"weak_only={s['keep_affiliate_weak_only']} "
+            f"no_strong={s['keep_no_strong_affiliate_match']}"
+        )
+    if s.get("japanese_spacing_only_coverage"):
+        print(
+            f"note: {s['japanese_spacing_only_coverage']} idea(s) "
+            f"({s['keep_japanese_spacing_only_coverage']} keep) are covered only through "
+            "Japanese-spacing matching; scoring / article planning / the C2.2 queue use the "
+            "legacy matcher and would see no match (unified in a later phase)"
+        )
     for kind in ("keep", "merge", "reject"):
         rows = [d for d in plan.decisions if d.decision == kind]
         print(f"\n-- {kind} ({len(rows)}) --")
@@ -127,6 +140,13 @@ def _print_table(plan: ExpansionPlan) -> None:
             head = f"{d.cluster or '-'} | {d.keyword} | {d.reason_code}"
             if kind == "keep":
                 aff = f"affiliate={d.affiliate.level}({d.affiliate.program_count})"
+                if d.affiliate.strong_program_count is not None:
+                    aff += (
+                        f" tier=strong:{d.affiliate.strong_program_count}"
+                        f"/weak:{d.affiliate.weak_program_count}"
+                    )
+                if d.affiliate.alias_only_strong_program_names:
+                    aff += f" alias_only={','.join(d.affiliate.alias_only_strong_program_names)}"
                 print(
                     f"   {head} | {d.intent}/{d.serp_family} | risk={d.overlap_risk} | {aff} | "
                     f"{_metric_text(d)}"

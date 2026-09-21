@@ -171,3 +171,20 @@ def test_approve_extra_field_422(api_client, session: Session) -> None:
         json={"title": "t", "slug": "s", "unexpected": 1},
     )
     assert r.status_code == 422
+
+
+# ================================================================ C2.5.4
+def test_get_plan_serializes_tier_metadata_without_changing_existing_fields(
+    api_client, session: Session
+) -> None:
+    k, _ids = _complete(session)
+    body = api_client.get(f"/api/v1/keywords/{k.id}/article-plan").json()
+    # 既存の項目はそのまま
+    assert [c["name"] for c in body["affiliate_candidates"]] == ["Make", "ClickUp"]
+    assert [c["recommended_role"] for c in body["affiliate_candidates"]][0] == "primary_candidate"
+    # 追加の tier 項目 (generic term だけの match は weak)
+    assert all(c["match_tier"] == "weak" for c in body["affiliate_candidates"])
+    assert all(c["strong_terms"] == [] and c["weak_terms"] for c in body["affiliate_candidates"])
+    assert (body["strong_candidate_count"], body["weak_candidate_count"]) == (0, 2)
+    assert body["no_strong_affiliate_candidate"] is True
+    assert body["alias_only_strong_programs"] == []

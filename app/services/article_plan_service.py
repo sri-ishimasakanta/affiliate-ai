@@ -34,7 +34,8 @@ from app.exceptions import (
     EntityNotFoundError,
     PlanApprovalError,
 )
-from app.keyword.affiliate_matching import ProgramFacts, match_programs
+from app.keyword.affiliate_matching import ProgramFacts
+from app.keyword.affiliate_tiers import match_programs_tiered
 from app.keyword.scoring import COMPONENT_NAMES
 from app.models import AffiliateProgram, Article, Keyword
 from app.models.enums import ArticleStatus
@@ -81,7 +82,7 @@ class ArticlePlanService:
         type_result = planning.classify_article_type(keyword.keyword)
         article_type = type_result.article_type
 
-        candidates, live_ids = self._affiliate_candidates(keyword.keyword)
+        candidates, live_ids, alias_only_strong = self._affiliate_candidates(keyword.keyword)
         snapshot_available, snapshot_ids = self._snapshot_program_ids(keyword_id)
         # snapshot 情報が無い (Signal 不在 / matched_program_ids キー欠落) 場合は
         # drift 判定不可 -> false 扱い。明示的な空配列 [] は "0 件マッチだった" として
@@ -141,6 +142,12 @@ class ArticlePlanService:
             catalog_snapshot_available=snapshot_available,
             snapshot_program_ids=list(snapshot_ids),
             live_program_ids=list(live_ids),
+            strong_candidate_count=sum(1 for c in candidates if c.read.match_tier == "strong"),
+            weak_candidate_count=sum(1 for c in candidates if c.read.match_tier == "weak"),
+            no_strong_affiliate_candidate=not any(
+                c.read.match_tier == "strong" for c in candidates
+            ),
+            alias_only_strong_programs=list(alias_only_strong),
             cta_strategy=planning.cta_strategy(article_type),
             cannibalization=cannibalization,
             compliance_checklist=list(planning.COMPLIANCE_CHECKLIST),
@@ -291,10 +298,15 @@ class ArticlePlanService:
 
     def _affiliate_candidates(
         self, keyword_text: str
-    ) -> tuple[list[_Candidate], list[int]]:
+    ) -> tuple[list[_Candidate], list[int], list[str]]:
         programs = self._programs.list_active(limit=_ACTIVE_CATALOG_LIMIT)
         facts = [_to_facts(p) for p in programs]
-        matched = match_programs(keyword_text, facts)
+        # C2.5.4: candidates は legacy の match 集合のまま (tier は報告用の注釈だけ)。alias だけで
+        # strong になった program は candidates に入れない (承認の対象を広げない)。
+        tiered = match_programs_tiered(keyword_text, facts)
+        matched = [t.program for t in tiered if t.legacy_matched]
+        tier_by_id = {t.program_id: t for t in tiered if t.legacy_matched}
+        alias_only_strong = [t.name for t in tiered if not t.legacy_matched]
 
         def order_key(m: object) -> tuple[int, float, str, int]:
             has_pct = (
@@ -332,10 +344,15 @@ class ArticlePlanService:
                             and m.commission_value is not None
                         ),
                         recommended_role=role,
+                        match_tier=tier_by_id[m.program_id].tier,
+                        strong_terms=list(tier_by_id[m.program_id].strong_terms),
+                        weak_terms=list(tier_by_id[m.program_id].weak_terms),
+                        tier_reason=tier_by_id[m.program_id].reason,
+                        tier_ambiguity=tier_by_id[m.program_id].ambiguity,
                     ),
                 )
             )
-        return candidates, [c.program_id for c in candidates]
+        return candidates, [c.program_id for c in candidates], alias_only_strong
 
     def _snapshot_program_ids(self, keyword_id: int) -> tuple[bool, list[int]]:
         """``(snapshot_available, ids)`` を返す。

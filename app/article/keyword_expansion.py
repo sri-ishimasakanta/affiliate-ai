@@ -576,8 +576,26 @@ def plan_expansion(
         "reject": sum(1 for d in decisions if d.decision == DECISION_REJECT),
         "metrics_available": sum(1 for d in decisions if d.metrics != NOT_AVAILABLE),
         "keep_by_cluster": _count_by_cluster(decisions, DECISION_KEEP),
+        **_keep_tier_counts(decisions),
     }
     return ExpansionPlan(tuple(decisions), tuple(warnings), summary)
+
+
+def _keep_tier_counts(decisions: Sequence[ExpansionDecision]) -> dict[str, int]:
+    """keep 候補の affiliate tier 集計 (C2.5.4・報告専用)。tier 未算出の候補は数えない。"""
+
+    tiered = [
+        d.affiliate
+        for d in decisions
+        if d.decision == DECISION_KEEP and d.affiliate.strong_program_count is not None
+    ]
+    return {
+        "keep_affiliate_strong": sum(1 for a in tiered if a.strong_program_count),
+        "keep_affiliate_weak_only": sum(
+            1 for a in tiered if not a.strong_program_count and a.weak_program_count
+        ),
+        "keep_no_strong_affiliate_match": sum(1 for a in tiered if a.no_strong_affiliate_match),
+    }
 
 
 def _count_by_cluster(decisions: Sequence[ExpansionDecision], kind: str) -> dict[str, int]:

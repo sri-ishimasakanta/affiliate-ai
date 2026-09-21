@@ -829,3 +829,144 @@ def test_tracked_vocabulary_covers_the_c23_needs() -> None:
         assert key in aliases
     for qualifier in ("中小企業", "テレワーク", "ノーコード", "精度"):
         assert qualifier in vocab.optional_qualifiers
+
+
+# ==========================================================================
+# C2.5.4: strong / weak tier の報告 (追加のみ・順序 / 判定は不変)
+# ==========================================================================
+def test_coverage_tier_fields_are_none_when_matches_carry_no_tier_data() -> None:
+    cov = affiliate_coverage([AffiliateMatch(1, "Alpha", "direct")])  # legacy の呼び出し
+    assert (cov.level, cov.program_count) == ("single", 1)
+    assert cov.strong_program_count is None and cov.weak_program_count is None
+    assert cov.no_strong_affiliate_match is None
+    assert cov.strong_program_names == () and cov.weak_program_names == ()
+
+
+def test_coverage_with_no_matches_reports_no_strong_match() -> None:
+    cov = affiliate_coverage(())
+    assert (cov.level, cov.program_count) == ("none", 0)
+    assert (cov.strong_program_count, cov.weak_program_count) == (0, 0)
+    assert cov.no_strong_affiliate_match is True
+
+
+def test_coverage_counts_tiers_while_the_legacy_fields_stay_the_same() -> None:
+    matches = [
+        AffiliateMatch(1, "Alpha", "direct", tier="strong"),
+        AffiliateMatch(2, "Mid", "impact", tier="weak"),
+        AffiliateMatch(3, "Zed", "impact", tier="weak"),
+    ]
+    cov = affiliate_coverage(matches)
+    assert (cov.level, cov.program_count, cov.program_names) == (
+        "multiple",
+        3,
+        ("Alpha", "Mid", "Zed"),
+    )
+    assert cov.providers == ("direct", "impact")
+    assert (cov.strong_program_count, cov.weak_program_count) == (1, 2)
+    assert cov.strong_program_names == ("Alpha",) and cov.weak_program_names == ("Mid", "Zed")
+    assert cov.no_strong_affiliate_match is False
+    # tier の有無で legacy の 4 項目は同一
+    plain = affiliate_coverage([AffiliateMatch(m.program_id, m.name, m.provider) for m in matches])
+    assert (plain.level, plain.program_count, plain.providers, plain.program_names) == (
+        cov.level,
+        cov.program_count,
+        cov.providers,
+        cov.program_names,
+    )
+
+
+def test_alias_only_strong_match_is_counted_as_strong_but_not_as_legacy_covered() -> None:
+    matches = [AffiliateMatch(7, "HubSpot", "impact", tier="strong", legacy=False)]
+    cov = affiliate_coverage(matches)
+    assert (cov.level, cov.program_count, cov.program_names, cov.providers) == ("none", 0, (), ())
+    assert cov.strong_program_count == 1 and cov.strong_program_names == ("HubSpot",)
+    assert cov.alias_only_strong_program_names == ("HubSpot",)  # 明示的に識別できる
+    assert cov.no_strong_affiliate_match is False
+    # legacy の no_affiliate_match の意味 (level none) は変わらない
+    entry = _queue(
+        [_cluster("C", 1, "RPA おすすめ")],
+        [_kw(1, "RPA おすすめ", affiliate_matches=tuple(matches))],
+    ).slots[0]
+    assert "no_affiliate_match" in entry.notes and "no_strong_affiliate_match" not in entry.notes
+    assert entry.fact_research.suggested_subjects == ()  # 既存の subjects は legacy の covered だけ
+
+
+def test_queue_notes_report_no_strong_match_without_changing_order_or_decisions() -> None:
+    clusters = [_cluster("C", 1, "RPA おすすめ", "RPA 導入")]
+    weak = (AffiliateMatch(9, "UiPath", "direct", tier="weak"),)
+    strong = (AffiliateMatch(9, "UiPath", "direct", tier="strong"),)
+
+    def build(matches):
+        pool = [
+            _kw(1, "RPA おすすめ", score=60.0, affiliate_matches=matches),
+            _kw(2, "RPA 導入", score=70.0, affiliate_matches=matches),
+        ]
+        return _queue(clusters, pool)
+
+    plain = build((AffiliateMatch(9, "UiPath", "direct"),))
+    for matches, expect_note in ((weak, True), (strong, False)):
+        q = build(matches)
+        assert [e.keyword for e in q.slots] == [e.keyword for e in plain.slots]
+        assert [(e.position, e.decision, e.reason_code) for e in q.slots] == [
+            (e.position, e.decision, e.reason_code) for e in plain.slots
+        ]
+        assert [e.keyword for e in q.merged] == [e.keyword for e in plain.merged]
+        assert all(("no_strong_affiliate_match" in e.notes) is expect_note for e in q.slots)
+        assert q.slots[0].affiliate.level == plain.slots[0].affiliate.level == "single"
+    assert all(
+        "no_strong_affiliate_match" not in e.notes for e in plain.slots
+    )  # tier 未算出は note なし
+
+
+def test_affiliate_match_positional_construction_still_works_and_defaults_are_legacy() -> None:
+    m = AffiliateMatch(1, "Alpha", None)
+    assert (m.tier, m.legacy) == (None, True)
+
+
+def test_alias_only_strong_programs_are_identified_and_never_widen_the_legacy_coverage() -> None:
+    legacy_matches = [
+        AffiliateMatch(1, "Make", "direct", tier="strong"),
+        AffiliateMatch(2, "Pipedrive", "impact", tier="weak"),
+    ]
+    alias_only = AffiliateMatch(7, "HubSpot", "impact", tier="strong", legacy=False)
+    base = affiliate_coverage(legacy_matches)
+    widened = affiliate_coverage([*legacy_matches, alias_only])
+    # legacy の 4 項目は alias-only の有無で完全に同一
+    assert (widened.level, widened.program_count, widened.providers, widened.program_names) == (
+        base.level,
+        base.program_count,
+        base.providers,
+        base.program_names,
+    )
+    assert widened.program_names == ("Make", "Pipedrive")
+    # tier 項目は alias-only を strong として数え、alias_only_* で明示する
+    assert (base.strong_program_count, base.weak_program_count) == (1, 1)
+    assert (widened.strong_program_count, widened.weak_program_count) == (2, 1)
+    assert widened.strong_program_names == ("HubSpot", "Make")
+    assert widened.alias_only_strong_program_names == ("HubSpot",)
+    assert base.alias_only_strong_program_names == ()
+    # tier 未算出 / 0 件では alias_only は空
+    assert affiliate_coverage(()).alias_only_strong_program_names == ()
+    assert affiliate_coverage([AffiliateMatch(1, "A", None)]).alias_only_strong_program_names == ()
+
+
+def test_weak_count_is_legacy_generic_matches_only_and_strong_count_includes_alias_only() -> None:
+    """count の意味 (文書化された仕様): weak = legacy で match し strong でない program、
+    strong = 自身の名前 / alias で match した program (alias だけの program を含む)。"""
+
+    cov = affiliate_coverage(
+        [
+            AffiliateMatch(1, "A", None, tier="weak"),
+            AffiliateMatch(2, "B", None, tier="weak"),
+            AffiliateMatch(3, "C", None, tier="strong"),
+            AffiliateMatch(4, "D", None, tier="strong", legacy=False),
+        ]
+    )
+    assert cov.program_count == 3  # legacy: A, B, C
+    assert (cov.strong_program_count, cov.weak_program_count) == (2, 2)
+    assert (
+        cov.strong_program_count + cov.weak_program_count == cov.program_count + 1
+    )  # alias-only 1 件
+    doc = type(cov).__doc__ or ""  # 仕様は class の docstring に文書化されている
+    for name in ("strong_program_count", "weak_program_count", "alias_only_strong_program_names"):
+        assert name in doc, name

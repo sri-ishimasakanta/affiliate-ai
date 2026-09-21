@@ -337,3 +337,67 @@ def test_output_never_contains_tracking_urls_or_landing_pages(session: Session, 
     payload = str(service.build(config).to_dict())
     assert _TRACKING not in payload
     assert "example.invalid" not in payload
+
+
+# ================================================================ C2.5.4
+def test_queue_reports_tiers_and_its_order_is_identical_to_a_run_without_tier_data(
+    session: Session, seeded: dict[str, Keyword]
+) -> None:
+    from dataclasses import replace
+
+    from app.article.cluster_plan import build_content_queue
+
+    service, config = _service(session)
+    queue = service.build(config)
+    keywords, articles = service.load_inputs()
+    stripped = [
+        replace(
+            k,
+            affiliate_matches=tuple(
+                replace(m, tier=None, legacy=True) for m in k.affiliate_matches
+            ),
+        )
+        for k in keywords
+    ]
+    plain = build_content_queue(config, stripped, articles)
+
+    assert [(e.keyword, e.position, e.decision, e.reason_code) for e in queue.slots] == [
+        (e.keyword, e.position, e.decision, e.reason_code) for e in plain.slots
+    ]
+    assert [(e.keyword, e.merge_target_keyword, e.reason_code) for e in queue.merged] == [
+        (e.keyword, e.merge_target_keyword, e.reason_code) for e in plain.merged
+    ]
+    assert [(e.keyword, e.reason_code) for e in queue.blocked] == [
+        (e.keyword, e.reason_code) for e in plain.blocked
+    ]
+    got_all = (*queue.slots, *queue.merged, *queue.blocked)
+    want_all = (*plain.slots, *plain.merged, *plain.blocked)
+    for got, want in zip(got_all, want_all, strict=True):
+        assert (got.affiliate.level, got.affiliate.program_count, got.affiliate.program_names) == (
+            want.affiliate.level,
+            want.affiliate.program_count,
+            want.affiliate.program_names,
+        )
+        assert got.fact_research == want.fact_research  # suggested_subjects も legacy のまま
+        assert got.prerequisites == want.prerequisites
+
+    by = {e.keyword: e for e in (*queue.slots, *queue.merged, *queue.blocked)}
+    make = by["Make 料金"]
+    assert make.affiliate.level == "single" and make.affiliate.strong_program_names == ("Make",)
+    assert make.affiliate.no_strong_affiliate_match is False
+    assert "no_strong_affiliate_match" not in make.notes
+    rpa = by["RPA おすすめ"]
+    assert rpa.affiliate.level == "none"
+    assert (rpa.affiliate.strong_program_count, rpa.affiliate.weak_program_count) == (0, 0)
+    assert "no_affiliate_match" in rpa.notes and "no_strong_affiliate_match" in rpa.notes
+
+
+def test_queue_serialization_carries_the_tier_fields(
+    session: Session, seeded: dict[str, Keyword]
+) -> None:
+    service, config = _service(session)
+    payload = service.build(config).to_dict()
+    entry = next(e for e in payload["slots"] if e["keyword"] == "Make 料金")
+    assert entry["affiliate"]["strong_program_count"] == 1
+    assert entry["affiliate"]["no_strong_affiliate_match"] is False
+    assert entry["affiliate"]["level"] == "single"  # legacy のキーもそのまま

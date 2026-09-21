@@ -38,6 +38,15 @@ def _score(entry: QueueEntry) -> str:
     return "unscored" if entry.opportunity_score is None else f"{entry.opportunity_score:.2f}"
 
 
+def _tier_text(affiliate) -> str:
+    if affiliate.strong_program_count is None:
+        return ""
+    text = f" tier=strong:{affiliate.strong_program_count}/weak:{affiliate.weak_program_count}"
+    if affiliate.alias_only_strong_program_names:
+        text += f" alias_only={','.join(affiliate.alias_only_strong_program_names)}"
+    return text
+
+
 def _line(entry: QueueEntry) -> str:
     tmpl = entry.template.template_version or entry.template.reason
     parts = [
@@ -46,7 +55,8 @@ def _line(entry: QueueEntry) -> str:
         f"score={_score(entry)}",
         f"type={entry.article_type or 'unclassified'}",
         f"template={tmpl}",
-        f"affiliate={entry.affiliate.level}({entry.affiliate.program_count})",
+        f"affiliate={entry.affiliate.level}({entry.affiliate.program_count})"
+        + _tier_text(entry.affiliate),
         f"facts={entry.fact_research.requirement}:{entry.fact_research.status}",
     ]
     return " | ".join(parts)

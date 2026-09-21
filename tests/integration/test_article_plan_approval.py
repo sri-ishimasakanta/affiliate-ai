@@ -283,3 +283,44 @@ def test_rollback_leaves_no_partial_state(session: Session, monkeypatch) -> None
     ) == 0
     assert session.scalar(select(func.count()).select_from(KeywordSignal)) == 7
     assert session.scalar(select(func.count()).select_from(AffiliateProgram)) == 4
+
+
+# ================================================================ C2.5.4
+def test_approval_still_accepts_a_weak_only_primary_and_secondaries(session: Session) -> None:
+    """tier は報告専用: strong の無い (generic term だけの) candidate も従来どおり承認できる。"""
+
+    k, ids = _complete(session)
+    svc = ArticlePlanService(session)
+    plan = svc.plan_for_keyword(k.id)
+    assert plan.no_strong_affiliate_candidate is True  # 全 candidate が weak
+    assert plan.strong_candidate_count == 0 and plan.weak_candidate_count == len(
+        plan.affiliate_candidates
+    )
+    read = svc.approve(
+        k.id,
+        _req(
+            primary_affiliate_program_id=ids["Make"],
+            secondary_affiliate_program_ids=[ids["HubSpot"]],
+            acknowledge_cannibalization=True,
+        ),
+    )
+    assert read.status is ArticleStatus.PLANNED
+    links = ArticleAffiliateProgramRepository(session).list_by_article(read.id)
+    assert {x.affiliate_program_id for x in links} == {ids["Make"], ids["HubSpot"]}
+    assert [x.affiliate_program_id for x in links if x.is_primary] == [ids["Make"]]
+
+
+def test_approval_still_rejects_a_program_that_is_not_a_legacy_candidate(session: Session) -> None:
+    """alias だけで strong になる program (legacy の candidate ではない) は承認対象に入らない。"""
+
+    ids = _catalog(session)
+    k = _keyword(session, "ハブスポット とは")
+    with pytest.raises(PlanApprovalError):
+        ArticlePlanService(session).approve(
+            k.id,
+            _req(
+                primary_affiliate_program_id=ids["HubSpot"],
+                acknowledge_cannibalization=True,
+                acknowledge_incomplete_plan=True,
+            ),
+        )

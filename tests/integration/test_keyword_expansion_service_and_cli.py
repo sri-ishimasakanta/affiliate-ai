@@ -473,3 +473,141 @@ def test_catalog_spacing_option_is_only_used_by_the_planner_not_by_the_c22_queue
     inputs, _articles = ContentQueueService(seeded).load_inputs()
     row = next(k for k in inputs if k.id == keyword.id)
     assert row.affiliate_matches == ()  # C2.2 の既存 keyword の coverage は従来どおり
+
+
+# ================================================================ C2.5.4
+def _aff(plan) -> dict:
+    return {d.keyword: d.affiliate for d in plan.decisions}
+
+
+def test_service_reports_tiers_and_keeps_the_legacy_coverage_fields(seeded: Session) -> None:
+    plan = KeywordExpansionService(seeded).plan(
+        _CONFIG,
+        _RULES,
+        [
+            IdeaCandidate(keyword="Make 使い方", cluster="C"),
+            IdeaCandidate(keyword="CRM おすすめ", cluster="E"),
+            IdeaCandidate(keyword="make sure", cluster="C"),
+            IdeaCandidate(keyword="Zapier 代替", cluster="C"),
+            IdeaCandidate(keyword="ハブスポット とは", cluster="E"),
+        ],
+    )
+    aff = _aff(plan)
+    make = aff["Make 使い方"]
+    assert (make.level, make.program_names) == ("single", ("Make",))
+    assert make.strong_program_names == ("Make",) and make.weak_program_names == ()
+    assert make.no_strong_affiliate_match is False
+    crm = aff["CRM おすすめ"]
+    assert (crm.level, crm.program_names) == ("multiple", ("HubSpot", "Pipedrive"))
+    assert (crm.strong_program_count, crm.weak_program_count) == (0, 2)
+    assert crm.no_strong_affiliate_match is True
+    idiom = aff["make sure"]  # legacy の covered は従来どおり (Make に match)
+    assert (idiom.level, idiom.program_names) == ("single", ("Make",))
+    assert idiom.strong_program_count == 0 and idiom.weak_program_names == ("Make",)
+    none = aff["Zapier 代替"]
+    assert none.level == "none" and none.no_strong_affiliate_match is True
+    assert (none.strong_program_count, none.weak_program_count) == (0, 0)
+    alias = aff["ハブスポット とは"]  # 明示 alias: legacy の covered は広げない
+    assert (alias.level, alias.program_count, alias.program_names) == ("none", 0, ())
+    assert alias.strong_program_names == ("HubSpot",) and alias.no_strong_affiliate_match is False
+    assert alias.alias_only_strong_program_names == ("HubSpot",)  # legacy の covered ではないと明示
+    assert aff["Make 使い方"].alias_only_strong_program_names == ()
+
+
+def test_summary_reports_keep_tier_counts_and_the_japanese_spacing_mismatch(
+    seeded: Session,
+) -> None:
+    AffiliateProgramRepository(seeded).create(
+        name="Minutes Tool", provider="direct", match_terms=["議事録"]
+    )
+    seeded.commit()
+    plan = KeywordExpansionService(seeded).plan(
+        _CONFIG,
+        _RULES,
+        [
+            # spacing option でだけ covered
+            IdeaCandidate(keyword="議事 録 作成 ツール", cluster="A"),
+            IdeaCandidate(keyword="議事録 自動 作成", cluster="A"),  # legacy でも covered
+            IdeaCandidate(keyword="Make 使い方", cluster="C"),
+        ],
+    )
+    s = plan.summary
+    assert s["japanese_spacing_only_coverage"] == 1
+    assert s["keep_japanese_spacing_only_coverage"] == sum(
+        1 for d in plan.decisions if d.decision == "keep" and d.keyword == "議事 録 作成 ツール"
+    )
+    keeps = [d for d in plan.decisions if d.decision == "keep"]
+    assert s["keep_affiliate_strong"] == sum(1 for d in keeps if d.affiliate.strong_program_count)
+    assert s["keep_no_strong_affiliate_match"] == sum(
+        1 for d in keeps if d.affiliate.no_strong_affiliate_match
+    )
+
+
+def test_tiering_does_not_change_any_expansion_decision_through_the_service(
+    seeded: Session,
+) -> None:
+    candidates = [IdeaCandidate(keyword=k, cluster=c) for c, k, _, _ in CASES]
+    plan = KeywordExpansionService(seeded).plan(_CONFIG, _RULES, candidates)
+    assert (plan.summary["keep"], plan.summary["merge"], plan.summary["reject"]) == (67, 38, 30)
+    got = _by(plan)
+    for _cluster, keyword, decision, target in CASES:
+        assert got[keyword].decision == decision, keyword
+        if decision == "merge":
+            assert got[keyword].target == target, keyword
+
+
+def test_json_output_carries_additive_tier_metadata_and_the_legacy_keys(
+    seeded: Session, tmp_path: Path, capsys
+) -> None:
+    ideas = _write(tmp_path, {"candidates": {"C": ["Make 使い方"], "E": ["CRM おすすめ"]}})
+    assert run(ideas_file=ideas, output_format="json", session_factory=_factory(seeded)) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    by = {d["keyword"]: d for d in payload["decisions"]}
+    aff = by["Make 使い方"]["affiliate"]
+    assert {"level", "program_count", "providers", "program_names"} <= set(aff)
+    assert {
+        "strong_program_count",
+        "weak_program_count",
+        "strong_program_names",
+        "weak_program_names",
+        "no_strong_affiliate_match",
+    } <= set(aff)
+    assert aff["strong_program_names"] == ["Make"] and aff["no_strong_affiliate_match"] is False
+    crm = by["CRM おすすめ"]["affiliate"]
+    assert crm["weak_program_names"] == ["HubSpot", "Pipedrive"]
+    assert crm["strong_program_count"] == 0 and crm["no_strong_affiliate_match"] is True
+    assert {
+        "keep_affiliate_strong",
+        "keep_affiliate_weak_only",
+        "keep_no_strong_affiliate_match",
+        "japanese_spacing_only_coverage",
+        "keep_japanese_spacing_only_coverage",
+    } <= set(payload["summary"])
+    assert _TRACKING not in out and "example.invalid" not in out
+
+
+def test_table_output_shows_tiers_after_the_legacy_affiliate_token(
+    seeded: Session, tmp_path: Path, capsys
+) -> None:
+    ideas = _write(tmp_path, {"candidates": {"C": ["Make 使い方"], "E": ["CRM おすすめ"]}})
+    assert run(ideas_file=ideas, session_factory=_factory(seeded)) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "affiliate=multiple(2) tier=strong:0/weak:2" in out
+    assert "affiliate=single(1) tier=strong:1/weak:0" in out
+    assert "affiliate tiers (keeps, report only): strong=1 weak_only=1 no_strong=1" in out
+    assert "japanese-spacing" not in out.lower()  # 不一致が無ければ note は出さない
+
+
+def test_table_output_notes_the_spacing_mismatch_only_when_present(
+    seeded: Session, tmp_path: Path, capsys
+) -> None:
+    AffiliateProgramRepository(seeded).create(
+        name="Minutes Tool", provider="direct", match_terms=["議事録"]
+    )
+    seeded.commit()
+    ideas = _write(tmp_path, {"candidates": {"A": ["議事 録 作成 ツール"]}})
+    assert run(ideas_file=ideas, session_factory=_factory(seeded)) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "covered only through Japanese-spacing matching" in out
+    assert "scoring / article planning / the C2.2 queue use the legacy matcher" in out

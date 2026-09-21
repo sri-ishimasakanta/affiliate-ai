@@ -103,6 +103,23 @@ def _japanese_term_matches_spacing_tolerant(normalized_term: str, normalized_key
     return _spacing_tolerant_pattern(normalized_term).search(normalized_keyword) is not None
 
 
+def term_hit(
+    normalized_term: str,
+    normalized_keyword: str,
+    *,
+    ignore_japanese_spacing: bool = False,
+) -> bool:
+    """正規化済み term が正規化済み keyword に match するか (match の唯一の定義)。
+
+    :func:`matched_terms_in_keyword` と tier 判定 (``affiliate_tiers``) が同じ照合を共有する。
+    """
+
+    return term_matches(normalized_term, normalized_keyword) or (
+        ignore_japanese_spacing
+        and _japanese_term_matches_spacing_tolerant(normalized_term, normalized_keyword)
+    )
+
+
 def matched_terms_in_keyword(
     normalized_keyword: str,
     terms: Iterable[str],
@@ -120,9 +137,8 @@ def matched_terms_in_keyword(
         if not term:
             continue
         normalized_term = normalize_for_match(term)
-        if term_matches(normalized_term, normalized_keyword) or (
-            ignore_japanese_spacing
-            and _japanese_term_matches_spacing_tolerant(normalized_term, normalized_keyword)
+        if term_hit(
+            normalized_term, normalized_keyword, ignore_japanese_spacing=ignore_japanese_spacing
         ):
             hits.append(term)
     return tuple(hits)

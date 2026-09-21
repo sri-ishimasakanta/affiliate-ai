@@ -318,3 +318,75 @@ def test_slug_collision_proposes_alternative(session: Session) -> None:
     assert dto.proposed_slug == "業務効率化-ツール-おすすめ-roundup-2"
     assert dto.slug_available is True
     assert any("slug_collision" in w for w in dto.warnings)
+
+
+# ================================================================ C2.5.4
+def test_candidates_carry_tiers_while_the_candidate_set_and_roles_are_unchanged(
+    session: Session,
+) -> None:
+    k, _ids = _complete_target(session)
+    dto = ArticlePlanService(session).plan_for_keyword(k.id)
+    # 既存と同一 (candidate 集合 / 順序 / role は tier に依存しない)
+    assert [c.name for c in dto.affiliate_candidates] == ["Make", "HubSpot", "ClickUp"]
+    assert [c.recommended_role for c in dto.affiliate_candidates] == [
+        "primary_candidate",
+        "primary_candidate",
+        "comparison_candidate",
+    ]
+    # 「業務効率化」だけの generic match は weak (それでも candidate のまま)
+    assert all(c.match_tier == "weak" for c in dto.affiliate_candidates)
+    assert all(c.strong_terms == [] and c.weak_terms for c in dto.affiliate_candidates)
+    assert all(
+        c.tier_reason.startswith("weak: generic term(s) only") for c in dto.affiliate_candidates
+    )
+    assert (dto.strong_candidate_count, dto.weak_candidate_count) == (0, 3)
+    assert dto.no_strong_affiliate_candidate is True
+    assert dto.alias_only_strong_programs == []
+    # drift 判定も不変
+    assert dto.live_program_ids == [c.program_id for c in dto.affiliate_candidates]
+    assert dto.catalog_drift is False
+
+
+def test_brand_keyword_makes_its_candidate_strong(session: Session) -> None:
+    _seed_catalog(session)
+    k = _keyword(session, "Make 使い方")
+    dto = ArticlePlanService(session).plan_for_keyword(k.id)
+    make = next(c for c in dto.affiliate_candidates if c.name == "Make")
+    assert make.match_tier == "strong" and make.strong_terms == ["Make"]
+    assert make.matched_terms == ["Make"]  # legacy の matched_terms は不変
+    assert dto.strong_candidate_count == 1 and dto.no_strong_affiliate_candidate is False
+
+
+def test_english_make_idioms_are_candidates_but_not_strong(session: Session) -> None:
+    _seed_catalog(session)
+    for text in ("make sure", "make"):
+        k = _keyword(session, text)
+        dto = ArticlePlanService(session).plan_for_keyword(k.id)
+        make = next(c for c in dto.affiliate_candidates if c.name == "Make")  # legacy: 候補のまま
+        assert make.match_tier == "weak" and make.tier_ambiguity is not None, text
+        assert dto.no_strong_affiliate_candidate is True
+
+
+def test_alias_only_strong_program_is_reported_but_never_becomes_a_candidate(
+    session: Session,
+) -> None:
+    _seed_catalog(session)
+    k = _keyword(session, "ハブスポット とは")
+    dto = ArticlePlanService(session).plan_for_keyword(k.id)
+    assert dto.affiliate_candidates == []  # 承認の対象を広げない (alias-only は candidate ではない)
+    assert dto.live_program_ids == []
+    assert dto.alias_only_strong_programs == ["HubSpot"]
+    assert dto.no_strong_affiliate_candidate is True  # candidates に strong は無い
+
+
+def test_plan_json_serialization_includes_tier_fields_and_no_tracking_urls(
+    session: Session,
+) -> None:
+    k, _ids = _complete_target(session)
+    payload = ArticlePlanService(session).plan_for_keyword(k.id).model_dump(mode="json")
+    cand = payload["affiliate_candidates"][0]
+    tier_keys = {"match_tier", "strong_terms", "weak_terms", "tier_reason", "tier_ambiguity"}
+    assert tier_keys <= set(cand)
+    count_keys = {"strong_candidate_count", "weak_candidate_count", "no_strong_affiliate_candidate"}
+    assert count_keys <= set(payload)
+    assert "tracking" not in str(payload).lower()

@@ -223,3 +223,38 @@ def test_derive_commit_failure_rolls_back(session: Session, monkeypatch) -> None
 
     monkeypatch.undo()
     assert KeywordSignalRepository(session).list_by_keyword(keyword.id) == []
+
+
+# ================================================================ C2.5.4
+def test_scoring_still_counts_generic_only_matches_and_records_no_tier_data(
+    session: Session,
+) -> None:
+    """C2.5.4 は scoring を変えない: generic term だけの match も従来どおり score に入り、
+    raw_data / 計算は legacy の match_programs のまま (tier は使わない)。"""
+
+    from app.keyword.affiliate_matching import ProgramFacts, match_programs
+    from app.keyword.normalizers.affiliate_opportunity import calculate_affiliate_opportunity
+
+    _seed_catalog(session)
+    # generic term (議事録) だけで 3 件 match する keyword
+    keyword = _make_keyword(session, "AI 議事録 おすすめ")
+    read = KeywordSignalService(session).derive_affiliate_opportunity(keyword.id)
+
+    facts = [
+        ProgramFacts(
+            program_id=p.id,
+            name=p.name,
+            provider=p.provider,
+            category=p.category,
+            commission_type=p.commission_type,
+            commission_value=p.commission_value,
+            currency=p.currency,
+            match_terms=tuple(p.match_terms or ()),
+        )
+        for p in AffiliateProgramRepository(session).list_active(limit=100)
+    ]
+    expected = calculate_affiliate_opportunity(match_programs("AI 議事録 おすすめ", facts))
+    assert read.normalized_value == expected.normalized_value > 0
+    assert read.raw_data["matched_program_count"] == expected.matched_program_count == 3
+    banned = ("tier", "strong", "weak", "ambiguity", "alias")
+    assert not [key for key in read.raw_data if any(b in key for b in banned)]

@@ -8,13 +8,17 @@ from pathlib import Path
 
 import pytest
 
+from app.keyword.affiliate_matching import match_programs
 from scripts.analyze_affiliate_opportunities import (
     ProgramFacts,
     _bucket_counts,
+    _print_program_details,
+    _print_summary,
     _write_csv,
     analyze_keyword,
     csv_fieldnames,
     load_keywords,
+    render_table,
 )
 
 
@@ -204,3 +208,118 @@ def test_write_csv_columns_and_values(tmp_path: Path) -> None:
 
 def test_bucket_counts() -> None:
     assert _bucket_counts([0, 0, 1, 2, 3, 7, 3]) == (2, 1, 1, 3)
+
+
+# ==========================================================================
+# C2.5.4: strong / weak tier の報告 (追加のみ。matched = legacy の covered は不変)
+# ==========================================================================
+_LEGACY_CSV_COLUMNS = [
+    "keyword",
+    "matched_program_count",
+    "distinct_provider_count",
+    "commission_data_count",
+    "fixed_commission_count",
+    "percentage_commission_count",
+    "best_percentage_commission_value",
+    "best_fixed_by_currency",
+    "matched_program_ids",
+    "matched_program_names",
+    "active_providers",
+    "matched_terms",
+]
+_TIER_CSV_COLUMNS = [
+    "strong_program_count",
+    "weak_program_count",
+    "strong_program_names",
+    "weak_program_names",
+    "no_strong_affiliate_match",
+    "alias_only_strong_program_names",
+]
+
+
+def _tier_programs() -> list[ProgramFacts]:
+    return [
+        _prog(1, name="Make", terms=("Make", "業務効率化")),
+        _prog(2, name="HubSpot", terms=("HubSpot", "CRM")),
+        _prog(3, name="Pipedrive", terms=("Pipedrive", "CRM")),
+    ]
+
+
+def test_analysis_reports_strong_and_weak_without_changing_the_legacy_match() -> None:
+    programs = _tier_programs()
+    for keyword in ("Make 料金", "crm", "hubspot crm", "make sure", "ハブスポット"):
+        assert analyze_keyword(keyword, programs).matched == match_programs(keyword, programs)
+    make = analyze_keyword("Make 料金", programs)
+    assert make.matched_program_count == 1
+    assert (make.strong_program_count, make.weak_program_count) == (1, 0)
+    assert make.strong_program_names == ["Make"] and make.no_strong_affiliate_match is False
+    crm = analyze_keyword("crm", programs)
+    assert crm.matched_program_count == 2  # legacy の covered
+    assert (crm.strong_program_count, crm.weak_program_count) == (0, 2)
+    assert crm.weak_program_names == ["HubSpot", "Pipedrive"]
+    assert crm.no_strong_affiliate_match is True
+    both = analyze_keyword("hubspot crm", programs)
+    assert (both.strong_program_names, both.weak_program_names) == (["HubSpot"], ["Pipedrive"])
+
+
+def test_analysis_marks_make_idioms_as_not_strong_but_still_legacy_matched() -> None:
+    programs = _tier_programs()
+    sure = analyze_keyword("make sure", programs)
+    assert sure.matched_program_count == 1  # legacy の covered は変えない
+    assert sure.strong_program_count == 0 and sure.weak_program_count == 1
+    assert sure.no_strong_affiliate_match is True
+
+
+def test_analysis_alias_only_strong_is_not_added_to_the_legacy_match() -> None:
+    result = analyze_keyword("ハブスポット とは", _tier_programs())
+    assert result.matched_program_count == 0 and result.matched == []
+    assert result.strong_program_names == ["HubSpot"] and result.no_strong_affiliate_match is False
+    assert result.alias_only_strong_program_names == ["HubSpot"]  # 明示的に識別できる
+    # legacy でも match する program は alias-only ではない
+    both = analyze_keyword("hubspot crm ハブスポット", _tier_programs())
+    assert both.alias_only_strong_program_names == []
+
+
+def test_csv_appends_tier_columns_and_keeps_the_existing_columns_in_order(tmp_path: Path) -> None:
+    analyses = [analyze_keyword(k, _tier_programs()) for k in ("Make 料金", "crm", "chatgpt")]
+    fields = csv_fieldnames(analyses)
+    assert fields[: len(_LEGACY_CSV_COLUMNS)] == _LEGACY_CSV_COLUMNS
+    assert fields[-len(_TIER_CSV_COLUMNS) :] == _TIER_CSV_COLUMNS
+    out = tmp_path / "a.csv"
+    _write_csv(out, analyses)
+    rows = {r["keyword"]: r for r in csv.DictReader(out.open(encoding="utf-8", newline=""))}
+    assert rows["Make 料金"]["matched_program_count"] == "1"
+    assert rows["Make 料金"]["strong_program_count"] == "1"
+    assert rows["Make 料金"]["no_strong_affiliate_match"] == "False"
+    assert rows["crm"]["matched_program_count"] == "2"
+    assert rows["crm"]["strong_program_count"] == "0"
+    assert rows["crm"]["weak_program_names"] == "HubSpot | Pipedrive"
+    assert rows["crm"]["alias_only_strong_program_names"] == ""
+    assert rows["crm"]["no_strong_affiliate_match"] == "True"
+    assert rows["chatgpt"]["weak_program_count"] == "0"
+    assert rows["chatgpt"]["no_strong_affiliate_match"] == "True"
+
+
+def test_table_and_summary_show_tiers(capsys) -> None:
+    analyses = [analyze_keyword(k, _tier_programs()) for k in ("Make 料金", "crm", "chatgpt")]
+    table = render_table(analyses)
+    header = table.splitlines()[0]
+    assert header.split()[:5] == ["keyword", "programs", "providers", "commission", "data"]
+    assert header.endswith("strong  weak")
+    _print_summary(analyses)
+    out = capsys.readouterr().out
+    assert "keywords_with_matches   : 2" in out  # legacy の集計は不変
+    assert "keywords_with_strong_match : 1" in out
+    assert "keywords_weak_only         : 1" in out
+    assert "keywords_no_strong_match   : 2" in out
+    assert "keywords_with_alias_only_strong (not in the legacy match): 0" in out
+    assert "scoring is unchanged" in out
+
+
+def test_program_details_show_tier_reason_and_alias_only_programs(capsys) -> None:
+    _print_program_details([analyze_keyword("hubspot crm ハブスポット", _tier_programs())])
+    out = capsys.readouterr().out
+    assert "tier=strong" in out and "tier=weak" in out
+    assert "[alias-only strong" not in out  # legacy でも match している program は通常行に出る
+    _print_program_details([analyze_keyword("ハブスポット", _tier_programs())])
+    assert "[alias-only strong, not in the legacy match] HubSpot" in capsys.readouterr().out

@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "Two-tier affiliate match config (C2.5.4). strong = the program's own name or an explicit alias; weak = generic category/feature/use-case terms. Own-name matching is derived from the program name (no per-term data). Only add an alias where the name cannot derive it (audited: HubSpot katakana, Make domain). ambiguous_brands lists own-name tokens that are ordinary words: they are strong only with a brand form (monday.com), a Japanese-language context, or an explicit alias. without_context is the explicit treatment of a bare/English-only use ('make', 'make money'). reviewed_distinctive_brands records the catalog own-name tokens reviewed as distinctive (C2.5.2/C2.5.3 audit of all 19 programs).",
+  "aliases": {
+    "HubSpot": ["ハブスポット"],
+    "Make": ["make.com"]
+  },
+  "ambiguous_brands": {
+    "make": {
+      "reason": "an ordinary English verb",
+      "without_context": "weak",
+      "deny_phrases": ["make sense", "make sure", "make up for", "make in"]
+    },
+    "monday": {
+      "reason": "a weekday name",
+      "without_context": "weak",
+      "deny_phrases": []
+    },
+    "reclaim": {
+      "reason": "an ordinary English verb",
+      "without_context": "weak",
+      "deny_phrases": []
+    },
+    "fireflies": {
+      "reason": "an ordinary English noun; bare 'fireflies' is kept weak by decision (revisit only with SERP/GSC evidence)",
+      "without_context": "weak",
+      "deny_phrases": []
+    },
+    "notion": {
+      "reason": "an ordinary English noun (program is paused)",
+      "without_context": "weak",
+      "deny_phrases": []
+    },
+    "jasper": {
+      "reason": "a common given name (program status is unknown)",
+      "without_context": "weak",
+      "deny_phrases": []
+    }
+  },
+  "reviewed_distinctive_brands": [
+    "n8n",
+    "writesonic",
+    "descript",
+    "hubspot",
+    "semrush",
+    "clickup",
+    "grammarly",
+    "pipedrive",
+    "activecampaign",
+    "krisp",
+    "todoist",
+    "canva"
+  ]
+}

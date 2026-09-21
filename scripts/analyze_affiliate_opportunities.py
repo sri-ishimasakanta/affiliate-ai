@@ -35,6 +35,12 @@ from app.keyword.affiliate_matching import (  # noqa: E402
     ProgramFacts,
     match_programs,
 )
+from app.keyword.affiliate_tiers import (  # noqa: E402
+    TieredMatch,
+    match_programs_tiered,
+    summarize_tiers,
+    unreviewed_brand_tokens,
+)
 from app.models.enums import AffiliateProgramStatus  # noqa: E402
 from app.repositories.affiliate_program_repository import (  # noqa: E402
     AffiliateProgramRepository,
@@ -53,10 +59,38 @@ _UNKNOWN_CURRENCY = "UNKNOWN"
 class KeywordAnalysis:
     keyword: str
     matched: list[MatchedProgram] = field(default_factory=list)
+    # C2.5.4 (報告専用・追加): strong / weak の tier。matched (legacy の covered) は変わらない。
+    tiered: list[TieredMatch] = field(default_factory=list)
 
     @property
     def matched_program_count(self) -> int:
         return len(self.matched)
+
+    @property
+    def strong_program_count(self) -> int:
+        return summarize_tiers(self.tiered).strong_count
+
+    @property
+    def weak_program_count(self) -> int:
+        return summarize_tiers(self.tiered).weak_count
+
+    @property
+    def strong_program_names(self) -> list[str]:
+        return list(summarize_tiers(self.tiered).strong_names)
+
+    @property
+    def weak_program_names(self) -> list[str]:
+        return list(summarize_tiers(self.tiered).weak_names)
+
+    @property
+    def no_strong_affiliate_match(self) -> bool:
+        return summarize_tiers(self.tiered).no_strong_affiliate_match
+
+    @property
+    def alias_only_strong_program_names(self) -> list[str]:
+        """明示 alias だけで strong になった program (legacy の matched には入らない)。"""
+
+        return [t.name for t in self.tiered if not t.legacy_matched]
 
     @property
     def matched_program_ids(self) -> list[int]:
@@ -156,8 +190,11 @@ def analyze_keyword(
     keyword: str, programs: Sequence[ProgramFacts]
 ) -> KeywordAnalysis:
     # 照合ルールは app.keyword.affiliate_matching に集約 (production と同一)。
+    # matched は legacy のまま。tiered は同じ照合に strong / weak を付けた報告用 (C2.5.4)。
     return KeywordAnalysis(
-        keyword=keyword, matched=match_programs(keyword, list(programs))
+        keyword=keyword,
+        matched=match_programs(keyword, list(programs)),
+        tiered=match_programs_tiered(keyword, list(programs)),
     )
 
 
@@ -214,7 +251,7 @@ def _pad(text: str, width: int) -> str:
 
 
 def render_table(analyses: Sequence[KeywordAnalysis]) -> str:
-    headers = ["keyword", "programs", "providers", "commission data"]
+    headers = ["keyword", "programs", "providers", "commission data", "strong", "weak"]
     matrix: list[list[str]] = [headers]
     for analysis in analyses:
         matrix.append(
@@ -223,6 +260,8 @@ def render_table(analyses: Sequence[KeywordAnalysis]) -> str:
                 str(analysis.matched_program_count),
                 str(analysis.distinct_provider_count),
                 str(analysis.commission_data_count),
+                str(analysis.strong_program_count),
+                str(analysis.weak_program_count),
             ]
         )
     widths = [
@@ -254,13 +293,22 @@ def _print_program_details(analyses: Sequence[KeywordAnalysis]) -> None:
             f"({analysis.matched_program_count} programs, "
             f"{analysis.distinct_provider_count} providers)"
         )
+        tier_by_id = {t.program_id: t for t in analysis.tiered}
         for program in analysis.matched:
+            tier = tier_by_id.get(program.program_id)
+            tier_text = f" | tier={tier.tier} ({tier.reason})" if tier is not None else ""
             print(
                 f"    [id {program.program_id}] {program.name} | "
                 f"provider={program.provider} | category={program.category} | "
                 f"commission={_format_commission(program)} | "
-                f"terms={' , '.join(program.matched_terms)}"
+                f"terms={' , '.join(program.matched_terms)}{tier_text}"
             )
+        for tier in analysis.tiered:
+            if not tier.legacy_matched:
+                print(
+                    f"    [alias-only strong, not in the legacy match] {tier.name} | "
+                    f"{tier.reason}"
+                )
 
 
 def _bucket_counts(values: Sequence[int]) -> tuple[int, int, int, int]:
@@ -285,6 +333,16 @@ def _print_summary(analyses: Sequence[KeywordAnalysis]) -> None:
     print(f"  keywords_without_matches: {total - with_matches}")
     rate = (with_matches / total) if total else 0.0
     print(f"  match_coverage_rate     : {rate:.2%}")
+    with_strong = sum(1 for a in analyses if a.strong_program_count > 0)
+    weak_only = sum(
+        1 for a in analyses if a.strong_program_count == 0 and a.weak_program_count > 0
+    )
+    print("\n=== affiliate match tiers (report only; scoring is unchanged) ===")
+    print(f"  keywords_with_strong_match : {with_strong}")
+    print(f"  keywords_weak_only         : {weak_only}")
+    print(f"  keywords_no_strong_match   : {total - with_strong}")
+    alias_only = sum(1 for a in analyses if a.alias_only_strong_program_names)
+    print(f"  keywords_with_alias_only_strong (not in the legacy match): {alias_only}")
 
     def _dist(label: str, values: Sequence[int]) -> None:
         b0, b1, b2, b3 = _bucket_counts(values)
@@ -322,6 +380,13 @@ def csv_fieldnames(analyses: Sequence[KeywordAnalysis]) -> list[str]:
         "matched_program_names",
         "active_providers",
         "matched_terms",
+        # C2.5.4 (追加・末尾): 既存の列と順序は変えない
+        "strong_program_count",
+        "weak_program_count",
+        "strong_program_names",
+        "weak_program_names",
+        "no_strong_affiliate_match",
+        "alias_only_strong_program_names",
     ]
     return fields
 
@@ -352,6 +417,14 @@ def _write_csv(path: Path, analyses: Sequence[KeywordAnalysis]) -> None:
                 "matched_program_names": " | ".join(analysis.matched_program_names),
                 "active_providers": " | ".join(analysis.active_providers),
                 "matched_terms": " | ".join(analysis.matched_terms),
+                "strong_program_count": analysis.strong_program_count,
+                "weak_program_count": analysis.weak_program_count,
+                "strong_program_names": " | ".join(analysis.strong_program_names),
+                "weak_program_names": " | ".join(analysis.weak_program_names),
+                "no_strong_affiliate_match": analysis.no_strong_affiliate_match,
+                "alias_only_strong_program_names": " | ".join(
+                    analysis.alias_only_strong_program_names
+                ),
             }
             for currency in currencies:
                 row[f"best_fixed_{currency}"] = by_currency.get(currency, "")
@@ -372,6 +445,12 @@ def run_analysis(
     analyses = [analyze_keyword(keyword, programs) for keyword in keywords]
 
     print(f"active affiliate programs in catalog: {len(programs)}")
+    unreviewed = unreviewed_brand_tokens(programs)
+    if unreviewed:
+        print(
+            "tier config: own-name tokens not yet reviewed (add to affiliate_match_tiers.json): "
+            + ", ".join(f"{name}={token}" for name, token in unreviewed)
+        )
     print(f"keywords analyzed                   : {len(analyses)}\n")
     print(render_table(analyses))
 
