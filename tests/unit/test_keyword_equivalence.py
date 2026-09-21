@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.keyword.equivalence import contains_japanese, equivalence_key
+from app.keyword.equivalence import (
+    CANONICAL_ACRONYMS,
+    canonical_acronym,
+    contains_japanese,
+    duplicate_key,
+    equivalence_key,
+)
 from app.keyword.normalizers.site_relevance import normalize_keyword
 
 
@@ -70,3 +76,45 @@ def test_existing_normalization_is_unchanged_and_display_text_is_not_touched() -
     original = "タスク 管理 ツール"
     equivalence_key(original)
     assert original == "タスク 管理 ツール"
+
+
+# ==========================================================================
+# C2.5.1: 列挙 acronym (crm) の分かち書きだけを正規綴りと同一視する
+# ==========================================================================
+@pytest.mark.parametrize("text", ["c rm", "cr m", "crm", "CRM", "C RM", "c r m", "ｃｒ　ｍ"])
+def test_split_crm_spellings_share_the_canonical_key(text: str) -> None:
+    assert canonical_acronym(text) == "crm"
+    assert duplicate_key(text) == "crm"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "c rm software",  # phrase 全体が acronym ではない
+        "crm 無料",
+        "c rm おすすめ",
+        "sfa",  # 別の acronym (同一視は planner の intent overlap の仕事)
+        "make sure",
+        "goo gle",
+        "c-rm",  # 空白以外の区切りは対象外
+        "c.rm",
+        "cr m2",
+        "",
+    ],
+)
+def test_other_phrases_are_not_treated_as_the_canonical_acronym(text: str) -> None:
+    assert canonical_acronym(text) is None
+    assert duplicate_key(text) == equivalence_key(text)
+
+
+def test_duplicate_key_leaves_english_whitespace_and_japanese_handling_unchanged() -> None:
+    assert duplicate_key("make sure") != duplicate_key("makesure")
+    assert duplicate_key("google meet") != duplicate_key("googlemeet")
+    assert duplicate_key("タスク 管理 ツール") == duplicate_key("タスク管理ツール")
+    # equivalence_key 自体は変えない (英語は空白の意味を保つ)
+    assert equivalence_key("c rm") == "c rm"
+    assert equivalence_key("c rm") != equivalence_key("crm")
+
+
+def test_canonical_acronyms_are_explicit_and_small() -> None:
+    assert CANONICAL_ACRONYMS == frozenset({"crm"})

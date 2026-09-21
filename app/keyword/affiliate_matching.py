@@ -18,6 +18,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import cache
 
+from app.keyword.equivalence import contains_japanese
 from app.keyword.normalizers.site_relevance import normalize_keyword
 
 
@@ -66,27 +67,88 @@ class MatchedProgram:
     currency: str | None
 
 
-def matched_terms_in_keyword(
-    normalized_keyword: str, terms: Iterable[str]
-) -> tuple[str, ...]:
-    """keyword 内で実際に match した term (元の表記) を入力順で返す。"""
+@cache
+def _spacing_tolerant_pattern(normalized_term: str) -> re.Pattern[str]:
+    """日本語の文字に隣接する位置の空白の有無を無視する term pattern。
 
-    return tuple(
-        term
-        for term in terms
-        if term and term_matches(normalize_for_match(term), normalized_keyword)
-    )
+    :func:`~app.keyword.equivalence.equivalence_key` と同じ意味 (日本語 phrase の空白位置の差は
+    同一) を、空白を保った keyword に対する照合として表す。keyword を空白なしに詰めると
+    ``ai 議事 録`` が ``ai議事録`` になり、隣の ASCII が term に接して英数字境界で外れるため。
+    英数字同士の間の空白 (``生成AI SEO`` の ``ai`` と ``seo``) は元の term どおりに要求する。
+    境界 (前後が ``[a-z0-9]`` でない) は :func:`term_matches` と同じ。
+    """
+
+    parts: list[str] = []
+    prev: str | None = None
+    saw_space = False
+    for ch in normalized_term:
+        if ch.isspace():
+            saw_space = prev is not None
+            continue
+        if prev is not None:
+            if contains_japanese(prev) or contains_japanese(ch):
+                parts.append(" ?")
+            elif saw_space:
+                parts.append(" ")
+        parts.append(re.escape(ch))
+        prev, saw_space = ch, False
+    return re.compile(rf"(?<![a-z0-9]){''.join(parts)}(?![a-z0-9])")
+
+
+def _japanese_term_matches_spacing_tolerant(normalized_term: str, normalized_keyword: str) -> bool:
+    """日本語を含む term だけを、日本語隣接の空白差を無視して照合する (英語だけの term は除く)。"""
+
+    if not normalized_term or not contains_japanese(normalized_term):
+        return False
+    return _spacing_tolerant_pattern(normalized_term).search(normalized_keyword) is not None
+
+
+def matched_terms_in_keyword(
+    normalized_keyword: str,
+    terms: Iterable[str],
+    *,
+    ignore_japanese_spacing: bool = False,
+) -> tuple[str, ...]:
+    """keyword 内で実際に match した term (元の表記) を入力順で返す。
+
+    ``ignore_japanese_spacing`` なら、日本語を含む term は日本語隣接の空白位置の差 (``議事 録`` と
+    ``議事録``) を無視した照合も行う。英語だけの term は常に従来どおり (空白を保った照合のみ)。
+    """
+
+    hits: list[str] = []
+    for term in terms:
+        if not term:
+            continue
+        normalized_term = normalize_for_match(term)
+        if term_matches(normalized_term, normalized_keyword) or (
+            ignore_japanese_spacing
+            and _japanese_term_matches_spacing_tolerant(normalized_term, normalized_keyword)
+        ):
+            hits.append(term)
+    return tuple(hits)
 
 
 def match_programs(
-    keyword: str, programs: Sequence[ProgramFacts]
+    keyword: str,
+    programs: Sequence[ProgramFacts],
+    *,
+    ignore_japanese_spacing: bool = False,
 ) -> list[MatchedProgram]:
-    """keyword に対して 1 term 以上 match した program を返す (呼び出し側で active 限定)。"""
+    """keyword に対して 1 term 以上 match した program を返す (呼び出し側で active 限定)。
+
+    ``ignore_japanese_spacing=True`` は、Google Ads の分かち書き (``議事 録``) を吸収する opt-in。
+    日本語を含む term だけが対象で、従来の照合結果に追加で match するだけ (外れることはない)。
+    既定は False で、production の scoring / queue の呼び出し元の挙動は変わらない。
+    """
 
     normalized_keyword = normalize_for_match(keyword)
     matched: list[MatchedProgram] = []
     for program in programs:
-        hits = matched_terms_in_keyword(normalized_keyword, program.match_terms)
+        hits = matched_terms_in_keyword(
+            normalized_keyword,
+            program.match_terms,
+            ignore_japanese_spacing=ignore_japanese_spacing,
+        )
         if hits:
             matched.append(
                 MatchedProgram(

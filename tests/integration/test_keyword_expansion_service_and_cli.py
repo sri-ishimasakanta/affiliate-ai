@@ -26,6 +26,7 @@ from app.repositories.affiliate_program_repository import AffiliateProgramReposi
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.keyword_repository import KeywordRepository
 from app.repositories.keyword_score_repository import KeywordScoreRepository
+from app.services.content_queue_service import ContentQueueService
 from app.services.keyword_expansion_service import KeywordExpansionService
 from scripts.plan_keyword_expansion import (
     DEFAULT_CLUSTER_CONFIG,
@@ -427,3 +428,48 @@ def test_google_ads_spaced_japanese_ideas_dedupe_against_db_keywords_and_keep_or
     assert by["ai 議事 録 おすすめ"].target == "AI 議事録 おすすめ"
     assert by["make料金"].reason_code == "duplicate_existing_keyword"
     assert by["タスク 管理 ツール おすすめ"].decision == "keep"  # 原文のまま
+
+
+# ================================================================ C2.5.1
+def test_split_japanese_ideas_match_the_same_catalog_program_as_the_unsplit_form(
+    seeded: Session,
+) -> None:
+    AffiliateProgramRepository(seeded).create(
+        name="Minutes Tool", provider="direct", match_terms=["議事録", "AI 議事録"]
+    )
+    seeded.commit()
+    plan = KeywordExpansionService(seeded).plan(
+        _CONFIG,
+        _RULES,
+        [
+            IdeaCandidate(keyword="議事録 作成 ツール", cluster="A"),
+            IdeaCandidate(keyword="議事 録 作成 ツール", cluster="A"),  # Google Ads の分かち書き
+            IdeaCandidate(keyword="ai 議事 録 比較", cluster="A"),
+            IdeaCandidate(
+                keyword="c rm ツール", cluster="E"
+            ),  # 英語 term (CRM) は詰めて match しない
+            IdeaCandidate(keyword="c rm", cluster="E"),
+        ],
+    )
+    by = _by(plan)
+    for text in ("議事録 作成 ツール", "議事 録 作成 ツール"):
+        assert by[text].affiliate.program_names == ("Minutes Tool",), text
+        assert by[text].keyword == text  # 表示テキストは Google の原文のまま
+    assert by["ai 議事 録 比較"].affiliate.program_names == ("Minutes Tool",)
+    assert by["c rm ツール"].affiliate.level == "none"
+    assert by["c rm"].affiliate.level == "none"
+
+
+def test_catalog_spacing_option_is_only_used_by_the_planner_not_by_the_c22_queue(
+    seeded: Session,
+) -> None:
+
+    AffiliateProgramRepository(seeded).create(
+        name="Minutes Tool", provider="direct", match_terms=["議事録"]
+    )
+    seeded.commit()
+    keyword = KeywordRepository(seeded).create(keyword="議事 録 テスト")
+    seeded.commit()
+    inputs, _articles = ContentQueueService(seeded).load_inputs()
+    row = next(k for k in inputs if k.id == keyword.id)
+    assert row.affiliate_matches == ()  # C2.2 の既存 keyword の coverage は従来どおり

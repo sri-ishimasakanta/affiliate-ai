@@ -42,7 +42,7 @@ from app.article.cluster_plan import (
     intent_profile,
     near_overlap_similarity,
 )
-from app.keyword.equivalence import equivalence_key
+from app.keyword.equivalence import CANONICAL_ACRONYMS, canonical_acronym, duplicate_key
 from app.keyword.normalizers.site_relevance import normalize_keyword
 
 RULES_VERSION = 1
@@ -74,7 +74,18 @@ _ANCHOR_RANK: Mapping[Intent, int] = {
 }
 
 _RULE_KEYS = frozenset(
-    {"id", "reason_code", "note", "products", "intents", "phrase", "terms_any", "terms_all"}
+    {
+        "id",
+        "reason_code",
+        "note",
+        "products",
+        "intents",
+        "phrase",
+        "exact_phrase",
+        "ascii_only",
+        "terms_any",
+        "terms_all",
+    }
 )
 _CURATED_KEYS = frozenset({"candidate", "target", "note"})
 _TOP_KEYS = frozenset({"version", "reject_rules", "curated_merges"})
@@ -96,6 +107,8 @@ class RejectRule:
     products: tuple[str, ...] = ()
     intents: tuple[str, ...] = ()
     phrase: str = ""
+    exact_phrase: str = ""  # 正規化後の phrase 全体がこれと一致する場合だけ
+    ascii_only: bool = False  # 正規化後に ASCII だけの phrase に限る (日本語を含む phrase は対象外)
     terms_any: tuple[str, ...] = ()
     terms_all: tuple[str, ...] = ()
 
@@ -161,15 +174,21 @@ def parse_expansion_rules(raw: object) -> ExpansionRules:
         if None in (products, intents, terms_any, terms_all):
             errors.append(f"reject rule {rid!r}: list fields must be lists of non-empty strings")
             continue
-        phrase = item.get("phrase", "")
-        if not isinstance(phrase, str):
-            errors.append(f"reject rule {rid!r}: phrase must be a string")
+        phrase, exact_phrase = item.get("phrase", ""), item.get("exact_phrase", "")
+        if not isinstance(phrase, str) or not isinstance(exact_phrase, str):
+            errors.append(f"reject rule {rid!r}: phrase and exact_phrase must be strings")
+            continue
+        ascii_only = item.get("ascii_only", False)
+        if not isinstance(ascii_only, bool):
+            errors.append(f"reject rule {rid!r}: ascii_only must be a boolean")
             continue
         bad_intents = sorted(set(intents) - _INTENT_VALUES)
         if bad_intents:
             errors.append(f"reject rule {rid!r}: unknown intents {bad_intents}")
-        if not (products or phrase.strip() or terms_any or terms_all):
-            errors.append(f"reject rule {rid!r}: needs products, phrase, terms_any or terms_all")
+        if not (products or phrase.strip() or exact_phrase.strip() or terms_any or terms_all):
+            errors.append(
+                f"reject rule {rid!r}: needs products, phrase, exact_phrase, terms_any or terms_all"
+            )
             continue
         rules.append(
             RejectRule(
@@ -179,6 +198,8 @@ def parse_expansion_rules(raw: object) -> ExpansionRules:
                 products=products,
                 intents=intents,
                 phrase=phrase.strip(),
+                exact_phrase=exact_phrase.strip(),
+                ascii_only=ascii_only,
                 terms_any=terms_any,
                 terms_all=terms_all,
             )
@@ -293,6 +314,10 @@ def _volume(candidate: IdeaCandidate) -> int:
 def _rule_matches(rule: RejectRule, normalized: str, profile: IntentProfile) -> bool:
     tokens = set(normalized.split())
     padded = f" {normalized} "
+    if rule.ascii_only and not normalized.isascii():
+        return False
+    if rule.exact_phrase and normalized != normalize_keyword(rule.exact_phrase):
+        return False
     if rule.products:
         wanted = {normalize_keyword(p) for p in rule.products}
         if not wanted & profile.product_key:
@@ -334,7 +359,7 @@ def plan_expansion(
     # 日本語 phrase の空白位置の差だけを吸収する fallback (完全一致 / 重複の判定専用)
     existing_by_equiv: dict[str, KeywordInput] = {}
     for k in existing:
-        existing_by_equiv.setdefault(equivalence_key(k.keyword), k)
+        existing_by_equiv.setdefault(duplicate_key(k.keyword), k)
     existing_profiles = {k.id: intent_profile(k.keyword, vocab) for k in existing}
 
     # 既存 keyword -> C2.2 queue 上の吸収先 (anchor)
@@ -367,18 +392,20 @@ def plan_expansion(
             warnings.append(f"article #{a.id} has no keyword; it cannot be checked for overlap")
 
     curated_by_norm = {normalize_keyword(c.candidate): c for c in rules.curated_merges}
-    curated_by_equiv = {equivalence_key(c.candidate): c for c in rules.curated_merges}
+    curated_by_equiv = {duplicate_key(c.candidate): c for c in rules.curated_merges}
 
-    # ---- 入力の正規化と候補内の重複 (完全一致 + 日本語の空白差) ---------------------
+    # ---- 入力の正規化と候補内の重複 (完全一致 + 日本語の空白差 + 列挙 acronym の分かち書き) ----
     # 表示テキストは書き換えない。代表は、検索ボリューム (あれば) -> 空白の少ない (プロジェクトの
-    # 表記に近い) 正規化文字列 -> 文字列順で決め、入力順に依存しない。
+    # 表記に近い) 正規化文字列 -> 文字列順で決め、入力順に依存しない。ただし列挙 acronym
+    # (``c rm`` / ``cr m`` / ``crm``) は、正規綴り (``crm``) の候補があればボリュームに関係なく
+    # それを代表にする。
     groups: dict[str, list[_Work]] = {}
     for candidate in sorted(candidates, key=lambda c: (normalize_keyword(c.keyword), c.keyword)):
         norm = normalize_keyword(candidate.keyword)
         if not norm:
             continue
         work = _Work(candidate, norm, intent_profile(candidate.keyword, vocab))
-        groups.setdefault(equivalence_key(candidate.keyword), []).append(work)
+        groups.setdefault(duplicate_key(candidate.keyword), []).append(work)
 
     works: list[_Work] = []
     duplicates: list[_Work] = []
@@ -389,9 +416,11 @@ def plan_expansion(
             # 個別に reject する (候補どうしの重複より、既存との重複を優先して報告する)。
             works.extend(members)
             continue
+        is_acronym = key in CANONICAL_ACRONYMS
         rep_work = min(
             members,
             key=lambda w: (
+                is_acronym and w.normalized != key,
                 -_volume(w.candidate),
                 w.normalized.count(" "),
                 w.normalized,
@@ -404,12 +433,20 @@ def plan_expansion(
             if member is rep_work:
                 continue
             member.decision, member.reason_code = DECISION_REJECT, "duplicate_candidate"
-            member.reason = (
-                "the same normalized keyword appears more than once in the candidates"
-                if member.normalized == rep_work.normalized
-                else "whitespace-insensitive equivalent (Japanese phrase) of candidate "
-                f"'{rep_work.candidate.keyword}'"
-            )
+            if member.normalized == rep_work.normalized:
+                member.reason = (
+                    "the same normalized keyword appears more than once in the candidates"
+                )
+            elif is_acronym:
+                member.reason = (
+                    f"split spelling of the acronym '{key}'; equivalent to candidate "
+                    f"'{rep_work.candidate.keyword}'"
+                )
+            else:
+                member.reason = (
+                    "whitespace-insensitive equivalent (Japanese phrase) of candidate "
+                    f"'{rep_work.candidate.keyword}'"
+                )
             member.target, member.target_kind = rep_work.candidate.keyword, TARGET_CANDIDATE
             duplicates.append(member)
     works.sort(key=lambda w: (w.normalized, w.candidate.keyword))
@@ -419,15 +456,21 @@ def plan_expansion(
         profile = work.profile
         # 1) reject
         exact_hit = existing_by_norm.get(work.normalized)
-        hit = exact_hit or existing_by_equiv.get(equivalence_key(work.candidate.keyword))
+        hit = exact_hit or existing_by_equiv.get(duplicate_key(work.candidate.keyword))
         if hit is not None:
             work.decision, work.reason_code = DECISION_REJECT, "duplicate_existing_keyword"
-            work.reason = (
-                f"identical to existing keyword '{hit.keyword}'"
-                if exact_hit is not None
-                else "whitespace-insensitive equivalent (Japanese phrase) of existing keyword "
-                f"'{hit.keyword}'"
-            )
+            if exact_hit is not None:
+                work.reason = f"identical to existing keyword '{hit.keyword}'"
+            elif (acronym := canonical_acronym(work.candidate.keyword)) is not None:
+                work.reason = (
+                    f"split spelling of the acronym '{acronym}'; equivalent to existing keyword "
+                    f"'{hit.keyword}'"
+                )
+            else:
+                work.reason = (
+                    "whitespace-insensitive equivalent (Japanese phrase) of existing keyword "
+                    f"'{hit.keyword}'"
+                )
             work.target, work.target_kind = hit.keyword, TARGET_KEYWORD
             continue
         rejected = next(
@@ -455,13 +498,13 @@ def plan_expansion(
             continue
         # 3) curated
         curated = curated_by_norm.get(work.normalized) or curated_by_equiv.get(
-            equivalence_key(work.candidate.keyword)
+            duplicate_key(work.candidate.keyword)
         )
         if curated is not None:
             target_existing = existing_by_norm.get(
                 normalize_keyword(curated.target)
-            ) or existing_by_equiv.get(equivalence_key(curated.target))
-            target_candidate = candidate_by_equiv.get(equivalence_key(curated.target))
+            ) or existing_by_equiv.get(duplicate_key(curated.target))
+            target_candidate = candidate_by_equiv.get(duplicate_key(curated.target))
             if target_existing is not None or target_candidate is not None:
                 work.curated_target = curated.target
                 work.decision, work.reason_code = DECISION_MERGE, "curated_merge"

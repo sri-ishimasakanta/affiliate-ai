@@ -49,7 +49,15 @@
     {"id": "low-demand-activecampaign-tutorial", "reason_code": "low_expected_demand",
      "products": ["ActiveCampaign"], "intents": ["howto"], "note": "low expected JP demand"},
     {"id": "vague-claude-usage", "reason_code": "vague_intent", "products": ["Claude"],
-     "terms_any": ["利用"], "note": "vague intent; no clear SERP"}
+     "terms_any": ["利用"], "note": "vague intent; no clear SERP"},
+    {"id": "english-idiom-make-sense", "reason_code": "english_idiom_noise", "ascii_only": true,
+     "phrase": "make sense", "note": "English verb idiom, not the Make product"},
+    {"id": "english-idiom-make-sure", "reason_code": "english_idiom_noise", "ascii_only": true,
+     "phrase": "make sure", "note": "English verb idiom, not the Make product"},
+    {"id": "english-idiom-make-up-for", "reason_code": "english_idiom_noise", "ascii_only": true,
+     "phrase": "make up for", "note": "English verb idiom, not the Make product"},
+    {"id": "english-idiom-make-in", "reason_code": "english_idiom_noise", "ascii_only": true,
+     "exact_phrase": "make in", "note": "bare English fragment, not the Make product"}
   ],
   "curated_merges": [
     {"candidate": "社内 ナレッジ 共有 ツール", "target": "ナレッジ管理 ツール 比較",

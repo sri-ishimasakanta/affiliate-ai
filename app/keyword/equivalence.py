@@ -10,6 +10,8 @@ Google Ads は日本語 phrase を分かち書きし直して返すことがあ�
   英語だけの phrase (``google meet`` と ``googlemeet`` は別) は通常の空白の意味を保つ。
 - **比較専用**: keyword の表示・保存テキストは書き換えない。トークン単位の意図判定
   (``intent_profile``) や採点には使わない。完全一致 / 重複の fallback としてのみ使う。
+- 例外として、列挙した acronym (``CANONICAL_ACRONYMS``) の分かち書き (``c rm`` / ``cr m``) だけは
+  :func:`duplicate_key` で正規綴り (``crm``) と同一視する。``equivalence_key`` は変えない。
 
 先行例: ``keyword_metrics_collection_service.compact_keyword_match_key`` (Historical Metrics 応答の
 照合) と同じ「空白位置の差だけを吸収し、fuzzy match はしない」方針。あちらは全 phrase に空白除去を
@@ -39,3 +41,34 @@ def equivalence_key(text: str) -> str:
     if _JAPANESE.search(normalized) is None:
         return normalized
     return re.sub(r"\s+", "", normalized)
+
+
+# 分かち書きされた綴りを同一とみなす acronym。Google Ads は ``crm`` を ``c rm`` / ``cr m`` に
+# 割って返すことがある。英語一般の空白無視にはせず、ここに列挙した acronym だけを対象にする。
+CANONICAL_ACRONYMS = frozenset({"crm"})
+
+_LATIN_WORDS = re.compile(r"[a-z]+(?: [a-z]+)*")
+
+
+def canonical_acronym(text: str) -> str | None:
+    """phrase 全体の空白を除いた形が ``CANONICAL_ACRONYMS`` と完全一致するなら、その acronym。
+
+    ``c rm`` / ``cr m`` / ``crm`` -> ``crm``。他の語を含む phrase (``c rm software``)、英語一般
+    (``make sure``)、acronym ではない語 (``goo gle``) は ``None``。
+    """
+
+    normalized = normalize_keyword(text)
+    if _LATIN_WORDS.fullmatch(normalized) is None:
+        return None
+    compact = normalized.replace(" ", "")
+    return compact if compact in CANONICAL_ACRONYMS else None
+
+
+def duplicate_key(text: str) -> str:
+    """planner の重複判定 key: 列挙 acronym の分かち書き、または :func:`equivalence_key`。
+
+    ``equivalence_key`` 自体は変えない (英語 phrase の空白の意味を保つ)。比較専用で、表示・保存
+    テキストは書き換えない。
+    """
+
+    return canonical_acronym(text) or equivalence_key(text)

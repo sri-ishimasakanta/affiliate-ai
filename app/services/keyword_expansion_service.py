@@ -46,7 +46,9 @@ class KeywordExpansionService:
                 candidate,
                 affiliate_matches=tuple(
                     AffiliateMatch(program_id=m.program_id, name=m.name, provider=m.provider)
-                    for m in match_programs(candidate.keyword, catalog)
+                    for m in match_programs(
+                        candidate.keyword, catalog, ignore_japanese_spacing=True
+                    )
                 ),
             )
             for candidate in candidates

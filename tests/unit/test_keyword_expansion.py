@@ -69,7 +69,7 @@ def _by(plan) -> dict:
 
 # ================================================================== rules
 def test_tracked_rules_load_and_are_small_and_explicit() -> None:
-    assert len(_RULES.reject_rules) == 22
+    assert len(_RULES.reject_rules) == 26  # 22 + Make の英語 idiom 4 件 (C2.5.1)
     assert len(_RULES.curated_merges) == 13  # 語彙規則で表せない対応だけ
     assert len({r.id for r in _RULES.reject_rules}) == len(_RULES.reject_rules)
     assert all(r.reason_code and r.note for r in _RULES.reject_rules)
@@ -112,6 +112,26 @@ def test_tracked_rules_load_and_are_small_and_explicit() -> None:
         (
             {"version": 1, "reject_rules": [{"id": "a", "phrase": "x"}]},
             "reason_code",
+        ),
+        (
+            {
+                "version": 1,
+                "reject_rules": [
+                    {"id": "a", "reason_code": "c", "phrase": "x", "ascii_only": "yes"}
+                ],
+            },
+            "ascii_only must be a boolean",
+        ),
+        (
+            {
+                "version": 1,
+                "reject_rules": [{"id": "a", "reason_code": "c", "exact_phrase": 1}],
+            },
+            "must be strings",
+        ),
+        (
+            {"version": 1, "reject_rules": [{"id": "a", "reason_code": "c", "ascii_only": True}]},
+            "needs products",
         ),
         (
             {"version": 1, "reject_rules": [{"id": "a", "reason_code": "c", "products": [""]}]},
@@ -528,4 +548,145 @@ def test_all_c23_decisions_are_unchanged_by_the_equivalence_fallback() -> None:
             assert got[keyword].target == target, keyword
         assert got[keyword].keyword == keyword  # 表示テキストは入力のまま
     assert (plan.summary["keep"], plan.summary["merge"], plan.summary["reject"]) == (67, 38, 30)
+    assert not [d for d in plan.decisions if d.reason_code == "duplicate_candidate"]
+
+
+# ==========================================================================
+# C2.5.1: Make の英語 idiom reject / CRM の分かち書き equivalence
+# ==========================================================================
+_MAKE_IDIOMS = ("make sense", "make sure", "make up for", "make in")
+
+
+@pytest.mark.parametrize("text", _MAKE_IDIOMS)
+def test_make_english_idioms_are_rejected(text: str) -> None:
+    d = _by(_plan(_cands(text, cluster="C")))[text]
+    assert d.decision == "reject" and d.reason_code == "english_idiom_noise"
+    assert d.matched_rule is not None and d.matched_rule.startswith("english-idiom-make-")
+    assert d.target is None
+
+
+@pytest.mark.parametrize(
+    "text", ["Make Sense", "MAKE  SURE", "ｍａｋｅ　ｕｐ　ｆｏｒ", "make sense of data"]
+)
+def test_make_idiom_rules_apply_after_normalization(text: str) -> None:
+    d = _by(_plan(_cands(text)))[text]
+    assert d.decision == "reject" and d.reason_code == "english_idiom_noise"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Make",
+        "Make 料金",
+        "Make 使い方",
+        "Make n8n 比較",
+        "Make 自動化 事例",
+        "make sure 使い方",  # 日本語を含む phrase は idiom rule の対象外
+        "make sense 比較",
+        "make up for 料金",
+    ],
+)
+def test_valid_make_phrases_and_japanese_phrases_are_not_hit_by_the_idiom_rules(text: str) -> None:
+    d = _by(_plan(_cands(text)))[text]
+    assert d.reason_code != "english_idiom_noise"
+    assert d.matched_rule is None or not d.matched_rule.startswith("english-idiom-")
+
+
+def test_make_idiom_rules_are_narrow_not_an_english_word_blacklist() -> None:
+    plan = _plan(_cands("make money online", "make in n8n", "make it work", "make.com", "makesure"))
+    for d in plan.decisions:
+        assert d.reason_code != "english_idiom_noise", d.keyword
+    # "make in" は phrase 全体が一致する場合だけ
+    assert _by(_plan(_cands("make in")))["make in"].reason_code == "english_idiom_noise"
+
+
+def _vol(text: str, volume: int) -> IdeaCandidate:
+    return IdeaCandidate(keyword=text, cluster="E", metrics={"avg_monthly_searches": volume})
+
+
+def test_split_crm_spellings_collapse_to_the_canonical_crm_and_keep_original_text() -> None:
+    plan = _plan([_vol("c rm", 40500), _vol("cr m", 40500), _vol("crm", 40500)])
+    by = _by(plan)
+    assert set(by) == {"c rm", "cr m", "crm"}  # Google Ads の原文をそのまま保持
+    assert by["crm"].decision == "keep"
+    for split in ("c rm", "cr m"):
+        d = by[split]
+        assert d.decision == "reject" and d.reason_code == "duplicate_candidate"
+        assert d.target == "crm" and d.target_kind == "candidate"
+        assert "acronym 'crm'" in d.reason
+        assert d.metrics == {"avg_monthly_searches": 40500}  # 指標も原文のまま
+
+
+def test_crm_is_the_representative_even_when_a_split_spelling_has_more_volume() -> None:
+    plan = _plan([_vol("c rm", 90000), _vol("cr m", 50000), _vol("crm", 100)])
+    keeps = [d for d in plan.decisions if d.decision == "keep"]
+    assert [d.keyword for d in keeps] == ["crm"]
+    assert keeps[0].metrics == {"avg_monthly_searches": 100}
+
+
+def test_crm_representative_does_not_depend_on_input_order() -> None:
+    items = [_vol("c rm", 40500), _vol("cr m", 40500), _vol("crm", 40500), _vol("sfa", 14800)]
+    expected = _plan(items).to_dict()
+    rng = random.Random(0)
+    for _ in range(12):
+        shuffled = items[:]
+        rng.shuffle(shuffled)
+        assert _plan(shuffled).to_dict() == expected
+    assert _plan(list(reversed(items))).to_dict() == expected
+
+
+def test_sfa_merges_into_crm_never_into_a_split_spelling() -> None:
+    plan = _plan([_vol("c rm", 40500), _vol("cr m", 40500), _vol("crm", 40500), _vol("sfa", 14800)])
+    by = _by(plan)
+    targets = {d.target for d in plan.decisions if d.decision == "merge"}
+    assert "c rm" not in targets and "cr m" not in targets
+    assert by["sfa"].decision == "merge" and by["sfa"].target == "crm"
+    assert by["crm"].decision == "keep"
+
+
+def test_split_crm_spellings_without_the_canonical_form_still_collapse_to_one_keep() -> None:
+    plan = _plan([_vol("c rm", 500), _vol("cr m", 300)])
+    keeps = [d for d in plan.decisions if d.decision == "keep"]
+    dupes = [d for d in plan.decisions if d.reason_code == "duplicate_candidate"]
+    assert len(keeps) == 1 and len(dupes) == 1
+    assert keeps[0].keyword == "c rm"  # 正規綴りが無いときは従来どおりボリューム順 (原文は不変)
+    assert dupes[0].target == "c rm"
+
+
+def test_split_crm_spellings_are_duplicates_of_an_existing_crm_keyword() -> None:
+    keywords = [*_pool(), KeywordInput(id=99, keyword="CRM", status="analyzed")]
+    plan = _plan(_cands("c rm", "cr m", "crm"), keywords=keywords)
+    for d in plan.decisions:
+        assert d.decision == "reject" and d.reason_code == "duplicate_existing_keyword", d.keyword
+        assert d.target == "CRM" and d.target_kind == "keyword"
+    by = _by(plan)
+    assert by["crm"].reason.startswith("identical to existing keyword")
+    assert "acronym 'crm'" in by["c rm"].reason
+
+
+def test_acronym_equivalence_is_not_general_english_whitespace_equivalence() -> None:
+    plan = _plan(
+        _cands(
+            "make sure",  # idiom rule で reject (dedupe とは無関係)
+            "makesure",
+            "c rm software",  # phrase 全体が acronym ではない
+            "crm software",
+            "goo gle",  # 列挙外の綴り
+            "google",
+            "n8n cloud",
+            "n8ncloud",
+            "google meet recorder",
+            "googlemeet recorder",
+        )
+    )
+    assert not [d for d in plan.decisions if d.reason_code == "duplicate_candidate"]
+    by = _by(plan)
+    assert by["makesure"].decision == "keep"  # "make sure" と同一視されない
+    assert by["make sure"].reason_code == "english_idiom_noise"
+
+
+def test_all_c23_decisions_are_unchanged_by_the_c251_changes() -> None:
+    plan = _c23_plan()
+    assert (plan.summary["keep"], plan.summary["merge"], plan.summary["reject"]) == (67, 38, 30)
+    assert not [d for d in plan.decisions if d.reason_code == "english_idiom_noise"]
     assert not [d for d in plan.decisions if d.reason_code == "duplicate_candidate"]
