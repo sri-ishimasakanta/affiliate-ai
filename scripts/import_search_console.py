@@ -1,7 +1,28 @@
-"""管理用 CLI: 最初の本番 Search Console インポートを実行する。
+"""管理用 CLI: Search Console インポート (最初の本番インポート + 任意期間の refresh)。
 
-    uv run python scripts/import_search_console.py            # プラン表示のみ (無通信・無書込)
-    uv run python scripts/import_search_console.py --execute  # 実インポート
+    # プラン表示のみ (無通信・無書込)。--execute を付けなければ常に plan。
+    uv run python scripts/import_search_console.py
+    uv run python scripts/import_search_console.py --start-date 2026-09-06 --end-date 2026-09-20
+    uv run python scripts/import_search_console.py --days 28 --lag 3
+
+    # 実インポート
+    uv run python scripts/import_search_console.py \
+        --start-date 2026-09-06 --end-date 2026-09-20 --execute
+
+範囲の指定方法 (排他。どれか 1 つ、または無指定):
+
+* ``--start-date`` + ``--end-date`` (YYYY-MM-DD, Pacific Time 暦日, 両方必須): 明示範囲。
+* ``--days`` + ``--lag`` (両方必須): PT 暦で「今日(PT) - lag」を末尾とする直近 days 日。
+* 無指定: 従来の最初の本番インポート (直近 7 日 / lag 1 / 固定 idempotency key)。
+
+**run の監査 idempotency とメトリクス行の idempotency は別物。** 明示範囲 / 直近 N 日の
+refresh は idempotency key を使わず、実行のたびに新しい ``SearchConsoleImportRun`` を
+append する (監査可能)。メトリクス行は ``(property, date, page[, query])`` の UPSERT で
+あり、同じ / 重なる範囲を再取り込みしても行は重複しない。無指定の最初の本番インポート
+だけが固定 idempotency key を使い、同じコマンドの誤再実行で Google を二重に叩かない。
+
+範囲の検証 (片方だけ / 不正な日付 / start > end / 未来の end / モード競合) は DB にも
+Google にも触れる前に行い、失敗時は ``EXIT_INVALID_RANGE`` を返す。
 
 public HTTP endpoint ではない。provider / import のビジネスロジックは複製せず、
 :class:`GoogleSearchConsoleProvider` と :class:`SearchConsoleImportService` に委譲する。
@@ -13,8 +34,10 @@ JSON / credential path) は plan / 成功 / 例外いずれでも出力しない
 from __future__ import annotations
 
 import argparse
+import re
 import sys
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -34,7 +57,10 @@ from app.models import (  # noqa: E402
     SearchConsolePageDaily,
     SearchConsoleQueryDaily,
 )
-from app.search_console.date_window import recent_window  # noqa: E402
+from app.search_console.date_window import (  # noqa: E402
+    recent_window,
+    search_console_today,
+)
 from app.search_console.google_provider import GoogleSearchConsoleProvider  # noqa: E402
 from app.search_console.import_identity import (  # noqa: E402
     DATA_STATE,
@@ -58,14 +84,93 @@ EXIT_NOT_CONFIGURED = 2
 EXIT_STATE = 3
 EXIT_PROVIDER_ERROR = 4
 EXIT_UNEXPECTED = 5
+EXIT_INVALID_RANGE = 6
+
+MODE_FIRST_IMPORT = "first-import"
+MODE_EXPLICIT = "explicit-range"
+MODE_ROLLING = "rolling-window"
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class InvalidRangeError(ValueError):
+    """範囲指定が不正。DB / Google に触れる前に送出される。"""
+
+
+@dataclass(frozen=True)
+class ImportWindow:
+    start_date: date
+    end_date: date
+    mode: str
+    #: first-import だけが固定 key を持つ。refresh は None (実行ごとに新しい run)。
+    idempotency_key: str | None
+
+
+def _parse_date(value: object, *, name: str) -> date:
+    if isinstance(value, datetime):
+        raise InvalidRangeError(f"{name} must be a date (YYYY-MM-DD)")
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str) and _DATE_RE.match(value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise InvalidRangeError(f"{name} must be a valid date in YYYY-MM-DD form")
+
+
+def resolve_window(
+    *,
+    start_date: date | str | None = None,
+    end_date: date | str | None = None,
+    days: int | None = None,
+    lag: int | None = None,
+    now: datetime | None = None,
+) -> ImportWindow:
+    """CLI の範囲指定を検証して 1 つの :class:`ImportWindow` に解決する (pure・通信なし)。"""
+
+    has_dates = start_date is not None or end_date is not None
+    has_rolling = days is not None or lag is not None
+
+    if has_dates and has_rolling:
+        raise InvalidRangeError(
+            "conflicting range modes: use either --start-date/--end-date or --days/--lag, not both"
+        )
+
+    if has_dates:
+        if start_date is None or end_date is None:
+            raise InvalidRangeError("--start-date and --end-date must be provided together")
+        start = _parse_date(start_date, name="--start-date")
+        end = _parse_date(end_date, name="--end-date")
+        if start > end:
+            raise InvalidRangeError("start_date is after end_date")
+        if end > search_console_today(now):
+            raise InvalidRangeError("end_date is in the future (Pacific Time)")
+        return ImportWindow(start, end, MODE_EXPLICIT, None)
+
+    if has_rolling:
+        if days is None or lag is None:
+            raise InvalidRangeError("--days and --lag must be provided together")
+        if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+            raise InvalidRangeError("--days must be an integer >= 1")
+        if isinstance(lag, bool) or not isinstance(lag, int) or lag < 0:
+            raise InvalidRangeError("--lag must be an integer >= 0")
+        start, end = recent_window(days=days, end_lag_days=lag, now=now)
+        return ImportWindow(start, end, MODE_ROLLING, None)
+
+    start, end = recent_window(days=_WINDOW_DAYS, end_lag_days=_WINDOW_END_LAG_DAYS, now=now)
+    return ImportWindow(start, end, MODE_FIRST_IMPORT, FIRST_IMPORT_IDEMPOTENCY_KEY)
 
 
 def _default_provider_factory(credentials_file: str | None):
     return GoogleSearchConsoleProvider(credentials_file=credentials_file)
 
 
-def _print_plan(*, property_uri: str, start_date, end_date) -> None:
-    print("=== Search Console first production import (PLAN) ===")
+def _print_plan(
+    *, property_uri: str, start_date, end_date, mode: str, idempotency_key: str | None
+) -> None:
+    print("=== Search Console import (PLAN) ===")
+    print(f"mode                   = {mode}")
     print(f"property_uri           = {property_uri}")
     print(f"start_date (PT)        = {start_date.isoformat()}")
     print(f"end_date (PT)          = {end_date.isoformat()}")
@@ -73,7 +178,11 @@ def _print_plan(*, property_uri: str, start_date, end_date) -> None:
     print(f"page_dimensions        = {list(PAGE_DIMENSIONS)}")
     print(f"query_dimensions       = {list(QUERY_DIMENSIONS)}")
     print(f"data_state             = {DATA_STATE}")
-    print(f"idempotency_key        = {FIRST_IMPORT_IDEMPOTENCY_KEY}")
+    if idempotency_key is None:
+        print("idempotency_key        = none (every execute appends a new audited run)")
+    else:
+        print(f"idempotency_key        = {idempotency_key}")
+    print("metric_rows            = upsert by (property, date, page[, query]); no duplicates")
 
 
 def run(
@@ -83,7 +192,20 @@ def run(
     session_factory=SessionLocal,
     provider_factory=None,
     now: datetime | None = None,
+    start_date: date | str | None = None,
+    end_date: date | str | None = None,
+    days: int | None = None,
+    lag: int | None = None,
 ) -> int:
+    # 範囲の検証は設定 / DB / Google のどれにも触れる前に行う。
+    try:
+        window = resolve_window(
+            start_date=start_date, end_date=end_date, days=days, lag=lag, now=now
+        )
+    except InvalidRangeError as exc:
+        print(f"INVALID RANGE: {exc}")
+        return EXIT_INVALID_RANGE
+
     settings = settings or get_settings()
     property_uri = settings.search_console_property_uri
     credentials_file = settings.search_console_credentials_file
@@ -95,10 +217,13 @@ def run(
         print("NOT CONFIGURED: SEARCH_CONSOLE_CREDENTIALS_FILE is not set")
         return EXIT_NOT_CONFIGURED
 
-    start_date, end_date = recent_window(
-        days=_WINDOW_DAYS, end_lag_days=_WINDOW_END_LAG_DAYS, now=now
+    _print_plan(
+        property_uri=property_uri,
+        start_date=window.start_date,
+        end_date=window.end_date,
+        mode=window.mode,
+        idempotency_key=window.idempotency_key,
     )
-    _print_plan(property_uri=property_uri, start_date=start_date, end_date=end_date)
     print("credentials_configured = True")
 
     if not execute:
@@ -114,9 +239,9 @@ def run(
         try:
             run_row = svc.prepare(
                 property_uri=property_uri,
-                start_date=start_date,
-                end_date=end_date,
-                idempotency_key=FIRST_IMPORT_IDEMPOTENCY_KEY,
+                start_date=window.start_date,
+                end_date=window.end_date,
+                idempotency_key=window.idempotency_key,
             )
         except SearchConsoleImportStateError as exc:
             print(f"PREPARE REJECTED: {exc}")
@@ -193,7 +318,32 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="import_search_console",
-        description="最初の本番 Search Console インポート (管理用 CLI)",
+        description=(
+            "Search Console インポート (管理用 CLI)。範囲は --start-date/--end-date "
+            "または --days/--lag のどちらか (無指定は従来の最初の本番インポート)。"
+        ),
+    )
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        help="YYYY-MM-DD (Pacific Time)。--end-date と必ず一緒に指定する",
+    )
+    parser.add_argument(
+        "--end-date",
+        default=None,
+        help="YYYY-MM-DD (Pacific Time)。--start-date と必ず一緒に指定する",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="末尾 (今日(PT) - lag) から遡る日数。--lag と必ず一緒に指定する",
+    )
+    parser.add_argument(
+        "--lag",
+        type=int,
+        default=None,
+        help="今日(PT)から末尾までの日数 (>= 0)。--days と必ず一緒に指定する",
     )
     parser.add_argument(
         "--execute",
@@ -202,7 +352,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        return run(execute=args.execute)
+        return run(
+            execute=args.execute,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            days=args.days,
+            lag=args.lag,
+        )
     except Exception as exc:  # noqa: BLE001 - admin CLI は安全側に倒す
         print(f"UNEXPECTED: {type(exc).__name__}")
         return EXIT_UNEXPECTED
