@@ -328,6 +328,16 @@ keyword が現在のサイトテーマ (AI・生成AI・業務効率化・業務
   commission 情報 (fixed / percentage を混同せず currency 別) を表・CSV で出力。
   **DB read-only、KeywordSignal を作らない、採点しない。** `tracking_url` /
   `landing_page_url` は出力しない。
+- **match_terms の保守 (C2.5.5)**: catalog の正本は production DB で、version 管理された source は
+  無い (CSV importer は insert 専用で既存行を更新しない)。既存 program の term を外すときは matcher
+  に特例を足さず、`app/config/affiliate_catalog_hygiene.json` に **宣言** し
+  `scripts/apply_affiliate_catalog_hygiene.py` で適用する。既定は **PLAN (write 0)**。`--execute`
+  を明示したときだけ、全 program の現在の `match_terms` が宣言の `before` と完全一致する場合に限り
+  1 transaction で適用する (drift / program 不在が 1 件でもあれば何も書かず exit 1、冪等)。削除専用で、
+  strong な term (自身の名前 / 明示 alias) は外せない。score / signal / article / link には触れない。
+  適用後は既存 signal の snapshot と live catalog がずれる (`catalog_drift`) ので、signal の再導出は
+  別 phase で行う。**C2.5.5 時点では宣言のみで production には未適用**: 適用は、signal / score の
+  移行と同時に行う (単独で `--execute` しない)。
 
 ### Phase 2B-6B (affiliate_opportunity V1)
 

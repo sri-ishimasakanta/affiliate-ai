@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "description": "Declarative affiliate catalog hygiene (C2.5.5). The catalog's canonical state is the production DB (affiliate_programs.match_terms); there is no version-controlled source and the CSV importer only inserts. Each change removes evidence-backed loose terms from ONE program, guarded by the exact expected current terms (before). Applied with scripts/apply_affiliate_catalog_hygiene.py (PLAN by default; --execute is all-or-nothing and idempotent). Strong terms (own name / alias) can never be removed. Terms with no live evidence are intentionally left for later review. Evidence: C2.5.2 catalog audit and C2.5.3 downstream audit.",
+  "changes": [
+    {
+      "id": "make-broad-automation-terms",
+      "program": "Make",
+      "provider": "make",
+      "before": ["Make", "業務自動化", "自動化", "ワークフロー", "ノーコード", "業務効率化", "SaaS連携"],
+      "remove": ["自動化", "業務効率化"],
+      "reason": "自動化 is a bare topic word (RPA, spreadsheets, sales, meeting minutes all match) and 業務効率化 is a goal, not a category. 業務自動化 and SaaS連携 name Make's actual category and function and stay.",
+      "evidence": "C2.5.2: 自動化 matched 11 live keeps (10 sole, e.g. 'rpa 自動化', 'スプレッド シート 自動化', '議事 録 自動化'), all loose-fit. 業務効率化 is configured on 7 programs with 0 strong matches; the pillar keyword matched 7 programs from it alone and article #1's 7 links derive from it."
+    },
+    {
+      "id": "n8n-cloud-broad-automation-term",
+      "program": "n8n Cloud",
+      "provider": "direct",
+      "before": ["n8n", "業務自動化", "自動化", "ワークフロー", "AIエージェント", "AI 自動化", "ノーコード"],
+      "remove": ["自動化"],
+      "reason": "Bare 自動化 matches any automation topic and gives n8n coverage for RPA, spreadsheet and meeting-minutes queries. 業務自動化 stays.",
+      "evidence": "C2.5.2: 自動化 matched 11 live keeps (10 sole, 700 volume), all loose-fit: 'rpa 自動化', 'スプレッド シート 自動化', 'slack 自動化'."
+    },
+    {
+      "id": "writesonic-broad-generative-ai-term",
+      "program": "Writesonic",
+      "provider": "FirstPromoter",
+      "before": ["Writesonic", "AIライティング", "AI ライティング", "生成AI", "文章生成AI", "記事作成 AI", "AI 記事作成", "SEO AI"],
+      "remove": ["生成AI"],
+      "reason": "生成AI covers every generative-AI topic (enterprise adoption, rules, security), which is not a copywriting-tool intent. The AI-writing category terms stay.",
+      "evidence": "C2.5.2: 生成AI matched all 3 cluster-D live keeps ('生成 ai 導入 事例', '生成 ai セキュリティ 企業', '生成 ai 社内 ルール'), each loose-fit."
+    },
+    {
+      "id": "descript-loose-meeting-and-transcription-terms",
+      "program": "Descript",
+      "provider": "PartnerStack",
+      "before": ["Descript", "文字起こし", "AI 文字起こし", "議事録", "音声文字起こし", "動画編集 AI", "ポッドキャスト 編集"],
+      "remove": ["議事録", "文字起こし", "AI 文字起こし", "音声文字起こし"],
+      "reason": "Descript is a video/podcast editor. Meeting-minutes and generic transcription queries are served by dedicated meeting tools (Fireflies, Krisp keep their core terms). Its own name and editing terms (動画編集 AI, ポッドキャスト 編集) stay.",
+      "evidence": "C2.5.2: after Japanese-spacing matching Descript matched 107 live keeps, 0 by brand/alias, 104 via 議事録 alone-or-with 文字起こし (94 sole, 12,980 volume); e.g. '議事 録 作成 ai' 1,600, 'teams 議事 録' 1,300. All 6 pool 'AI 議事録 *' keywords match it through 議事録 today. The planner already rejects Descript brand queries as off-theme."
+    },
+    {
+      "id": "hubspot-broad-efficiency-goal",
+      "program": "HubSpot",
+      "provider": "Impact",
+      "before": ["HubSpot", "CRM", "マーケティング自動化", "営業効率化", "営業 自動化", "顧客管理", "MAツール", "業務効率化"],
+      "remove": ["業務効率化"],
+      "reason": "業務効率化 is a goal, not a category, shared by 7 programs. HubSpot keeps its CRM / marketing-automation category terms.",
+      "evidence": "C2.5.2/C2.5.3: the pillar keyword and 5 other pool keywords match 7 programs through this single term; 0 strong matches depend on it."
+    },
+    {
+      "id": "pipedrive-broad-efficiency-goal",
+      "program": "Pipedrive",
+      "provider": "PartnerStack",
+      "before": ["Pipedrive", "CRM", "営業効率化", "営業 自動化", "営業支援", "顧客管理", "SFA", "業務効率化"],
+      "remove": ["業務効率化"],
+      "reason": "業務効率化 is a goal, not a category, shared by 7 programs. Pipedrive keeps CRM, SFA and sales-support terms.",
+      "evidence": "C2.5.2/C2.5.3: shared goal word; the pillar keyword matches 7 programs from it; 0 strong matches depend on it."
+    },
+    {
+      "id": "clickup-broad-efficiency-goal",
+      "program": "ClickUp",
+      "provider": "direct",
+      "before": ["ClickUp", "業務効率化", "タスク管理", "プロジェクト管理", "生産性", "チーム管理", "AI 業務効率化"],
+      "remove": ["業務効率化"],
+      "reason": "業務効率化 is a goal, not a category, shared by 7 programs. タスク管理 / プロジェクト管理 stay. The separate AI 業務効率化 term is not in scope here and is left for review.",
+      "evidence": "C2.5.2/C2.5.3: shared goal word; the pillar keyword matches 7 programs from it; 0 strong matches depend on it."
+    },
+    {
+      "id": "monday-broad-efficiency-goal",
+      "program": "monday.com",
+      "provider": "direct",
+      "before": ["monday.com", "monday", "プロジェクト管理", "タスク管理", "ワークフロー", "業務効率化", "チーム管理"],
+      "remove": ["業務効率化"],
+      "reason": "業務効率化 is a goal, not a category, shared by 7 programs. Its own name, alias and project/task-management terms stay.",
+      "evidence": "C2.5.2/C2.5.3: shared goal word; the pillar keyword matches 7 programs from it; 0 strong matches depend on it."
+    },
+    {
+      "id": "todoist-broad-efficiency-goal",
+      "program": "Todoist",
+      "provider": "direct",
+      "before": ["Todoist", "タスク管理", "ToDo", "TODO", "生産性", "業務効率化", "タスク 自動化"],
+      "remove": ["業務効率化"],
+      "reason": "業務効率化 is a goal, not a category, shared by 7 programs. タスク管理 stays.",
+      "evidence": "C2.5.2/C2.5.3: shared goal word; the pillar keyword matches 7 programs from it; 0 strong matches depend on it."
+    },
+    {
+      "id": "reclaim-broad-efficiency-goal",
+      "program": "Reclaim.ai",
+      "provider": "PartnerStack",
+      "before": ["Reclaim.ai", "Reclaim", "AI スケジュール", "スケジュール 自動化", "カレンダー 自動化", "時間管理", "業務効率化", "生産性"],
+      "remove": ["業務効率化"],
+      "reason": "業務効率化 is a goal, not a category, shared by 7 programs. Its scheduling-category terms stay.",
+      "evidence": "C2.5.2/C2.5.3: shared goal word; the pillar keyword matches 7 programs from it; 0 strong matches depend on it."
+    },
+    {
+      "id": "activecampaign-loose-crm-positioning",
+      "program": "ActiveCampaign",
+      "provider": "PartnerStack",
+      "before": ["ActiveCampaign", "マーケティング自動化", "メール自動化", "MAツール", "CRM", "顧客管理", "営業 自動化"],
+      "remove": ["CRM", "顧客管理"],
+      "reason": "ActiveCampaign is marketing automation first; CRM and customer-management queries are answered by HubSpot and Pipedrive, which keep those terms. マーケティング自動化 / メール自動化 / MAツール stay.",
+      "evidence": "C2.5.2: CRM matched 117 live keeps and 顧客管理 14, all loose-fit for this program; 116 and 13 of them were sole-attributed, e.g. 'crm' 40,500, 'crm とは' 27,100 (these ideas stay covered by HubSpot and Pipedrive)."
+    }
+  ]
+}
