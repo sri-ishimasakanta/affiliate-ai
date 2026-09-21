@@ -70,6 +70,17 @@ class Settings(BaseSettings):
     # ハードコードしない — ここか CLI の --state-file で明示的に与える。
     affiliate_probe_state_file: str | None = None
 
+    # Make affiliate API (Phase E1)。read-only commission/stat import のみ。
+    # payout 実行エンドポイントはこのプロジェクトのスコープ外 (実装しない)。
+    # 実値は絶対に print / log / commit / CLI 出力 / test snapshot に含めない。
+    # make_api_base_url は Human の Make zone-specific な API base を、
+    # "/api/v2" まで含めて設定する (例: "https://eu1.make.com/api/v2" /
+    # "https://eu2.make.com/api/v2" / "https://us1.make.com/api/v2" -- zone は
+    # ここに固定しない、Phase E1.2 §5)。MakeAffiliateClient はこの値へ
+    # "/affiliate/commissions" 等を直接連結するだけで、"/api/v2" を追加しない。
+    make_api_base_url: str | None = None
+    make_api_token: str | None = None
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
@@ -105,6 +116,13 @@ class Settings(BaseSettings):
         設定が揃っているか。dry-run / plan では不要。"""
 
         return bool(self.wordpress_base_url and self.affiliate_runtime_shared_secret)
+
+    @property
+    def make_api_configured(self) -> bool:
+        """Make affiliate API へ read-only アクセスするのに必要な設定が揃っているか
+        (token の妥当性検証はしない — 実際の呼び出しで 401 として現れる)。"""
+
+        return bool(self.make_api_base_url and self.make_api_token)
 
     @property
     def google_ads_configured(self) -> bool:

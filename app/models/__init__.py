@@ -7,6 +7,16 @@ from app.models.affiliate_click_import_run import (
     AffiliateClickImportRun,
     aci_transition_allowed,
 )
+from app.models.affiliate_commission_fact import AffiliateCommissionFact
+from app.models.affiliate_commission_import_run import (
+    ACIR_FAILED,
+    ACIR_RUNNING,
+    ACIR_STATUSES,
+    ACIR_SUCCEEDED,
+    ACIR_TERMINAL_STATUSES,
+    AffiliateCommissionImportRun,
+    acir_transition_allowed,
+)
 from app.models.affiliate_link_target import (
     ALT_ACTIVE,
     ALT_DISABLED,
@@ -145,6 +155,11 @@ __all__ = [
     "ACI_STATUSES",
     "ACI_SUCCEEDED",
     "ACI_TERMINAL_STATUSES",
+    "ACIR_FAILED",
+    "ACIR_RUNNING",
+    "ACIR_STATUSES",
+    "ACIR_SUCCEEDED",
+    "ACIR_TERMINAL_STATUSES",
     "ALSM_ACTIVE",
     "ALSM_REVOKED",
     "ALSM_STATUSES",
@@ -157,6 +172,8 @@ __all__ = [
     "ATPP_SUCCEEDED",
     "ATPP_TERMINAL_STATUSES",
     "AffiliateClickImportRun",
+    "AffiliateCommissionFact",
+    "AffiliateCommissionImportRun",
     "AffiliateLinkTarget",
     "AffiliateLinkTargetStatus",
     "AffiliateOutboundClick",
@@ -203,6 +220,7 @@ __all__ = [
     "WordPressDraftRun",
     "WordPressPublicationRun",
     "aci_transition_allowed",
+    "acir_transition_allowed",
     "alsm_transition_allowed",
     "alt_transition_allowed",
     "atpp_transition_allowed",

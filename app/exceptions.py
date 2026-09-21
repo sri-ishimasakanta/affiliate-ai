@@ -433,6 +433,27 @@ class AffiliateClickImportError(ApplicationError):
         self.server_code = server_code
 
 
+class AffiliateCommissionImportError(ApplicationError):
+    """Make (または将来の他 ASP) からの affiliate commission 取り込みが失敗した。
+
+    config 不足 / 通信失敗 / サーバ拒否 / レスポンス不整合 (shape) / ページネーション
+    不整合 / max-page 超過 / DB 一意性違反。API token / Authorization ヘッダ値 /
+    raw response body はメッセージに一切含めない。
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        http_status: int | None = None,
+        server_code: str | None = None,
+    ) -> None:
+        super().__init__(f"affiliate commission import error: {reason}")
+        self.reason = reason
+        self.http_status = http_status
+        self.server_code = server_code
+
+
 class ArticleLinkSubstitutionMappingError(ApplicationError):
     """ArticleLinkSubstitutionMapping の create / supersede / revoke が業務ルール上不可。
 

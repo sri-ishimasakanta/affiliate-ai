@@ -102,3 +102,20 @@ def test_affiliate_runtime_push_configured_needs_base_url_and_secret(monkeypatch
     monkeypatch.setenv("AFFILIATE_RUNTIME_SHARED_SECRET", "synthetic-secret")
     full = Settings(_env_file=None)
     assert full.affiliate_runtime_push_configured is True
+
+
+def test_make_api_configured_needs_base_url_and_token(monkeypatch) -> None:
+    for key in ("MAKE_API_BASE_URL", "MAKE_API_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+
+    unset = Settings(_env_file=None)
+    assert unset.make_api_token is None
+    assert unset.make_api_configured is False
+
+    monkeypatch.setenv("MAKE_API_BASE_URL", "https://api.make.test")
+    base_only = Settings(_env_file=None)
+    assert base_only.make_api_configured is False  # token still missing
+
+    monkeypatch.setenv("MAKE_API_TOKEN", "synthetic-make-api-token-not-real")
+    full = Settings(_env_file=None)
+    assert full.make_api_configured is True

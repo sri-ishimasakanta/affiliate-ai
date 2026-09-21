@@ -1,5 +1,7 @@
 from app.models import (
     AffiliateClickImportRun,
+    AffiliateCommissionFact,
+    AffiliateCommissionImportRun,
     AffiliateLinkTarget,
     AffiliateOutboundClick,
     AffiliateProgram,
@@ -36,6 +38,8 @@ TIMESTAMPED_MODELS = (
     Article,
     ArticleMetric,
     DraftGenerationRun,
+    # current fact row (UPSERT-on-reimport) -- 変更のたび updated_at が進む。
+    AffiliateCommissionFact,
 )
 
 IMMUTABLE_HISTORY_MODELS = (
@@ -67,6 +71,9 @@ IMMUTABLE_HISTORY_MODELS = (
     # content update の auditable な実行記録 (running -> succeeded/failed/
     # outcome_unknown)。prepared を持たず running から直接始まる。updated_at なし。
     WordPressContentUpdateRun,
+    # commission import の auditable な実行記録 (running -> succeeded/failed)。
+    # append-only。updated_at なし。
+    AffiliateCommissionImportRun,
 )
 
 
@@ -99,6 +106,8 @@ def test_all_tables_registered() -> None:
         "article_link_substitution_mappings",
         "article_publication_artifacts",
         "wordpress_content_update_runs",
+        "affiliate_commission_import_runs",
+        "affiliate_commission_facts",
     }
 
 
