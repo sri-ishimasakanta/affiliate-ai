@@ -39,7 +39,7 @@ class ContentQueueReadOnlyViolationError(RuntimeError):
 
 
 @contextmanager
-def _read_only(session: Session) -> Iterator[None]:
+def read_only_session(session: Session) -> Iterator[None]:
     def _guard(_session, _flush_context, _instances) -> None:
         raise ContentQueueReadOnlyViolationError(
             "ContentQueueService is read-only; the session has pending changes"
@@ -76,9 +76,21 @@ class ContentQueueService:
     def build(self, config: ClusterConfig) -> ContentQueue:
         """cluster 定義に対する制作キューを返す。未知 keyword は ``ClusterConfigError``。"""
 
-        with _read_only(self._session):
+        with read_only_session(self._session):
             keywords, articles = self._load_inputs()
         return build_content_queue(config, keywords, articles)
+
+    def load_inputs(self) -> tuple[list[KeywordInput], list[ArticleInput]]:
+        """read-only guard の下で keyword (score / catalog match 付き) と article を読む。"""
+
+        with read_only_session(self._session):
+            return self._load_inputs()
+
+    def load_catalog(self) -> list[ProgramFacts]:
+        """active な affiliate catalog (URL を含まない安全な項目のみ) を read-only で読む。"""
+
+        with read_only_session(self._session):
+            return [_program_facts(p) for p in self._programs.list_active(limit=_CATALOG_LIMIT)]
 
     # -- reads ----------------------------------------------------------
     def _load_inputs(self) -> tuple[list[KeywordInput], list[ArticleInput]]:

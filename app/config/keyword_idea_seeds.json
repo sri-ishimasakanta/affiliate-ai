@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "default_max_results": 200,
+  "clusters": {
+    "B": {
+      "name": "Business productivity / tools",
+      "seeds": [
+        "業務効率化 ツール",
+        "タスク管理 ツール",
+        "プロジェクト管理 ツール",
+        "ClickUp",
+        "monday.com",
+        "日程調整 ツール",
+        "バックオフィス 効率化",
+        "ナレッジ管理 ツール"
+      ]
+    },
+    "C": {
+      "name": "No-code / automation",
+      "seeds": [
+        "業務自動化 ツール",
+        "Make",
+        "Zapier",
+        "n8n",
+        "RPA",
+        "Slack 自動化",
+        "スプレッドシート 自動化",
+        "AI エージェント 業務自動化"
+      ]
+    },
+    "A": {
+      "name": "AI meeting notes",
+      "seeds": [
+        "AI 議事録",
+        "議事録 自動作成",
+        "Fireflies",
+        "Krisp",
+        "Zoom 議事録",
+        "Teams 議事録",
+        "Google Meet 議事録",
+        "会議 効率化 ツール"
+      ]
+    },
+    "D": {
+      "name": "Enterprise generative AI",
+      "seeds": [
+        "生成AI 法人 導入",
+        "生成AI 社内 ルール",
+        "ChatGPT 法人",
+        "社内 ChatGPT",
+        "生成AI 導入 事例",
+        "生成AI セキュリティ 企業",
+        "Microsoft Copilot 法人",
+        "Gemini for Workspace"
+      ]
+    },
+    "E": {
+      "name": "CRM / sales operations",
+      "seeds": [
+        "CRM",
+        "SFA",
+        "HubSpot",
+        "Pipedrive",
+        "営業 自動化",
+        "営業 AI",
+        "ActiveCampaign",
+        "リード 管理 ツール"
+      ]
+    }
+  }
+}

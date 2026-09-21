@@ -58,7 +58,9 @@ _TOP_KEYS = frozenset({"version", "clusters", "deferred_clusters", "vocabulary"}
 _CLUSTER_KEYS = frozenset({"id", "name", "priority", "keywords"})
 _KEYWORD_KEYS = frozenset({"keyword", "role"})
 _DEFERRED_KEYS = frozenset({"id", "name", "reason"})
-_VOCAB_KEYS = frozenset({"product_terms", "generic_theme_tokens", "theme_aliases"})
+_VOCAB_KEYS = frozenset(
+    {"product_terms", "generic_theme_tokens", "theme_aliases", "optional_qualifiers"}
+)
 
 
 class ClusterConfigError(ValueError):
@@ -96,6 +98,8 @@ class Vocabulary:
     product_terms: tuple[str, ...] = ()
     generic_theme_tokens: tuple[str, ...] = ()
     theme_aliases: tuple[tuple[str, str], ...] = ()
+    #: theme に他の token が残る場合だけ無視できる語 (中小企業 / テレワーク 等)。
+    optional_qualifiers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -143,6 +147,7 @@ def _parse_vocabulary(raw: object, errors: list[str]) -> Vocabulary:
         product_terms=_texts("product_terms"),
         generic_theme_tokens=_texts("generic_theme_tokens"),
         theme_aliases=aliases,
+        optional_qualifiers=_texts("optional_qualifiers"),
     )
 
 
@@ -295,6 +300,11 @@ class Intent(StrEnum):
     HOWTO = "howto"
     DEFINITION = "definition"
     HEAD = "head"
+    ALTERNATIVE = "alternative"
+    CASE_STUDY = "case_study"
+    JP_SUPPORT = "jp_support"
+    SUBSIDY = "subsidy"
+    DIFFERENCE = "difference"
 
 
 _MODIFIER_INTENT: Mapping[str, Intent] = {
@@ -305,7 +315,7 @@ _MODIFIER_INTENT: Mapping[str, Intent] = {
     "選び方": Intent.SELECT,
     "比較": Intent.COMPARE,
     "比べ": Intent.COMPARE,
-    "違い": Intent.COMPARE,
+    "違い": Intent.DIFFERENCE,
     "vs": Intent.COMPARE,
     "料金": Intent.PRICING,
     "価格": Intent.PRICING,
@@ -321,11 +331,26 @@ _MODIFIER_INTENT: Mapping[str, Intent] = {
     "とは": Intent.DEFINITION,
     "意味": Intent.DEFINITION,
     "種類": Intent.DEFINITION,
+    "代替": Intent.ALTERNATIVE,
+    "乗り換え": Intent.ALTERNATIVE,
+    "alternative": Intent.ALTERNATIVE,
+    "alternatives": Intent.ALTERNATIVE,
+    "事例": Intent.CASE_STUDY,
+    "導入事例": Intent.CASE_STUDY,
+    "活用事例": Intent.CASE_STUDY,
+    "日本語": Intent.JP_SUPPORT,
+    "補助金": Intent.SUBSIDY,
+    "助成金": Intent.SUBSIDY,
 }
 
 # 複数 modifier が共存するときの優先順位 (planning.classify_article_type と同じ思想)。
 _INTENT_PRIORITY: tuple[Intent, ...] = (
+    Intent.ALTERNATIVE,
+    Intent.CASE_STUDY,
+    Intent.SUBSIDY,
+    Intent.JP_SUPPORT,
     Intent.HOWTO,
+    Intent.DIFFERENCE,
     Intent.COMPARE,
     Intent.SELECT,
     Intent.PRICING,
@@ -340,14 +365,24 @@ _PRODUCT_PLAN_FAMILY = frozenset(
 
 _MIN_GLUED_STEM = 2
 
+# 製品の有無に関わらず専用の SERP を持つ intent。
+_DEDICATED_FAMILY: Mapping[Intent, str] = {
+    Intent.HOWTO: "howto",
+    Intent.DEFINITION: "definition",
+    Intent.ALTERNATIVE: "alternatives",
+    Intent.CASE_STUDY: "cases",
+    Intent.JP_SUPPORT: "jp_support",
+    Intent.SUBSIDY: "subsidy",
+    Intent.DIFFERENCE: "difference",
+}
+
 
 def serp_family(intent: Intent, *, product_specific: bool) -> str:
     """同じ SERP を狙う intent の集合名。同じ family + 同じ theme は cannibalization 候補。"""
 
-    if intent is Intent.HOWTO:
-        return "howto"
-    if intent is Intent.DEFINITION:
-        return "definition"
+    dedicated = _DEDICATED_FAMILY.get(intent)
+    if dedicated is not None:
+        return dedicated
     if product_specific:
         return "product_plan" if intent in _PRODUCT_PLAN_FAMILY else "other"
     if intent in _SELECTION_FAMILY:
@@ -366,9 +401,15 @@ class IntentProfile:
     product_specific: bool
     product_key: frozenset[str]
     family: str
+    #: theme から製品 token を除いた残り (ClickUp 料金 と ClickUp 代替 を区別する qualifier)。
+    residual_tokens: frozenset[str] = frozenset()
+    #: 適用された alias の数 (canonical な表記を anchor に選ぶための tie-break)。
+    alias_hits: int = 0
 
 
 def _split_glued(token: str) -> list[str]:
+    if token in _MODIFIER_INTENT:
+        return [token]
     for modifier in _MODIFIER_INTENT:
         if modifier.isascii() or not token.endswith(modifier) or token == modifier:
             continue
@@ -378,6 +419,42 @@ def _split_glued(token: str) -> list[str]:
     return [token]
 
 
+def _apply_aliases(tokens: list[str], aliases: Mapping[str, str]) -> tuple[list[str], int]:
+    """token 列に (複数 token の) alias を最長一致で適用する。適用回数も返す。"""
+
+    if not aliases:
+        return tokens, 0
+    phrases = sorted(
+        ((tuple(k.split()), v) for k, v in aliases.items() if k),
+        key=lambda item: -len(item[0]),
+    )
+    out: list[str] = []
+    hits = 0
+    i = 0
+    while i < len(tokens):
+        for phrase, value in phrases:
+            n = len(phrase)
+            if tuple(tokens[i : i + n]) == phrase:
+                out.append(value)
+                i += n
+                hits += 1
+                break
+        else:
+            out.append(tokens[i])
+            i += 1
+    return out, hits
+
+
+def _longest_product_terms(matched: set[str]) -> frozenset[str]:
+    """他の一致語の token 部分集合になる語 (Notion は Notion AI の部分) を除く。"""
+
+    return frozenset(
+        term
+        for term in matched
+        if not any(term != other and set(term.split()) < set(other.split()) for other in matched)
+    )
+
+
 def intent_profile(keyword: str, vocabulary: Vocabulary | None = None) -> IntentProfile:
     """keyword から (modifier を除いた theme, intent, SERP family) を決定論的に導く。"""
 
@@ -385,10 +462,12 @@ def intent_profile(keyword: str, vocabulary: Vocabulary | None = None) -> Intent
     normalized = normalize_keyword(keyword)
     generic = {normalize_keyword(t) for t in vocab.generic_theme_tokens}
     aliases = {normalize_keyword(k): normalize_keyword(v) for k, v in vocab.theme_aliases}
+    optional = {normalize_keyword(t) for t in vocab.optional_qualifiers}
 
     tokens: list[str] = []
     for raw in normalized.split():
         tokens.extend(_split_glued(raw))
+    tokens, alias_hits = _apply_aliases(tokens, aliases)
 
     intents: set[Intent] = set()
     theme: list[str] = []
@@ -399,15 +478,25 @@ def intent_profile(keyword: str, vocabulary: Vocabulary | None = None) -> Intent
             continue
         if token in generic:
             continue
-        theme.append(aliases.get(token, token))
+        theme.append(token)
+    # 任意 qualifier は、他の token が残る場合だけ落とす (theme を空にしない)。
+    core = [t for t in theme if t not in optional]
+    if core:
+        theme = core
 
     intent = next((i for i in _INTENT_PRIORITY if i in intents), Intent.HEAD)
-    product_key = frozenset(
-        normalize_keyword(term)
-        for term in vocab.product_terms
-        if term_matches(normalize_keyword(term), normalized)
+    product_key = _longest_product_terms(
+        {
+            normalize_keyword(term)
+            for term in vocab.product_terms
+            if term_matches(normalize_keyword(term), normalized)
+        }
     )
     product_specific = bool(product_key)
+    covered = {token for term in product_key for token in term.split()}
+    family = serp_family(intent, product_specific=product_specific)
+    if product_specific and len(product_key) >= 2 and intent is Intent.COMPARE:
+        family = "alternatives"  # A vs B の直接比較は、各製品の代替記事と同じ SERP を狙う
     return IntentProfile(
         keyword=keyword,
         theme_tokens=frozenset(theme),
@@ -415,7 +504,9 @@ def intent_profile(keyword: str, vocabulary: Vocabulary | None = None) -> Intent
         intent=intent,
         product_specific=product_specific,
         product_key=product_key,
-        family=serp_family(intent, product_specific=product_specific),
+        family=family,
+        residual_tokens=frozenset(t for t in theme if t not in covered),
+        alias_hits=alias_hits,
     )
 
 
@@ -426,19 +517,48 @@ class Overlap:
     reason: str
 
 
+def _covers(single: IntentProfile, multi: IntentProfile) -> bool:
+    """1 製品の「代替」記事が、その製品を含む A vs B の直接比較を包含するか。"""
+
+    return (
+        single.intent is Intent.ALTERNATIVE
+        and len(single.product_key) == 1
+        and multi.intent is Intent.COMPARE
+        and len(multi.product_key) >= 2
+        and single.product_key < multi.product_key
+    )
+
+
+def _compare_product_profiles(a: IntentProfile, b: IntentProfile) -> Overlap | None:
+    """製品固有 keyword の重複。同じ製品 + 同じ qualifier + 同じ SERP family のみ重複。
+
+    ``ClickUp 料金`` (product_plan) と ``ClickUp 代替`` (alternatives) は family が違うので
+    別記事。製品名だけの一致では決して重複としない (qualifier も比較する)。
+    """
+
+    if a.product_key == b.product_key and a.residual_tokens == b.residual_tokens:
+        return Overlap(
+            "intent",
+            1.0,
+            f"same product {sorted(a.product_key)} and same SERP family '{a.family}'",
+        )
+    if a.family == "alternatives" and a.residual_tokens == b.residual_tokens:
+        if _covers(a, b) or _covers(b, a):
+            return Overlap(
+                "intent",
+                1.0,
+                "head-to-head comparison is covered by the alternatives page of a product",
+            )
+    return None
+
+
 def compare_profiles(a: IntentProfile, b: IntentProfile) -> Overlap | None:
     """2 keyword が実質同じ SERP intent を狙うか。狙うなら理由付きで :class:`Overlap`。"""
 
     if a.family != b.family or a.product_specific != b.product_specific:
         return None
     if a.product_specific:
-        if a.product_key == b.product_key:
-            return Overlap(
-                "intent",
-                1.0,
-                f"same product {sorted(a.product_key)} and same SERP family '{a.family}'",
-            )
-        return None
+        return _compare_product_profiles(a, b)
     if a.theme_tokens and a.theme_tokens == b.theme_tokens:
         return Overlap(
             "intent",

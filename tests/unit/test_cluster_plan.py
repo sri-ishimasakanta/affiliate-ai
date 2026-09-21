@@ -36,44 +36,11 @@ from app.article.cluster_plan import (
     template_readiness,
 )
 from app.article.planning import ArticleType
+from tests.support.c22_pool import POOL_30 as _POOL_30
 
 _ROOT = Path(__file__).resolve().parents[2]
 _TRACKED_CONFIG = _ROOT / "app" / "config" / "content_clusters.json"
 
-# 現在の 30 keyword pool (id, keyword, opportunity_score, 欠けている signal)。
-# 実データは git 管理外の ``data/`` にあるため、test は自己完結させるためここに埋め込む。
-_POOL_30: tuple[tuple[int, str, float | None, str], ...] = (
-    (1, "ChatGPT とは", 37.4, ""),
-    (2, "ChatGPT 使い方", 44.48, ""),
-    (3, "生成AI とは", 52.98, ""),
-    (4, "AI 業務効率化", 67.27, ""),
-    (5, "AI 議事録", 57.92, ""),
-    (6, "AI 議事録 使い方", None, "competition_ease"),
-    (7, "ChatGPT 無料", 46.9, ""),
-    (8, "AI 議事録 無料", 59.49, ""),
-    (9, "生成AI 無料", 58.03, ""),
-    (10, "業務効率化 ツール 無料", 60.39, ""),
-    (11, "ChatGPT 料金", 53.13, ""),
-    (12, "ChatGPT Plus 料金", 56.4, ""),
-    (13, "Notion AI 料金", 56.28, ""),
-    (14, "Zapier 料金", 54.19, ""),
-    (15, "Make 料金", None, "competition_ease"),
-    (16, "AI 議事録 料金", None, "competition_ease"),
-    (17, "AI 議事録 おすすめ", None, "competition_ease"),
-    (18, "AI 議事録 比較", None, "competition_ease"),
-    (19, "生成AI ツール おすすめ", None, "competition_ease"),
-    (20, "生成AI ツール 比較", None, "competition_ease"),
-    (21, "業務効率化 ツール おすすめ", 68.81, ""),
-    (22, "業務効率化 ツール 比較", None, "competition_ease"),
-    (23, "RPA おすすめ", 50.94, ""),
-    (24, "RPA 比較", 50.47, ""),
-    (25, "議事録 自動作成 ツール", 53.48, ""),
-    (26, "文字起こし AI おすすめ", None, "competition_ease"),
-    (27, "法人向け 生成AI", None, "competition_ease"),
-    (28, "生成AI 法人 導入", None, "competition_ease|trend"),
-    (29, "AI 業務効率化 導入", None, "competition_ease|trend"),
-    (30, "RPA 導入", 50.54, ""),
-)
 _VOCAB = {
     "product_terms": ["Make", "Zapier", "Notion AI", "ChatGPT"],
     "generic_theme_tokens": ["ツール"],
@@ -728,3 +695,137 @@ def test_source_modules_have_no_write_network_or_llm_imports() -> None:
         source = (_ROOT / rel).read_text(encoding="utf-8")
         assert not forbidden_imports.search(source), rel
         assert not forbidden_calls.search(source), rel
+
+
+# ==========================================================================
+# Phase C2.4: product qualifiers / new intent families / aliases / optional qualifiers
+# ==========================================================================
+_TRACKED_VOCAB = load_cluster_config(_TRACKED_CONFIG).vocabulary
+
+
+def _tp(text: str):
+    """追跡済み cluster config の vocabulary で profile を作る。"""
+
+    return intent_profile(text, _TRACKED_VOCAB)
+
+
+def test_clickup_pricing_and_alternatives_are_distinct_articles_regression() -> None:
+    pricing, alternatives = _tp("ClickUp 料金"), _tp("ClickUp 代替")
+    assert pricing.family == "product_plan" and alternatives.family == "alternatives"
+    assert compare_profiles(pricing, alternatives) is None
+    # 同じ製品でも how-to / 日本語対応 / 事例 も別 SERP
+    for other in ("ClickUp 使い方", "ClickUp 日本語", "ClickUp 導入事例", "ClickUp 補助金"):
+        assert compare_profiles(pricing, _tp(other)) is None
+    # 料金と無料は同じ製品プラン SERP なので重複
+    assert compare_profiles(pricing, _tp("ClickUp 無料")) is not None
+
+
+def test_product_overlap_compares_residual_qualifiers_not_only_the_product_name() -> None:
+    plain = _tp("Make 料金")
+    qualified = _tp("Make セルフホスト 料金")
+    assert plain.residual_tokens == frozenset() and qualified.residual_tokens == {"セルフホスト"}
+    assert compare_profiles(plain, qualified) is None
+    assert compare_profiles(_tp("Make 料金"), _tp("Make 無料")) is not None
+
+
+@pytest.mark.parametrize(
+    ("text", "intent", "family"),
+    [
+        ("Zapier 代替", Intent.ALTERNATIVE, "alternatives"),
+        ("Zapier 乗り換え", Intent.ALTERNATIVE, "alternatives"),
+        ("業務効率化 ツール 事例", Intent.CASE_STUDY, "cases"),
+        ("生成AI 導入事例", Intent.CASE_STUDY, "cases"),
+        ("Make 日本語", Intent.JP_SUPPORT, "jp_support"),
+        ("生成AI 導入 補助金", Intent.SUBSIDY, "subsidy"),
+        ("SFA CRM 違い", Intent.DIFFERENCE, "difference"),
+    ],
+)
+def test_new_intent_families(text: str, intent: Intent, family: str) -> None:
+    profile = _tp(text)
+    assert profile.intent is intent and profile.family == family
+
+
+def test_new_intents_win_over_howto_and_pricing_modifiers() -> None:
+    assert _tp("生成AI 導入 事例").intent is Intent.CASE_STUDY  # 導入 (howto) より事例
+    assert _tp("生成AI 導入 補助金").intent is Intent.SUBSIDY
+    assert _tp("Make 使い方 日本語").intent is Intent.JP_SUPPORT
+    assert _tp("HubSpot 料金 代替").intent is Intent.ALTERNATIVE
+
+
+def test_new_intent_families_do_not_collide_with_the_roundup_family() -> None:
+    roundup = _tp("業務効率化 ツール おすすめ")
+    for other in ("業務効率化 ツール 事例", "業務効率化 ツール 補助金", "業務効率化 ツール 代替"):
+        assert compare_profiles(roundup, _tp(other)) is None
+    assert compare_profiles(_tp("業務効率化 ツール 事例"), _tp("業務効率化 事例")) is not None
+
+
+def test_head_to_head_comparison_is_covered_by_a_product_alternatives_page() -> None:
+    versus = _tp("Zapier Make 比較")
+    assert versus.family == "alternatives" and versus.product_key == {"zapier", "make"}
+    assert compare_profiles(_tp("Zapier 代替"), versus) is not None  # 包含される
+    assert compare_profiles(versus, _tp("Zapier 代替")) is not None  # 対称
+    assert compare_profiles(_tp("Make n8n 比較"), versus) is None  # 別の組み合わせ
+    assert compare_profiles(_tp("Make n8n 比較"), _tp("Zapier 代替")) is None
+    assert _tp("Make n8n 違い").family == "difference"  # 違い は別 SERP
+
+
+def test_longest_product_term_wins() -> None:
+    assert _tp("Notion AI 料金").product_key == frozenset({"notion ai"})
+    assert _tp("Notion 使い方").product_key == frozenset({"notion"})
+    assert _tp("Microsoft Copilot 法人 料金").product_key == frozenset({"microsoft copilot"})
+    assert _tp("Gemini for Workspace 料金").product_key == frozenset({"gemini for workspace"})
+
+
+def test_aliases_map_synonyms_and_multi_token_phrases() -> None:
+    assert _tp("顧客管理 ツール 比較").theme_tokens == frozenset({"crm"})
+    assert _tp("SFA おすすめ").theme_tokens == frozenset({"crm"})
+    assert _tp("営業 管理 ツール").theme_tokens == frozenset({"crm"})  # 複数 token の alias
+    assert _tp("MA ツール 比較").theme_tokens == frozenset({"マーケティングオートメーション"})
+    assert _tp("生成AI 社内 導入").theme_tokens == _tp("生成AI 法人 導入").theme_tokens
+    assert _tp("生成AI ガイドライン 企業").theme_tokens == _tp("生成AI 社内 ルール").theme_tokens
+    assert _tp("AI 議事録").theme_tokens == _tp("議事録 ツール").theme_tokens == {"議事録"}
+    assert _tp("議事録 AI 精度 比較").theme_tokens == frozenset({"議事録"})
+
+
+def test_alias_hits_prefer_the_canonical_spelling() -> None:
+    assert _tp("CRM おすすめ").alias_hits == 0
+    assert _tp("SFA おすすめ").alias_hits == 1
+    assert _tp("生成AI ガイドライン 企業").alias_hits == 2
+    assert compare_profiles(_tp("CRM おすすめ"), _tp("SFA おすすめ")) is not None
+
+
+def test_optional_qualifiers_are_dropped_only_when_other_tokens_remain() -> None:
+    assert _tp("RPA 中小企業").theme_tokens == frozenset({"rpa"})
+    assert _tp("テレワーク 業務効率化 ツール").theme_tokens == frozenset({"業務効率化"})
+    assert _tp("ノーコード 業務自動化").theme_tokens == frozenset({"業務自動化"})
+    assert _tp("中小企業 おすすめ").theme_tokens == frozenset({"中小企業"})  # theme を空にしない
+    assert compare_profiles(_tp("中小企業 CRM"), _tp("CRM おすすめ")) is not None
+
+
+def test_ai_is_not_a_global_optional_qualifier() -> None:
+    """AI 業務効率化 は 業務効率化 ツール おすすめ (article #1) と別 intent のまま。"""
+
+    assert compare_profiles(_tp("AI 業務効率化"), _tp("業務効率化 ツール おすすめ")) is None
+
+
+def test_vocabulary_accepts_and_validates_optional_qualifiers() -> None:
+    raw = {
+        "version": 1,
+        "clusters": [_cluster("X", 1, "a")],
+        "vocabulary": {"optional_qualifiers": ["中小企業"]},
+    }
+    assert parse_cluster_config(raw).vocabulary.optional_qualifiers == ("中小企業",)
+    raw["vocabulary"] = {"optional_qualifiers": "中小企業"}
+    with pytest.raises(ClusterConfigError):
+        parse_cluster_config(raw)
+
+
+def test_tracked_vocabulary_covers_the_c23_needs() -> None:
+    vocab = _TRACKED_VOCAB
+    for term in ("ClickUp", "Fireflies", "HubSpot", "n8n", "Zoom", "Teams", "Salesforce"):
+        assert term in vocab.product_terms
+    aliases = dict(vocab.theme_aliases)
+    for key in ("顧客管理", "sfa", "社内", "ai 議事録", "営業 管理", "ma"):
+        assert key in aliases
+    for qualifier in ("中小企業", "テレワーク", "ノーコード", "精度"):
+        assert qualifier in vocab.optional_qualifiers

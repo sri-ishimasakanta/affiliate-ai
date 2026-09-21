@@ -17,6 +17,7 @@ from typing import Any
 
 from app.config.settings import Settings
 from app.exceptions import ExternalProviderError, ProviderNotConfiguredError
+from app.keyword.providers.google_ads_logging import suppress_google_ads_sdk_logging
 
 _PROVIDER = "google_ads"
 
@@ -112,6 +113,40 @@ def _map_monthly_volume(item: object) -> MonthlySearchVolume:
     )
 
 
+def build_google_ads_client(settings: Settings) -> object:
+    """設定済みの credential から Google Ads client を生成する (Metrics / Ideas 共通)。
+
+    credential の値・SDK 内部例外の詳細は露出させない (元例外は ``__cause__`` のみ)。
+    """
+
+    if not settings.google_ads_configured:
+        raise ProviderNotConfiguredError(_PROVIDER)
+    # SDK が失敗 request の customer id / request id を stderr へ出す前に抑止する。
+    suppress_google_ads_sdk_logging()
+    try:
+        from google.ads.googleads.client import GoogleAdsClient  # 遅延 import
+    except ImportError as exc:  # pragma: no cover - 依存未導入時のみ
+        raise ExternalProviderError(
+            _PROVIDER, "Google Ads client library is not available"
+        ) from exc
+
+    config: dict[str, Any] = {
+        "developer_token": settings.google_ads_developer_token,
+        "client_id": settings.google_ads_client_id,
+        "client_secret": settings.google_ads_client_secret,
+        "refresh_token": settings.google_ads_refresh_token,
+        "use_proto_plus": True,
+    }
+    if settings.google_ads_login_customer_id:
+        config["login_customer_id"] = str(settings.google_ads_login_customer_id)
+    try:
+        return GoogleAdsClient.load_from_dict(config)
+    except Exception as exc:
+        raise ExternalProviderError(
+            _PROVIDER, "Failed to initialise Google Ads client"
+        ) from exc
+
+
 class GoogleAdsKeywordMetricsProvider:
     def __init__(self, settings: Settings, *, client: object | None = None) -> None:
         self._settings = settings
@@ -157,31 +192,7 @@ class GoogleAdsKeywordMetricsProvider:
             raise ProviderNotConfiguredError(_PROVIDER)
 
     def _build_client(self) -> object:
-        self._require_configured()
-        try:
-            from google.ads.googleads.client import GoogleAdsClient  # 遅延 import
-        except ImportError as exc:  # pragma: no cover - 依存未導入時のみ
-            raise ExternalProviderError(
-                _PROVIDER, "Google Ads client library is not available"
-            ) from exc
-
-        config: dict[str, Any] = {
-            "developer_token": self._settings.google_ads_developer_token,
-            "client_id": self._settings.google_ads_client_id,
-            "client_secret": self._settings.google_ads_client_secret,
-            "refresh_token": self._settings.google_ads_refresh_token,
-            "use_proto_plus": True,
-        }
-        if self._settings.google_ads_login_customer_id:
-            config["login_customer_id"] = str(
-                self._settings.google_ads_login_customer_id
-            )
-        try:
-            return GoogleAdsClient.load_from_dict(config)
-        except Exception as exc:
-            raise ExternalProviderError(
-                _PROVIDER, "Failed to initialise Google Ads client"
-            ) from exc
+        return build_google_ads_client(self._settings)
 
     def _call_api(self, client: Any, params: GoogleAdsRequestParams) -> Any:
         service = client.get_service("KeywordPlanIdeaService")
