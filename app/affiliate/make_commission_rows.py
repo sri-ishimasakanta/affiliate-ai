@@ -214,17 +214,29 @@ def validate_make_commissions_page(
 
     公式契約の object envelope ``{"commissions": [...]}`` を要求する
     (Phase E1.2 -- bare array は拒否する。裏付けのない後方互換は許容しない)。
+
+    live 検証 (Phase E1.3/E1.4): 該当行なしの **成功** レスポンスは
+    ``{"commissions": null, "pg": {...}}`` である。``"commissions": null`` は
+    空リスト (0 件) として扱う。``"commissions"`` キー自体の欠落、および
+    null でも配列でもない値 (文字列 / object 等) は引き続き拒否する。
+
     ``requested_limit`` は要求した ``pg[limit]`` の実効値。返り値は
     ``(rows, has_more)`` -- ``has_more`` は「受領件数が要求 limit と一致したか」
-    という、引き続き推論のままの標準的な offset pagination 終端判定
-    (module docstring 参照。envelope 自体はもう推論ではない)。
+    という、引き続き推論のままの標準的な offset pagination 終端判定。live の
+    ``pg`` は request の echo (limit/offset/returnTotalCount/sortBy/sortDir) で
+    total/has-more を含まないため、終端判定には使わない。null / 空は
+    ``has_more=False`` (= ページネーション終了)。
     """
 
     if not isinstance(payload, dict):
         raise _err("commissions response is not a JSON object")
-    raw_rows = payload.get("commissions")
-    if not isinstance(raw_rows, list):
-        raise _err("commissions response is missing a 'commissions' array")
+    if "commissions" not in payload:
+        raise _err("commissions response is missing the 'commissions' key")
+    raw_rows = payload["commissions"]
+    if raw_rows is None:
+        raw_rows = []
+    elif not isinstance(raw_rows, list):
+        raise _err("commissions response 'commissions' is not an array or null")
     if len(raw_rows) > requested_limit:
         raise _err("commissions response returned more rows than the requested limit")
 

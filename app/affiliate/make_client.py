@@ -19,6 +19,17 @@ Make API の base URL は zone 依存 (``https://eu1.make.com/api/v2`` /
 既に zone-specific な ``/api/v2`` までを含む前提であり、ここで固定 zone
 (eu1 等) をハードコードしたり ``/api/v2`` を二重に付与したりしない。
 
+live 契約 (Phase E1.3 で実測、Phase E1.4 で反映):
+- commissions / commission-info は ``dateFrom`` + ``dateTo`` が **両方必須**
+  (欠けると HTTP 400 ``SC400``)。この client は補完/デフォルト化せず、送信前に
+  fail closed する。
+- 該当行なしの成功レスポンスは ``{"commissions": null, "pg": {...}}``
+  (:mod:`app.affiliate.make_commission_rows` が空リストとして扱う)。
+- ``pg`` は limit/offset/returnTotalCount/sortBy/sortDir の **echo (metadata)**
+  で、total/has-more は含まない。ページ終端判定には使わず、引き続き
+  「受領件数 < limit」で終了する。``pg[returnTotalCount]`` は別途 live 検証
+  するまで有効化しない。
+
 認証は ``Authorization: Token <api-token>`` ヘッダのみ (HMAC 署名は不要 -- Make 側の
 契約)。token は :class:`app.config.settings.Settings` からのみ読み、このモジュールの
 外へ値を構築・露出しない。エラーメッセージ・repr・ログには一切含めない。
@@ -28,6 +39,7 @@ Make API の base URL は zone 依存 (``https://eu1.make.com/api/v2`` /
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import httpx
@@ -80,16 +92,22 @@ class MakeAffiliateClient:
     def get_commissions(
         self,
         *,
-        date_from: str | None = None,
-        date_to: str | None = None,
+        date_from: str,
+        date_to: str,
         status_id: str | None = None,
         offset: int = 0,
         limit: int = 100,
         sort_by: str | None = None,
         sort_dir: str | None = None,
     ) -> tuple[list[MakeCommissionRow], bool]:
-        """1 ページの commission 行を取得・検証する。``(rows, has_more)`` を返す。"""
+        """1 ページの commission 行を取得・検証する。``(rows, has_more)`` を返す。
 
+        ``date_from`` / ``date_to`` は **必須** (Phase E1.4 -- live 検証で、どちらか
+        欠けると HTTP 400 ``SC400`` になることを確認済み)。HTTP を送る前に
+        fail closed する。
+        """
+
+        _require_date_range(date_from, date_to)
         if isinstance(limit, bool) or not isinstance(limit, int) or not (
             1 <= limit <= MAKE_COMMISSIONS_MAX_LIMIT
         ):
@@ -99,11 +117,12 @@ class MakeAffiliateClient:
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise AffiliateCommissionImportError("offset must be a non-negative integer")
 
-        params: dict[str, str | int] = {"pg[offset]": offset, "pg[limit]": limit}
-        if date_from is not None:
-            params["dateFrom"] = date_from
-        if date_to is not None:
-            params["dateTo"] = date_to
+        params: dict[str, str | int] = {
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "pg[offset]": offset,
+            "pg[limit]": limit,
+        }
         if status_id is not None:
             params["statusId"] = status_id
         if sort_by is not None:
@@ -117,19 +136,15 @@ class MakeAffiliateClient:
         return validate_make_commissions_page(payload, requested_limit=limit)
 
     # -- lightweight read-only methods (no DB persistence yet) -------------
-    def get_commission_info(
-        self, *, date_from: str | None = None, date_to: str | None = None
-    ) -> dict:
-        """軽量検証のみ (JSON object であることのみ確認する)。フィールド単位の型は
-        Make 公式ドキュメントで未確定 (``earningsRange`` 等の正確な shape が不明)
-        のため、確実な数値フィールド以外は推測して型付けしない -- 呼び出し側が
-        必要な値だけを安全に読む。"""
+    def get_commission_info(self, *, date_from: str, date_to: str) -> dict:
+        """軽量検証のみ (JSON object であることのみ確認する)。live 検証で、キーは
+        snake_case (``available_payout`` / ``earnings_total`` 等) であることを
+        確認済みだが、値の型は推測して固定しない -- 呼び出し側が必要な値だけを
+        安全に読む。``date_from`` / ``date_to`` は **必須** (Phase E1.4 -- 欠けると
+        live API は HTTP 400 ``SC400``)。HTTP を送る前に fail closed する。"""
 
-        params: dict[str, str] = {}
-        if date_from is not None:
-            params["dateFrom"] = date_from
-        if date_to is not None:
-            params["dateTo"] = date_to
+        _require_date_range(date_from, date_to)
+        params: dict[str, str] = {"dateFrom": date_from, "dateTo": date_to}
         response = self._send("GET", _COMMISSION_INFO_PATH, params=params)
         _check_status(response)
         payload = _parse_json(response)
@@ -190,6 +205,30 @@ class MakeAffiliateClient:
             raise AffiliateCommissionImportError(
                 "Make API request failed"
             ) from exc
+
+
+def _require_date_range(date_from: object, date_to: object) -> None:
+    """``dateFrom`` / ``dateTo`` は両方必須 (live で欠落時 HTTP 400 を確認済み)。
+    範囲を勝手に補完/デフォルト化せず、HTTP 送信前に fail closed する。"""
+
+    if date_from is None or date_to is None:
+        raise AffiliateCommissionImportError(
+            "date_from and date_to are both required by the Make API"
+        )
+    parsed: list[date] = []
+    for name, value in (("date_from", date_from), ("date_to", date_to)):
+        if not isinstance(value, str):
+            raise AffiliateCommissionImportError(
+                f"{name} must be an ISO 'YYYY-MM-DD' date string"
+            )
+        try:
+            parsed.append(date.fromisoformat(value))
+        except ValueError as exc:
+            raise AffiliateCommissionImportError(
+                f"{name} must be an ISO 'YYYY-MM-DD' date string"
+            ) from exc
+    if parsed[0] > parsed[1]:
+        raise AffiliateCommissionImportError("date_from must not be after date_to")
 
 
 def _check_status(response: httpx.Response) -> None:

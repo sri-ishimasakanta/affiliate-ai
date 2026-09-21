@@ -26,6 +26,8 @@ from app.services.affiliate_commission_import_service import (
 )
 
 _BASE = "https://api.make.test"
+_DF = date(2026, 9, 1)
+_DT = date(2026, 9, 30)
 _TOKEN = "synthetic-make-api-token-not-real"
 
 
@@ -148,6 +150,8 @@ def test_execute_missing_token_fails_safely_no_run_created(session: Session) -> 
     svc = AffiliateCommissionImportService(session)
     with pytest.raises(AffiliateCommissionImportError, match="not configured"):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             settings=_settings(make_api_base_url=None, make_api_token=None),
             transport=_no_http(),
@@ -174,7 +178,11 @@ def test_execute_missing_program_raises(session: Session) -> None:
     svc = AffiliateCommissionImportService(session)
     with pytest.raises(EntityNotFoundError):
         svc.import_commissions(
-            affiliate_program_id=999999, settings=_settings(), transport=_no_http()
+            date_from=_DF,
+            date_to=_DT,
+            affiliate_program_id=999999,
+            settings=_settings(),
+            transport=_no_http(),
         )
     assert _run_count(session) == 0
 
@@ -186,7 +194,12 @@ def test_execute_one_page_import(session: Session) -> None:
     transport = _transport([[_row(1), _row(2)]])
 
     run = svc.import_commissions(
-        affiliate_program_id=pid, page_limit=10, settings=_settings(), transport=transport
+        date_from=_DF,
+        date_to=_DT,
+        affiliate_program_id=pid,
+        page_limit=10,
+        settings=_settings(),
+        transport=transport,
     )
 
     assert run.status == "succeeded"
@@ -226,7 +239,12 @@ def test_execute_pagination_fetches_all_pages(session: Session) -> None:
     transport = _transport([[_row(1), _row(2)], [_row(3)]], calls=calls)
 
     run = svc.import_commissions(
-        affiliate_program_id=pid, page_limit=2, settings=_settings(), transport=transport
+        date_from=_DF,
+        date_to=_DT,
+        affiliate_program_id=pid,
+        page_limit=2,
+        settings=_settings(),
+        transport=transport,
     )
 
     assert run.page_count == 2
@@ -249,7 +267,12 @@ def test_execute_max_page_safety_limit(session: Session, monkeypatch) -> None:
 
     with pytest.raises(AffiliateCommissionImportError, match="max page"):
         svc.import_commissions(
-            affiliate_program_id=pid, page_limit=1, settings=_settings(), transport=transport
+            date_from=_DF,
+            date_to=_DT,
+            affiliate_program_id=pid,
+            page_limit=1,
+            settings=_settings(),
+            transport=transport,
         )
     run = session.execute(select(AffiliateCommissionImportRun)).scalars().first()
     assert run.status == "failed"
@@ -269,7 +292,12 @@ def test_duplicate_row_within_same_run_across_pages_handled_safely(
     transport = _transport([[_row(1)], [_row(1)]])
 
     run = svc.import_commissions(
-        affiliate_program_id=pid, page_limit=1, settings=_settings(), transport=transport
+        date_from=_DF,
+        date_to=_DT,
+        affiliate_program_id=pid,
+        page_limit=1,
+        settings=_settings(),
+        transport=transport,
     )
 
     assert run.status == "succeeded"
@@ -284,12 +312,16 @@ def test_replay_same_rows_is_idempotent_no_duplicates(session: Session) -> None:
     svc = AffiliateCommissionImportService(session)
 
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
         transport=_transport([[_row(1)]]),
     )
     second = svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -307,12 +339,16 @@ def test_status_evolution_updates_existing_row(session: Session) -> None:
     svc = AffiliateCommissionImportService(session)
 
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
         transport=_transport([[_row(1, status="requested", payout_requested=None)]]),
     )
     second = svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -338,6 +374,8 @@ def test_source_drift_on_identity_field_fails_closed(session: Session) -> None:
     svc = AffiliateCommissionImportService(session)
 
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -345,6 +383,8 @@ def test_source_drift_on_identity_field_fails_closed(session: Session) -> None:
     )
     with pytest.raises(AffiliateCommissionImportError, match="drift"):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             page_limit=10,
             settings=_settings(),
@@ -359,6 +399,8 @@ def test_nullable_commission_amount_persisted(session: Session) -> None:
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -380,6 +422,8 @@ def test_commission_amount_exact_decimal_through_full_persistence(
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -403,12 +447,12 @@ def test_commission_amount_beyond_four_decimal_places_not_rounded_end_to_end(
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
-        transport=_transport(
-            [[_row(1, commission=12.123456), _row(2, commission=0.000012345678)]]
-        ),
+        transport=_transport([[_row(1, commission=12.123456), _row(2, commission=0.000012345678)]]),
     )
     session.expire_all()
     by_id = {
@@ -438,6 +482,8 @@ def test_commission_amount_over_supported_scale_fails_run_no_facts(
 
     with pytest.raises(AffiliateCommissionImportError, match="decimal places"):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             page_limit=10,
             settings=_settings(),
@@ -457,6 +503,8 @@ def test_object_envelope_pagination_final_short_page_terminates(
     svc = AffiliateCommissionImportService(session)
     calls: list = []
     run = svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=2,
         settings=_settings(),
@@ -472,6 +520,8 @@ def test_nullable_source_persisted(session: Session) -> None:
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -485,6 +535,8 @@ def test_payout_timestamps_persisted(session: Session) -> None:
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -511,6 +563,8 @@ def test_no_currency_fabrication(session: Session) -> None:
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -526,6 +580,8 @@ def test_no_local_click_conversion_false_join(session: Session) -> None:
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -547,6 +603,8 @@ def test_malformed_response_shape_fails_run_no_facts(session: Session) -> None:
 
     with pytest.raises(AffiliateCommissionImportError):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             page_limit=10,
             settings=_settings(),
@@ -569,6 +627,8 @@ def test_bare_array_response_fails_run_no_facts(session: Session) -> None:
 
     with pytest.raises(AffiliateCommissionImportError, match="object"):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             page_limit=10,
             settings=_settings(),
@@ -588,6 +648,8 @@ def test_http_error_fails_run_no_facts(session: Session) -> None:
 
     with pytest.raises(AffiliateCommissionImportError):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             page_limit=10,
             settings=_settings(),
@@ -611,6 +673,8 @@ def test_partial_page_failure_rolls_back_whole_import(session: Session) -> None:
 
     with pytest.raises(AffiliateCommissionImportError):
         svc.import_commissions(
+            date_from=_DF,
+            date_to=_DT,
             affiliate_program_id=pid,
             page_limit=10,
             settings=_settings(),
@@ -632,6 +696,8 @@ def test_unique_constraint_prevents_duplicate_provider_source_id(session: Sessio
     pid = _program(session)
     svc = AffiliateCommissionImportService(session)
     run = svc.import_commissions(
+        date_from=_DF,
+        date_to=_DT,
         affiliate_program_id=pid,
         page_limit=10,
         settings=_settings(),
@@ -661,3 +727,248 @@ def test_unique_constraint_prevents_duplicate_provider_source_id(session: Sessio
         )
     session.rollback()
     assert _fact_count(session) == 1
+
+
+# ==================== Phase E1.4: dateFrom/dateTo are mandatory ===========
+@pytest.mark.parametrize(
+    ("date_from", "date_to"),
+    [(None, None), (_DF, None), (None, _DT)],
+    ids=["neither", "from-only", "to-only"],
+)
+def test_execute_missing_or_partial_dates_fail_before_http_and_run(
+    session: Session, date_from, date_to
+) -> None:
+    pid = _program(session)
+    svc = AffiliateCommissionImportService(session)
+    with pytest.raises(AffiliateCommissionImportError, match="both required"):
+        svc.import_commissions(
+            affiliate_program_id=pid,
+            date_from=date_from,
+            date_to=date_to,
+            settings=_settings(),
+            transport=_no_http(),  # 1 回でも HTTP が送られれば AssertionError
+        )
+    assert _run_count(session) == 0
+    assert _fact_count(session) == 0
+
+
+def test_execute_date_check_happens_before_program_lookup(session: Session) -> None:
+    """日付検証は DB 参照 (program 存在確認) よりも先 -- 存在しない program でも
+    先に日付エラーになる (fail fast)。"""
+
+    svc = AffiliateCommissionImportService(session)
+    with pytest.raises(AffiliateCommissionImportError, match="both required"):
+        svc.import_commissions(
+            affiliate_program_id=999999,
+            settings=_settings(),
+            transport=_no_http(),
+        )
+
+
+def test_execute_never_invents_a_default_date_range(session: Session) -> None:
+    pid = _program(session)
+    svc = AffiliateCommissionImportService(session)
+    calls: list = []
+    svc.import_commissions(
+        affiliate_program_id=pid,
+        date_from=date(2026, 1, 1),
+        date_to=date(2026, 1, 31),
+        page_limit=10,
+        settings=_settings(),
+        transport=_transport([[_row(1)]], calls=calls),
+    )
+    params = dict(calls[0].url.params)
+    assert params["dateFrom"] == "2026-01-01"
+    assert params["dateTo"] == "2026-01-31"
+    run = session.execute(select(AffiliateCommissionImportRun)).scalars().first()
+    assert run.requested_date_from == date(2026, 1, 1)
+    assert run.requested_date_to == date(2026, 1, 31)
+
+
+def test_execute_sends_both_dates_on_every_page(session: Session) -> None:
+    pid = _program(session)
+    svc = AffiliateCommissionImportService(session)
+    calls: list = []
+    svc.import_commissions(
+        affiliate_program_id=pid,
+        date_from=_DF,
+        date_to=_DT,
+        page_limit=2,
+        settings=_settings(),
+        transport=_transport([[_row(1), _row(2)], [_row(3)]], calls=calls),
+    )
+    assert len(calls) == 2
+    for c in calls:
+        p = dict(c.url.params)
+        assert p["dateFrom"] == "2026-09-01"
+        assert p["dateTo"] == "2026-09-30"
+        # pg[returnTotalCount] は別途 live 検証するまで有効化しない。
+        assert set(p) == {"dateFrom", "dateTo", "pg[offset]", "pg[limit]"}
+
+
+# ==================== Phase E1.4: PLAN stays zero-HTTP =====================
+def test_plan_without_dates_allowed_reports_incomplete_and_sends_no_http(
+    session: Session, monkeypatch
+) -> None:
+    def _boom(*_a, **_kw):
+        raise AssertionError("PLAN must not create an HTTP client")
+
+    monkeypatch.setattr(httpx, "Client", _boom)
+    pid = _program(session)
+    result = AffiliateCommissionImportService(session).plan(
+        affiliate_program_id=pid, settings=_settings()
+    )
+    assert result.dates_complete is False
+    assert result.date_from is None and result.date_to is None  # 補完しない
+    assert result.would_execute is False
+    assert _run_count(session) == 0
+
+
+def test_plan_with_both_dates_reports_complete(session: Session) -> None:
+    pid = _program(session)
+    result = AffiliateCommissionImportService(session).plan(
+        affiliate_program_id=pid, date_from=_DF, date_to=_DT, settings=_settings()
+    )
+    assert result.dates_complete is True
+
+
+@pytest.mark.parametrize(("date_from", "date_to"), [(_DF, None), (None, _DT)])
+def test_plan_with_one_date_only_is_rejected(session: Session, date_from, date_to) -> None:
+    pid = _program(session)
+    with pytest.raises(AffiliateCommissionImportError, match="together"):
+        AffiliateCommissionImportService(session).plan(
+            affiliate_program_id=pid,
+            date_from=date_from,
+            date_to=date_to,
+            settings=_settings(),
+        )
+
+
+# ==================== Phase E1.4: "commissions": null / pagination =========
+def _null_transport(*, calls: list | None = None) -> httpx.MockTransport:
+    live_empty = {
+        "commissions": None,
+        "pg": {
+            "limit": 2,
+            "offset": 0,
+            "returnTotalCount": False,
+            "sortBy": "id",
+            "sortDir": "asc",
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if calls is not None:
+            calls.append(request)
+        return httpx.Response(200, json=live_empty)
+
+    return httpx.MockTransport(handler)
+
+
+def test_null_commissions_first_page_is_empty_success_and_stops(session: Session) -> None:
+    pid = _program(session)
+    calls: list = []
+    run = AffiliateCommissionImportService(session).import_commissions(
+        affiliate_program_id=pid,
+        date_from=_DF,
+        date_to=_DT,
+        page_limit=2,
+        settings=_settings(),
+        transport=_null_transport(calls=calls),
+    )
+    assert run.status == "succeeded"
+    assert run.page_count == 1
+    assert run.response_count == 0
+    assert run.inserted_count == 0
+    assert len(calls) == 1  # null で即終了 -- 追加ページを取りに行かない
+    assert _fact_count(session) == 0
+
+
+def test_empty_array_first_page_stops_pagination(session: Session) -> None:
+    pid = _program(session)
+    calls: list = []
+    run = AffiliateCommissionImportService(session).import_commissions(
+        affiliate_program_id=pid,
+        date_from=_DF,
+        date_to=_DT,
+        page_limit=2,
+        settings=_settings(),
+        transport=_transport([[]], calls=calls),
+    )
+    assert run.page_count == 1
+    assert run.response_count == 0
+    assert len(calls) == 1
+
+
+def test_null_page_after_full_page_terminates(session: Session) -> None:
+    """全件 (limit と同数) の直後の空ページが null でも終了する。"""
+
+    pid = _program(session)
+    calls: list = []
+    run = AffiliateCommissionImportService(session).import_commissions(
+        affiliate_program_id=pid,
+        date_from=_DF,
+        date_to=_DT,
+        page_limit=2,
+        settings=_settings(),
+        transport=_transport([[_row(1), _row(2)], None], calls=calls),
+    )
+    assert run.page_count == 2
+    assert run.inserted_count == 2
+    assert [dict(c.url.params)["pg[offset]"] for c in calls] == ["0", "2"]
+
+
+def test_pg_metadata_does_not_drive_pagination(session: Session) -> None:
+    """pg が returnTotalCount=True / 巨大な limit を示していても、終端判定は
+    受領件数 < limit のまま (pg は echo/metadata で使わない)。"""
+
+    pid = _program(session)
+    calls: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "commissions": [_row(1)],
+                "pg": {"limit": 9999, "offset": 0, "returnTotalCount": True, "total": 500},
+            },
+        )
+
+    run = AffiliateCommissionImportService(session).import_commissions(
+        affiliate_program_id=pid,
+        date_from=_DF,
+        date_to=_DT,
+        page_limit=2,
+        settings=_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+    assert run.page_count == 1  # 1 件 < limit(2) -> 終了 (total=500 は無視)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"pg": {}}, {"commissions": "x"}, {"commissions": {}}, {"commissions": 5}, [1, 2]],
+    ids=["missing-key", "string", "object", "number", "bare-array"],
+)
+def test_malformed_commissions_shapes_still_fail_run_and_write_nothing(
+    session: Session, body
+) -> None:
+    pid = _program(session)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(AffiliateCommissionImportError):
+        AffiliateCommissionImportService(session).import_commissions(
+            affiliate_program_id=pid,
+            date_from=_DF,
+            date_to=_DT,
+            page_limit=2,
+            settings=_settings(),
+            transport=httpx.MockTransport(handler),
+        )
+    run = session.execute(select(AffiliateCommissionImportRun)).scalars().first()
+    assert run.status == "failed"
+    assert _fact_count(session) == 0

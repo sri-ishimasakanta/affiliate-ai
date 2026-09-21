@@ -8,7 +8,10 @@ Make ``GET {base}/affiliate/commissions`` -> :class:`AffiliateCommissionFact`
 と同じ設計方針):
 
   1. 設定確認 (base URL + token)。未設定なら run 行を作らず fail closed。
-  2. date range 検証 (両方指定時 ``date_from <= date_to``)。
+  2. date range 検証 (Phase E1.4): ``date_from`` と ``date_to`` は **両方必須**
+     (live で、どちらか欠けると Make API が HTTP 400 を返すことを確認済み)。
+     補完/デフォルト化はせず、HTTP も run 行も作る前に fail closed する。
+     ``date_from <= date_to`` も検証する。
   3. running run を作成し **commit** (ネットワーク前に durable 化)。
   4. 完全なページネーション (``pg[offset]`` を進めながら) を
      ``MAKE_COMMISSIONS_MAX_PAGES`` 上限内で実行。各ページは
@@ -58,11 +61,34 @@ class CommissionImportPlan:
     configured: bool
     date_from: date | None
     date_to: date | None
+    #: ``date_from`` / ``date_to`` が両方揃っているか。False の間は ``--execute``
+    #: できない (Make API が両方必須)。PLAN 自体は日付なしでも実行できる。
+    dates_complete: bool
     would_execute: bool = False
 
 
-def _validate_date_range(date_from: date | None, date_to: date | None) -> None:
-    if date_from is not None and date_to is not None and date_from > date_to:
+def validate_date_range(
+    date_from: date | None, date_to: date | None, *, require_both: bool
+) -> None:
+    """``date_from`` / ``date_to`` の検証 (Phase E1.4)。
+
+    ``require_both=True`` (EXECUTE): 両方必須。片方/両方欠けは fail closed。
+    ``require_both=False`` (PLAN): 両方なしは許可 (PLAN は HTTP を送らず、日付が
+    無いことを ``dates_complete=False`` として報告する) が、片方だけは常に不正。
+    日付を勝手に補完/デフォルト化しない。
+    """
+
+    missing = [d is None for d in (date_from, date_to)]
+    if require_both and any(missing):
+        raise AffiliateCommissionImportError(
+            "date_from and date_to are both required (the Make API rejects "
+            "requests missing either); provide them together"
+        )
+    if any(missing) and not all(missing):
+        raise AffiliateCommissionImportError(
+            "date_from and date_to must be provided together"
+        )
+    if not any(missing) and date_from > date_to:
         raise AffiliateCommissionImportError("date_from must not be after date_to")
 
 
@@ -82,7 +108,7 @@ class AffiliateCommissionImportService:
         settings=None,
     ) -> CommissionImportPlan:
         settings = settings or get_settings()
-        _validate_date_range(date_from, date_to)
+        validate_date_range(date_from, date_to, require_both=False)
         if self._session.get(AffiliateProgram, affiliate_program_id) is None:
             raise EntityNotFoundError("AffiliateProgram", affiliate_program_id)
         return CommissionImportPlan(
@@ -91,6 +117,7 @@ class AffiliateCommissionImportService:
             configured=settings.make_api_configured,
             date_from=date_from,
             date_to=date_to,
+            dates_complete=(date_from is not None and date_to is not None),
         )
 
     # -- EXECUTE: 完全なページネーション + 単一 import transaction ----------
@@ -106,7 +133,9 @@ class AffiliateCommissionImportService:
         transport: httpx.BaseTransport | None = None,
     ):
         settings = settings or get_settings()
-        _validate_date_range(date_from, date_to)
+        # Phase E1.4: 日付は両方必須。DB 参照・client 構築・run 作成・HTTP のいずれよりも
+        # 先に fail closed する (補完/デフォルト化は一切しない)。
+        validate_date_range(date_from, date_to, require_both=True)
         if self._session.get(AffiliateProgram, affiliate_program_id) is None:
             raise EntityNotFoundError("AffiliateProgram", affiliate_program_id)
         if not settings.make_api_configured:
@@ -146,12 +175,23 @@ class AffiliateCommissionImportService:
     def _fetch_all_pages(
         client: MakeAffiliateClient,
         *,
-        date_from: date | None,
-        date_to: date | None,
+        date_from: date,
+        date_to: date,
         page_limit: int,
     ) -> tuple[list[MakeCommissionRow], int]:
-        date_from_str = date_from.isoformat() if date_from is not None else None
-        date_to_str = date_to.isoformat() if date_to is not None else None
+        """``pg[offset]`` / ``pg[limit]`` で全ページを取得する。
+
+        終端判定は「受領件数 < limit」(推論のまま)。live の ``pg`` は
+        limit/offset/returnTotalCount/sortBy/sortDir の echo (metadata) で
+        total/has-more を含まないため、終端判定には **使わない**。
+        ``pg[returnTotalCount]`` は別途 live 検証するまで有効化しない。
+        ``"commissions": null`` (該当行なし) は空ページ = ``has_more=False`` で
+        即終了する。無限ループ防止の ``MAKE_COMMISSIONS_MAX_PAGES`` 上限は維持。
+        """
+
+        # validate_date_range(require_both=True) 済み -- ここで日付は必ず存在する。
+        date_from_str = date_from.isoformat()
+        date_to_str = date_to.isoformat()
 
         all_rows: list[MakeCommissionRow] = []
         offset = 0

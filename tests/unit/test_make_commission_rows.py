@@ -302,3 +302,46 @@ def test_page_exceeding_limit_rejected() -> None:
     payload = {"commissions": [_row(id=i) for i in range(1, 4)]}
     with pytest.raises(AffiliateCommissionImportError, match="more rows"):
         validate_make_commissions_page(payload, requested_limit=2)
+
+
+# ==================== Phase E1.4: live "commissions": null ================
+def test_null_commissions_is_empty_list() -> None:
+    """live 検証: 該当行なしの成功レスポンスは {"commissions": null, "pg": {...}}。"""
+
+    payload = {
+        "commissions": None,
+        "pg": {
+            "limit": 2,
+            "offset": 0,
+            "returnTotalCount": False,
+            "sortBy": "id",
+            "sortDir": "asc",
+        },
+    }
+    rows, has_more = validate_make_commissions_page(payload, requested_limit=2)
+    assert rows == []
+    assert has_more is False  # null は空ページ -- ページネーション終了
+
+
+def test_missing_commissions_key_still_rejected_even_with_pg() -> None:
+    with pytest.raises(AffiliateCommissionImportError, match="missing the 'commissions' key"):
+        validate_make_commissions_page({"pg": {"limit": 2}}, requested_limit=2)
+
+
+@pytest.mark.parametrize("bad", ["", "x", 0, 5, False, True, {}, {"a": 1}])
+def test_non_null_non_array_commissions_still_rejected(bad) -> None:
+    with pytest.raises(AffiliateCommissionImportError, match="not an array or null"):
+        validate_make_commissions_page({"commissions": bad}, requested_limit=2)
+
+
+def test_pg_metadata_is_ignored_not_used_for_termination() -> None:
+    """live の pg は request の echo (total/has-more なし)。中身が何であっても
+    終端判定には使わない -- 判定は「受領件数 == limit」のみ。"""
+
+    full = {"commissions": [_row(id=1), _row(id=2)], "pg": {"limit": 999, "returnTotalCount": True}}
+    _, has_more_full = validate_make_commissions_page(full, requested_limit=2)
+    assert has_more_full is True
+
+    short = {"commissions": [_row(id=1)], "pg": "garbage"}
+    _, has_more_short = validate_make_commissions_page(short, requested_limit=2)
+    assert has_more_short is False

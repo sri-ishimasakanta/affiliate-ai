@@ -9,6 +9,11 @@
             --affiliate-program-id 1 --date-from 2026-09-01 --date-to 2026-09-30 \
             --execute
 
+``--execute`` には ``--date-from`` と ``--date-to`` の **両方が必須** (Phase E1.4 --
+live で、どちらか欠けると Make API が HTTP 400 を返すことを確認済み)。範囲を
+補完/デフォルト化することは一切せず、片方でも欠ければ DB / HTTP に触れる前に
+fail closed する。PLAN は日付なしでも実行できる (HTTP なし・DB 書込なし)。
+
 Make API token を CLI 引数として受け取ることは一切できない -- 常に
 ``MAKE_API_TOKEN`` 環境変数 (:class:`app.config.settings.Settings`) からのみ読む。
 
@@ -29,6 +34,7 @@ from app.config.database import SessionLocal  # noqa: E402
 from app.exceptions import ApplicationError  # noqa: E402
 from app.services.affiliate_commission_import_service import (  # noqa: E402
     AffiliateCommissionImportService,
+    validate_date_range,
 )
 
 EXIT_OK = 0
@@ -50,8 +56,15 @@ def _print_plan(result) -> None:
     print(f"make_api_configured     = {result.configured}")
     print(f"date_from               = {result.date_from}")
     print(f"date_to                 = {result.date_to}")
+    print(f"dates_complete          = {result.dates_complete}")
     print(f"would_execute           = {result.would_execute}")
     print()
+    if not result.dates_complete:
+        print(
+            "DATES REQUIRED: --execute needs BOTH --date-from and --date-to "
+            "(the Make API rejects requests missing either). No range is "
+            "invented or defaulted."
+        )
     if not result.configured:
         print(
             "NOT CONFIGURED: MAKE_API_BASE_URL / MAKE_API_TOKEN are not both set. "
@@ -74,6 +87,10 @@ def _print_execute(run) -> None:
 
 
 def cmd_import(args: argparse.Namespace) -> int:
+    if args.execute:
+        # Phase E1.4: DB にも HTTP にも触れる前に fail closed (補完/デフォルト化しない)。
+        validate_date_range(args.date_from, args.date_to, require_both=True)
+
     with SessionLocal() as session:
         service = AffiliateCommissionImportService(session)
 
@@ -115,8 +132,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--affiliate-program-id", type=int, required=True)
-    parser.add_argument("--date-from", type=date.fromisoformat, default=None)
-    parser.add_argument("--date-to", type=date.fromisoformat, default=None)
+    parser.add_argument(
+        "--date-from",
+        type=date.fromisoformat,
+        default=None,
+        help="YYYY-MM-DD. REQUIRED together with --date-to for --execute",
+    )
+    parser.add_argument(
+        "--date-to",
+        type=date.fromisoformat,
+        default=None,
+        help="YYYY-MM-DD. REQUIRED together with --date-from for --execute",
+    )
     parser.add_argument("--page-limit", type=int, default=100)
     parser.add_argument(
         "--execute",
