@@ -1,0 +1,730 @@
+"""app/article/cluster_plan.py — cluster 定義の検証 / 意図重複 / 制作キュー (pure)。
+
+DB / HTTP / LLM には一切触れない。
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import random
+import re
+from pathlib import Path
+
+import pytest
+
+from app.article.cluster_plan import (
+    CHAR_OVERLAP_THRESHOLD,
+    DECISION_BLOCKED,
+    DECISION_MERGE,
+    DECISION_OK,
+    TEMPLATE_SCOPE,
+    AffiliateMatch,
+    ArticleInput,
+    ClusterConfigError,
+    Intent,
+    KeywordInput,
+    affiliate_coverage,
+    build_content_queue,
+    compare_profiles,
+    fact_research,
+    intent_profile,
+    load_cluster_config,
+    near_overlap_similarity,
+    parse_cluster_config,
+    serp_family,
+    template_readiness,
+)
+from app.article.planning import ArticleType
+
+_ROOT = Path(__file__).resolve().parents[2]
+_TRACKED_CONFIG = _ROOT / "app" / "config" / "content_clusters.json"
+
+# 現在の 30 keyword pool (id, keyword, opportunity_score, 欠けている signal)。
+# 実データは git 管理外の ``data/`` にあるため、test は自己完結させるためここに埋め込む。
+_POOL_30: tuple[tuple[int, str, float | None, str], ...] = (
+    (1, "ChatGPT とは", 37.4, ""),
+    (2, "ChatGPT 使い方", 44.48, ""),
+    (3, "生成AI とは", 52.98, ""),
+    (4, "AI 業務効率化", 67.27, ""),
+    (5, "AI 議事録", 57.92, ""),
+    (6, "AI 議事録 使い方", None, "competition_ease"),
+    (7, "ChatGPT 無料", 46.9, ""),
+    (8, "AI 議事録 無料", 59.49, ""),
+    (9, "生成AI 無料", 58.03, ""),
+    (10, "業務効率化 ツール 無料", 60.39, ""),
+    (11, "ChatGPT 料金", 53.13, ""),
+    (12, "ChatGPT Plus 料金", 56.4, ""),
+    (13, "Notion AI 料金", 56.28, ""),
+    (14, "Zapier 料金", 54.19, ""),
+    (15, "Make 料金", None, "competition_ease"),
+    (16, "AI 議事録 料金", None, "competition_ease"),
+    (17, "AI 議事録 おすすめ", None, "competition_ease"),
+    (18, "AI 議事録 比較", None, "competition_ease"),
+    (19, "生成AI ツール おすすめ", None, "competition_ease"),
+    (20, "生成AI ツール 比較", None, "competition_ease"),
+    (21, "業務効率化 ツール おすすめ", 68.81, ""),
+    (22, "業務効率化 ツール 比較", None, "competition_ease"),
+    (23, "RPA おすすめ", 50.94, ""),
+    (24, "RPA 比較", 50.47, ""),
+    (25, "議事録 自動作成 ツール", 53.48, ""),
+    (26, "文字起こし AI おすすめ", None, "competition_ease"),
+    (27, "法人向け 生成AI", None, "competition_ease"),
+    (28, "生成AI 法人 導入", None, "competition_ease|trend"),
+    (29, "AI 業務効率化 導入", None, "competition_ease|trend"),
+    (30, "RPA 導入", 50.54, ""),
+)
+_VOCAB = {
+    "product_terms": ["Make", "Zapier", "Notion AI", "ChatGPT"],
+    "generic_theme_tokens": ["ツール"],
+    "theme_aliases": {"法人向け": "法人"},
+}
+
+
+def _cfg(clusters: list[dict], **extra) -> dict:
+    return {"version": 1, "clusters": clusters, "vocabulary": _VOCAB, **extra}
+
+
+def _cluster(cid: str, priority: int, pillar: str, *supporting: str) -> dict:
+    return {
+        "id": cid,
+        "name": f"cluster {cid}",
+        "priority": priority,
+        "keywords": [{"keyword": pillar, "role": "pillar"}]
+        + [{"keyword": s, "role": "supporting"} for s in supporting],
+    }
+
+
+def _kw(kid: int, text: str, score: float | None = None, **kw) -> KeywordInput:
+    return KeywordInput(
+        id=kid,
+        keyword=text,
+        status=kw.pop("status", "analyzed"),
+        opportunity_score=score,
+        **kw,
+    )
+
+
+def _queue(clusters: list[dict], keywords: list[KeywordInput], articles=(), **extra):
+    return build_content_queue(parse_cluster_config(_cfg(clusters, **extra)), keywords, articles)
+
+
+def _by_kw(queue) -> dict:
+    return {e.keyword: e for e in (*queue.slots, *queue.merged, *queue.blocked)}
+
+
+# ============================================================ config validation
+def test_tracked_config_parses_with_approved_priority_and_one_pillar_each() -> None:
+    config = load_cluster_config(_TRACKED_CONFIG)
+    assert [c.id for c in config.clusters] == ["B", "C", "A", "D"]
+    assert [c.priority for c in config.clusters] == [1, 2, 3, 4]
+    for cluster in config.clusters:
+        assert sum(k.role == "pillar" for k in cluster.keywords) == 1
+    assert [d.id for d in config.deferred] == ["E"]  # CRM/sales は keyword 拡張まで defer
+
+
+def test_tracked_config_keywords_are_in_the_current_pool_and_assigned_once() -> None:
+    pool = {text for _, text, _, _ in _POOL_30}
+    assert len(pool) == 30
+    config = load_cluster_config(_TRACKED_CONFIG)
+    assigned = [k.keyword for c in config.clusters for k in c.keywords]
+    assert set(assigned) <= pool
+    assert len(assigned) == len(set(assigned))
+
+
+def test_parse_accepts_minimal_valid_config() -> None:
+    config = parse_cluster_config(_cfg([_cluster("X", 1, "RPA おすすめ", "RPA 導入")]))
+    assert config.clusters[0].keywords[0].role == "pillar"
+    assert config.vocabulary.product_terms == ("Make", "Zapier", "Notion AI", "ChatGPT")
+
+
+@pytest.mark.parametrize(
+    ("raw", "fragment"),
+    [
+        (["not-an-object"], "must be a JSON object"),
+        ({"version": 2, "clusters": [_cluster("X", 1, "a")]}, "version must be 1"),
+        ({"version": 1, "clusters": []}, "clusters must be a non-empty list"),
+        ({"version": 1, "clusters": [_cluster("X", 1, "a")], "bogus": 1}, "unknown top-level"),
+        (_cfg([_cluster("X", 1, "a"), _cluster("X", 2, "b")]), "duplicate cluster id"),
+        (_cfg([_cluster("X", 1, "a"), _cluster("Y", 1, "b")]), "duplicate priority"),
+        (_cfg([_cluster("X", 0, "a")]), "priority must be an integer >= 1"),
+        (_cfg([{"id": "X", "name": "n", "priority": 1, "keywords": []}]), "non-empty list"),
+        (
+            _cfg([{"id": "X", "name": "n", "priority": 1, "keywords": [{"keyword": "a"}]}]),
+            "invalid role",
+        ),
+        (
+            _cfg(
+                [
+                    {
+                        "id": "X",
+                        "name": "n",
+                        "priority": 1,
+                        "keywords": [{"keyword": "a", "role": "hub"}],
+                    }
+                ]
+            ),
+            "invalid role 'hub'",
+        ),
+        (
+            _cfg(
+                [
+                    {
+                        "id": "X",
+                        "name": "n",
+                        "priority": 1,
+                        "keywords": [{"keyword": "a", "role": "supporting"}],
+                    }
+                ]
+            ),
+            "exactly one pillar (found 0)",
+        ),
+        (
+            _cfg(
+                [
+                    {
+                        "id": "X",
+                        "name": "n",
+                        "priority": 1,
+                        "keywords": [
+                            {"keyword": "a", "role": "pillar"},
+                            {"keyword": "b", "role": "pillar"},
+                        ],
+                    }
+                ]
+            ),
+            "exactly one pillar (found 2)",
+        ),
+        (
+            _cfg(
+                [
+                    {
+                        "id": "X",
+                        "name": "n",
+                        "priority": 1,
+                        "keywords": [{"keyword": "a", "role": "pillar", "extra": 1}],
+                    }
+                ]
+            ),
+            "unknown keys",
+        ),
+        (
+            _cfg(
+                [_cluster("X", 1, "a")], deferred_clusters=[{"id": "X", "name": "n", "reason": "r"}]
+            ),
+            "collides with an active cluster",
+        ),
+        (_cfg([_cluster("X", 1, "a")], deferred_clusters=[{"id": "E"}]), "needs non-empty"),
+    ],
+)
+def test_parse_rejects_invalid_config(raw, fragment: str) -> None:
+    with pytest.raises(ClusterConfigError) as exc:
+        parse_cluster_config(raw)
+    assert fragment in str(exc.value)
+
+
+def test_parse_rejects_duplicate_keyword_within_and_across_clusters() -> None:
+    within = _cfg([_cluster("X", 1, "RPA おすすめ", "RPA おすすめ")])
+    with pytest.raises(ClusterConfigError, match="twice in the same cluster"):
+        parse_cluster_config(within)
+
+    # 正規化 (NFKC / casefold / 空白) 後に同一なら 1 keyword = 1 cluster 違反。
+    across = _cfg([_cluster("X", 1, "AI 議事録"), _cluster("Y", 2, "ａｉ　議事録")])
+    with pytest.raises(ClusterConfigError, match="in clusters 'X' and 'Y'"):
+        parse_cluster_config(across)
+
+
+def test_parse_reports_all_errors_together() -> None:
+    raw = _cfg([_cluster("X", 1, "a"), _cluster("X", 1, "b")])
+    with pytest.raises(ClusterConfigError) as exc:
+        parse_cluster_config(raw)
+    assert len(exc.value.errors) >= 2
+
+
+@pytest.mark.parametrize(
+    "vocabulary",
+    [
+        "nope",
+        {"product_terms": "Make"},
+        {"generic_theme_tokens": [1]},
+        {"theme_aliases": {"a": 1}},
+        {"unknown": []},
+    ],
+)
+def test_parse_rejects_bad_vocabulary(vocabulary) -> None:
+    raw = {"version": 1, "clusters": [_cluster("X", 1, "a")], "vocabulary": vocabulary}
+    with pytest.raises(ClusterConfigError):
+        parse_cluster_config(raw)
+
+
+def test_load_reports_missing_and_invalid_json(tmp_path: Path) -> None:
+    with pytest.raises(ClusterConfigError, match="not found"):
+        load_cluster_config(tmp_path / "nope.json")
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ClusterConfigError, match="not readable JSON"):
+        load_cluster_config(bad)
+
+
+def test_unknown_keyword_is_rejected_against_the_pool() -> None:
+    clusters = [_cluster("X", 1, "RPA おすすめ", "RPA 存在しない")]
+    with pytest.raises(ClusterConfigError, match="unknown keyword 'RPA 存在しない'"):
+        _queue(clusters, [_kw(1, "RPA おすすめ")])
+
+
+def test_ambiguous_keyword_in_pool_is_rejected() -> None:
+    with pytest.raises(ClusterConfigError, match="ambiguous keyword"):
+        _queue(
+            [_cluster("X", 1, "AI 議事録")],
+            [_kw(1, "AI 議事録"), _kw(2, "ai 議事録")],
+        )
+
+
+# ==================================================================== intents
+def _profile(text: str):
+    return intent_profile(text, parse_cluster_config(_cfg([_cluster("X", 1, "a")])).vocabulary)
+
+
+def test_intent_profile_strips_modifiers_and_generic_tokens() -> None:
+    p = _profile("業務効率化 ツール おすすめ")
+    assert p.theme_tokens == frozenset({"業務効率化"})
+    assert p.intent is Intent.SELECT and p.family == "selection"
+    assert _profile("業務効率化 ツール 比較").intent is Intent.COMPARE
+    assert _profile("AI 議事録").intent is Intent.HEAD
+
+
+def test_intent_profile_applies_aliases_and_intent_priority() -> None:
+    assert _profile("法人向け 生成AI").theme_tokens == _profile("生成AI 法人").theme_tokens
+    # 複数 modifier: HOWTO > COMPARE > SELECT > PRICING > FREE > DEFINITION
+    assert _profile("RPA 導入 おすすめ").intent is Intent.HOWTO
+    assert _profile("RPA 比較 おすすめ").intent is Intent.COMPARE
+    assert _profile("RPA 料金 無料").intent is Intent.PRICING
+
+
+def test_intent_profile_marks_product_specific_keywords() -> None:
+    p = _profile("Make 料金")
+    assert p.product_specific and p.family == "product_plan"
+    assert p.product_key == frozenset({"make"})
+    multi = _profile("Notion AI 料金")
+    assert multi.product_key == frozenset({"notion ai"})
+    assert not _profile("RPA 比較").product_specific
+    # ASCII 境界を尊重: "maker" は Make ではない
+    assert not _profile("maker 料金").product_specific
+
+
+def test_intent_profile_splits_glued_japanese_modifier_only() -> None:
+    assert _profile("ChatGPT料金").intent is Intent.PRICING
+    assert _profile("間違い").intent is Intent.HEAD  # stem が短すぎる語は分割しない
+
+
+def test_serp_family_grouping() -> None:
+    for intent in (Intent.SELECT, Intent.COMPARE, Intent.PRICING, Intent.HEAD):
+        assert serp_family(intent, product_specific=False) == "selection"
+    assert serp_family(Intent.FREE, product_specific=False) == "free"
+    assert serp_family(Intent.HOWTO, product_specific=False) == "howto"
+    assert serp_family(Intent.DEFINITION, product_specific=True) == "definition"
+    assert serp_family(Intent.FREE, product_specific=True) == "product_plan"
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "expected"),
+    [
+        ("AI 議事録 おすすめ", "AI 議事録 比較", True),  # recommendation vs comparison
+        ("AI 議事録 おすすめ", "AI 議事録 料金", True),  # generic pricing shares the SERP
+        ("AI 議事録 おすすめ", "AI 議事録", True),  # head term
+        ("Make 料金", "Make 無料", True),  # 同一製品の plan/pricing
+        ("Make 料金", "Zapier 料金", False),  # 別製品
+        ("AI 議事録 おすすめ", "AI 議事録 無料", False),  # 無料 は別 family
+        ("AI 議事録 おすすめ", "AI 議事録 使い方", False),  # how-to は別 family
+        ("AI 議事録 おすすめ", "AI 議事録 とは", False),  # definition は別 family
+        ("AI 議事録 おすすめ", "RPA おすすめ", False),  # 別 theme
+        ("RPA おすすめ", "Make 料金", False),  # product_specific が異なる
+        ("業務効率化 ツール おすすめ", "AI 業務効率化", False),  # theme が異なる
+    ],
+)
+def test_compare_profiles_intent_overlap(a: str, b: str, expected: bool) -> None:
+    assert (compare_profiles(_profile(a), _profile(b)) is not None) is expected
+
+
+def test_compare_profiles_char_overlap_is_a_secondary_safety_net() -> None:
+    overlap = compare_profiles(_profile("chatbot おすすめ"), _profile("chatbots 比較"))
+    assert overlap is not None and overlap.kind == "char"
+    assert overlap.similarity >= CHAR_OVERLAP_THRESHOLD
+
+
+def test_modifier_only_keywords_never_overlap() -> None:
+    assert compare_profiles(_profile("おすすめ"), _profile("おすすめ")) is None
+
+
+def test_near_overlap_is_information_only() -> None:
+    sim = near_overlap_similarity(_profile("法人向け 生成AI"), _profile("生成AI ツール おすすめ"))
+    assert sim is not None and 0.6 <= sim < CHAR_OVERLAP_THRESHOLD
+    assert compare_profiles(_profile("法人向け 生成AI"), _profile("生成AI ツール おすすめ")) is None
+    assert near_overlap_similarity(_profile("Make 料金"), _profile("Zapier 料金")) is None
+
+
+# ==================================================================== queue
+_POOL = [
+    _kw(1, "業務効率化 ツール おすすめ", 68.81, components={"search_demand": 29.83}),
+    _kw(2, "業務効率化 ツール 比較"),
+    _kw(3, "業務効率化 ツール 無料", 60.39),
+    _kw(4, "RPA おすすめ", 50.94),
+    _kw(5, "RPA 比較", 50.47),
+    _kw(6, "RPA 導入", 50.54),
+    _kw(7, "Make 料金"),
+    _kw(8, "Zapier 料金", 54.19),
+    _kw(9, "ChatGPT 料金", 53.13),
+]
+_CLUSTERS = [
+    _cluster(
+        "B", 1, "業務効率化 ツール おすすめ", "業務効率化 ツール 比較", "業務効率化 ツール 無料"
+    ),
+    _cluster("C", 2, "RPA おすすめ", "RPA 比較", "RPA 導入", "Make 料金", "Zapier 料金"),
+]
+_ARTICLE_1 = ArticleInput(
+    id=1,
+    keyword_id=1,
+    keyword="業務効率化 ツール おすすめ",
+    title="t",
+    status="published",
+    fact_count=91,
+)
+
+
+def test_decisions_ok_merge_blocked() -> None:
+    queue = _queue(_CLUSTERS, _POOL, [_ARTICLE_1])
+    by = _by_kw(queue)
+
+    assert by["業務効率化 ツール おすすめ"].decision == DECISION_BLOCKED
+    assert by["業務効率化 ツール おすすめ"].reason_code == "already_has_article"
+    assert by["業務効率化 ツール おすすめ"].existing_article_id == 1
+    assert by["業務効率化 ツール 比較"].decision == DECISION_BLOCKED
+    assert by["業務効率化 ツール 比較"].reason_code == "overlaps_existing_article"
+    assert by["業務効率化 ツール 比較"].overlaps_article_id == 1
+    assert by["業務効率化 ツール 無料"].decision == DECISION_OK  # 別 family
+    assert by["RPA おすすめ"].decision == DECISION_OK
+    assert by["RPA 比較"].decision == DECISION_MERGE
+    assert by["RPA 比較"].merge_target_keyword == "RPA おすすめ"
+    assert by["RPA 比較"].merge_group == by["RPA おすすめ"].merge_group == "mg-4"
+    assert by["RPA おすすめ"].absorbed_keywords == ("RPA 比較",)
+    assert by["RPA 導入"].decision == DECISION_OK
+    assert by["Make 料金"].decision == DECISION_OK
+    assert by["Zapier 料金"].decision == DECISION_OK  # 別製品の料金は別 slot
+    assert {e.keyword for e in queue.unassigned} == {"ChatGPT 料金"}
+    assert queue.summary["new_slots"] == 5
+    assert queue.summary["merged"] == 1
+    assert queue.summary["blocked"] == 2
+
+
+@pytest.mark.parametrize(
+    "status", ["idea", "planned", "drafting", "review", "approved", "published", "rewrite"]
+)
+def test_every_non_archived_in_flight_article_blocks_an_overlapping_intent(status: str) -> None:
+    article = ArticleInput(
+        id=7, keyword_id=1, keyword="業務効率化 ツール おすすめ", title="t", status=status
+    )
+    queue = _queue(_CLUSTERS, _POOL, [article])
+    by = _by_kw(queue)
+    assert by["業務効率化 ツール 比較"].decision == DECISION_BLOCKED
+    assert by["業務効率化 ツール 比較"].overlaps_article_status == status
+    assert by["業務効率化 ツール おすすめ"].existing_article_status == status
+
+
+def test_a_different_intent_family_is_not_blocked_by_an_existing_article() -> None:
+    queue = _queue(_CLUSTERS, _POOL, [_ARTICLE_1])
+    assert _by_kw(queue)["業務効率化 ツール 無料"].decision == DECISION_OK
+
+
+def test_rejected_keyword_is_blocked() -> None:
+    pool = [_kw(1, "RPA おすすめ"), _kw(2, "RPA 導入", status="rejected")]
+    queue = _queue([_cluster("C", 1, "RPA おすすめ", "RPA 導入")], pool)
+    assert _by_kw(queue)["RPA 導入"].reason_code == "keyword_rejected"
+
+
+def test_queued_keyword_overlap_merges_across_clusters_into_the_pillar() -> None:
+    clusters = [
+        _cluster("B", 1, "業務効率化 ツール おすすめ", "RPA 比較"),
+        _cluster("C", 2, "RPA おすすめ"),
+    ]
+    pool = [_kw(1, "業務効率化 ツール おすすめ"), _kw(2, "RPA 比較", 99.0), _kw(3, "RPA おすすめ")]
+    by = _by_kw(_queue(clusters, pool))
+    # pillar は supporting より先に anchor になる (score が高くても cluster 優先度が高くても)。
+    assert by["RPA おすすめ"].decision == DECISION_OK
+    assert by["RPA 比較"].decision == DECISION_MERGE
+    assert by["RPA 比較"].merge_target_keyword == "RPA おすすめ"
+    assert by["RPA 比較"].cluster_id == "B"  # cross-cluster merge
+
+
+def test_merge_is_anchor_based_and_never_chains() -> None:
+    a = _profile("chatbot おすすめ")
+    b = _profile("chatbots おすすめ")
+    c = _profile("chatbotss おすすめ")
+    assert compare_profiles(a, b) is not None
+    assert compare_profiles(b, c) is not None
+    assert compare_profiles(a, c) is None  # 前提: a と c は直接は重ならない
+
+    pool = [
+        _kw(1, "chatbot おすすめ", 90.0),
+        _kw(2, "chatbots おすすめ", 80.0),
+        _kw(3, "chatbotss おすすめ", 70.0),
+    ]
+    clusters = [_cluster("X", 1, "chatbot おすすめ", "chatbots おすすめ", "chatbotss おすすめ")]
+    by = _by_kw(_queue(clusters, pool))
+    assert by["chatbots おすすめ"].decision == DECISION_MERGE
+    assert by["chatbotss おすすめ"].decision == DECISION_OK  # b は anchor ではないので併合されない
+
+
+def test_char_similarity_alone_does_not_merge_different_families() -> None:
+    pool = [_kw(1, "chatbot おすすめ"), _kw(2, "chatbots 無料")]
+    by = _by_kw(_queue([_cluster("X", 1, "chatbot おすすめ", "chatbots 無料")], pool))
+    assert by["chatbots 無料"].decision == DECISION_OK
+
+
+def test_article_without_keyword_warns_and_does_not_crash() -> None:
+    orphan = ArticleInput(id=3, keyword_id=None, keyword=None, title="孤立", status="planned")
+    queue = _queue(_CLUSTERS, _POOL, [orphan])
+    assert any("article #3" in w and "no keyword" in w for w in queue.warnings)
+
+
+def test_queue_order_is_cluster_then_role_then_score() -> None:
+    clusters = [
+        _cluster("C", 2, "RPA おすすめ", "RPA 導入", "Make 料金", "Zapier 料金"),
+        _cluster("B", 1, "業務効率化 ツール 無料", "AI 業務効率化"),
+    ]
+    pool = [
+        _kw(1, "業務効率化 ツール 無料", 10.0),
+        _kw(2, "AI 業務効率化", 90.0),
+        _kw(3, "RPA おすすめ"),  # 未スコアでも pillar が先
+        _kw(4, "RPA 導入", 50.0),
+        _kw(5, "Make 料金", 70.0),
+        _kw(6, "Zapier 料金", 70.0),  # score 同点 -> keyword id 昇順
+    ]
+    queue = _queue(clusters, pool)
+    assert [e.keyword for e in queue.slots] == [
+        "業務効率化 ツール 無料",  # cluster B (priority 1) の pillar
+        "AI 業務効率化",
+        "RPA おすすめ",  # cluster C の pillar は未スコアでも先頭
+        "Make 料金",
+        "Zapier 料金",
+        "RPA 導入",
+    ]
+    assert [e.position for e in queue.slots] == [1, 2, 3, 4, 5, 6]
+
+
+def test_scored_supporting_keywords_precede_unscored_ones() -> None:
+    clusters = [_cluster("C", 1, "RPA おすすめ", "RPA 導入", "Make 料金", "Zapier 料金")]
+    pool = [
+        _kw(1, "RPA おすすめ", 1.0),
+        _kw(2, "RPA 導入"),
+        _kw(3, "Make 料金", 5.0),
+        _kw(4, "Zapier 料金", 9.0),
+    ]
+    order = [e.keyword for e in _queue(clusters, pool).slots]
+    assert order == ["RPA おすすめ", "Zapier 料金", "Make 料金", "RPA 導入"]
+
+
+def test_only_ok_slots_have_positions() -> None:
+    queue = _queue(_CLUSTERS, _POOL, [_ARTICLE_1])
+    assert all(e.position is not None for e in queue.slots)
+    assert all(e.position is None for e in (*queue.merged, *queue.blocked))
+
+
+def test_queue_is_deterministic_for_any_input_ordering() -> None:
+    baseline = _queue(_CLUSTERS, _POOL, [_ARTICLE_1]).to_dict()
+    rng = random.Random(20260922)
+    for _ in range(10):
+        pool = list(_POOL)
+        rng.shuffle(pool)
+        clusters = copy.deepcopy(_CLUSTERS)
+        rng.shuffle(clusters)
+        for cluster in clusters:
+            rng.shuffle(cluster["keywords"])
+        assert _queue(clusters, pool, [_ARTICLE_1]).to_dict() == baseline
+
+
+def test_queue_output_is_json_serialisable() -> None:
+    payload = _queue(_CLUSTERS, _POOL, [_ARTICLE_1]).to_dict()
+    decoded = json.loads(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    assert set(decoded) >= {"slots", "merged", "blocked", "unassigned", "summary"}
+    assert decoded["summary"]["new_slots"] == len(decoded["slots"])
+
+
+def test_entries_report_score_components_prerequisites_and_notes() -> None:
+    pool = [
+        _kw(
+            1,
+            "RPA おすすめ",
+            50.0,
+            components={"search_demand": 46.49, "competition_ease": 98.0},
+        ),
+        _kw(2, "RPA 導入", missing_components=("trend", "competition_ease")),
+        _kw(3, "Make 料金"),
+    ]
+    queue = _queue([_cluster("C", 1, "RPA おすすめ", "RPA 導入", "Make 料金")], pool)
+    by = _by_kw(queue)
+    assert by["RPA おすすめ"].components == {"search_demand": 46.49, "competition_ease": 98.0}
+    assert by["RPA おすすめ"].opportunity_score == 50.0
+    assert by["RPA 導入"].prerequisites[0] == "signals_incomplete:competition_ease|trend"
+    assert "no_prompt_template:how_to" in by["RPA 導入"].prerequisites
+    assert by["Make 料金"].prerequisites[0] == "unscored"
+    assert "article_type_unclassified" in by["Make 料金"].prerequisites
+    assert "no_affiliate_match" in by["RPA おすすめ"].notes
+
+
+def test_near_overlaps_are_listed_but_do_not_change_decisions() -> None:
+    pool = [_kw(1, "法人向け 生成AI"), _kw(2, "生成AI ツール おすすめ")]
+    queue = _queue([_cluster("D", 1, "法人向け 生成AI", "生成AI ツール おすすめ")], pool)
+    by = _by_kw(queue)
+    assert by["法人向け 生成AI"].decision == by["生成AI ツール おすすめ"].decision == DECISION_OK
+    assert any(
+        n.startswith("near_overlap:生成AI ツール おすすめ") for n in by["法人向け 生成AI"].notes
+    )
+
+
+def test_affiliate_coverage_levels_and_providers() -> None:
+    assert affiliate_coverage(()).level == "none"
+    one = affiliate_coverage([AffiliateMatch(2, "Zed", "make")])
+    assert (one.level, one.program_count, one.providers) == ("single", 1, ("make",))
+    many = affiliate_coverage(
+        [
+            AffiliateMatch(3, "Zed", "impact"),
+            AffiliateMatch(1, "Alpha", None),
+            AffiliateMatch(2, "Mid", "impact"),
+        ]
+    )
+    assert many.level == "multiple"
+    assert many.program_names == ("Alpha", "Mid", "Zed")
+    assert many.providers == ("impact",)
+
+    pool = [_kw(1, "RPA おすすめ", affiliate_matches=(AffiliateMatch(9, "UiPath", "direct"),))]
+    entry = _queue([_cluster("C", 1, "RPA おすすめ")], pool).slots[0]
+    assert entry.affiliate.level == "single"
+    assert "no_affiliate_match" not in entry.notes
+    assert entry.fact_research.suggested_subjects == ("UiPath",)
+
+
+def test_template_readiness_reflects_the_single_roundup_template() -> None:
+    ready = template_readiness(ArticleType.RECOMMENDATION_ROUNDUP)
+    assert ready.ready and ready.template_version == "article_roundup_v1"
+    for other in (
+        ArticleType.COMPARISON_LISTICLE,
+        ArticleType.HOW_TO,
+        ArticleType.CATEGORY_LANDING,
+    ):
+        result = template_readiness(other)
+        assert not result.ready and other.value in result.reason
+    assert template_readiness(None).reason == "article_type_unclassified"
+
+
+def test_template_scope_matches_the_real_prompt_template_registry() -> None:
+    from app.article.draft_prompt_render import _TEMPLATES
+    from app.models.draft_generation_run import PROMPT_TEMPLATE_VERSION
+
+    assert set(TEMPLATE_SCOPE) == set(_TEMPLATES)
+    assert PROMPT_TEMPLATE_VERSION in TEMPLATE_SCOPE
+
+
+def test_fact_research_requirements_by_article_type() -> None:
+    roundup = fact_research(ArticleType.RECOMMENDATION_ROUNDUP, existing_fact_count=0, subjects=())
+    assert (roundup.requirement, roundup.status, roundup.required) == (
+        "tool_facts",
+        "missing",
+        True,
+    )
+    assert (
+        fact_research(ArticleType.COMPARISON_LISTICLE, existing_fact_count=3, subjects=()).status
+        == "present"
+    )
+    assert (
+        fact_research(ArticleType.HOW_TO, existing_fact_count=0, subjects=()).requirement
+        == "official_sources"
+    )
+    assert fact_research(None, existing_fact_count=0, subjects=()).requirement == "unknown_type"
+
+
+def test_existing_article_facts_are_reported_on_its_keyword() -> None:
+    queue = _queue(_CLUSTERS, _POOL, [_ARTICLE_1])
+    entry = _by_kw(queue)["業務効率化 ツール おすすめ"]
+    assert entry.fact_research.existing_fact_count == 91
+    assert entry.fact_research.status == "present"
+
+
+def test_unassigned_and_deferred_are_reported() -> None:
+    queue = _queue(
+        _CLUSTERS,
+        _POOL,
+        [_ARTICLE_1],
+        deferred_clusters=[{"id": "E", "name": "CRM", "reason": "later"}],
+    )
+    assert [u.keyword for u in queue.unassigned] == ["ChatGPT 料金"]
+    assert queue.unassigned[0].opportunity_score == 53.13
+    assert [d.id for d in queue.deferred] == ["E"]
+    assert queue.summary["unassigned_keywords"] == 1
+    assert queue.summary["by_cluster"]["C"] == {"new_slots": 4, "merged": 1, "blocked": 0}
+
+
+# ------------------------------------------------ approved map on the tracked pool
+def _pool_30() -> list[KeywordInput]:
+    return [
+        KeywordInput(
+            id=kid,
+            keyword=text,
+            status="analyzed",
+            opportunity_score=score,
+            missing_components=tuple(missing.split("|")) if missing else (),
+        )
+        for kid, text, score, missing in _POOL_30
+    ]
+
+
+def test_approved_cluster_map_on_the_current_pool_is_defensible_not_forced() -> None:
+    config = load_cluster_config(_TRACKED_CONFIG)
+    article = ArticleInput(
+        id=1, keyword_id=21, keyword="業務効率化 ツール おすすめ", title="t", status="published"
+    )
+    queue = build_content_queue(config, _pool_30(), [article])
+
+    assert 12 <= queue.summary["new_slots"] <= 16  # 20-30 本を pool から無理に作らない
+    assert {e.keyword for e in queue.blocked} == {
+        "業務効率化 ツール おすすめ",
+        "業務効率化 ツール 比較",
+    }
+    assert {e.keyword for e in queue.merged} == {
+        "RPA 比較",
+        "AI 議事録",
+        "AI 議事録 比較",
+        "AI 議事録 料金",
+        "生成AI ツール 比較",
+    }
+    assert {e.keyword for e in queue.unassigned} == {
+        "ChatGPT とは",
+        "ChatGPT 使い方",
+        "ChatGPT 無料",
+        "ChatGPT 料金",
+        "ChatGPT Plus 料金",
+        "生成AI とは",
+        "生成AI 無料",
+    }
+    # 承認済み優先順: B -> C -> A -> D
+    cluster_order = [e.cluster_id for e in queue.slots]
+    assert cluster_order == sorted(cluster_order, key="BCAD".index)
+    # 各 cluster の pillar は同 cluster 内で最初に並ぶ (既に article がある B を除く)
+    for cid in "CAD":
+        first = next(e for e in queue.slots if e.cluster_id == cid)
+        assert first.role == "pillar"
+
+
+def test_source_modules_have_no_write_network_or_llm_imports() -> None:
+    forbidden_imports = re.compile(
+        r"^\s*(?:import|from)\s+(httpx|requests|urllib\.request|socket|openai|anthropic|aiohttp)\b",
+        re.MULTILINE,
+    )
+    forbidden_calls = re.compile(r"session\.(commit|add|add_all|delete|merge|flush|execute)\(")
+    for rel in (
+        "app/article/cluster_plan.py",
+        "app/services/content_queue_service.py",
+        "scripts/plan_content_clusters.py",
+    ):
+        source = (_ROOT / rel).read_text(encoding="utf-8")
+        assert not forbidden_imports.search(source), rel
+        assert not forbidden_calls.search(source), rel
