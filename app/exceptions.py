@@ -155,6 +155,37 @@ class DraftPromotionStateError(ApplicationError):
         self.reason = reason
 
 
+class EditorialRevisionStateError(ApplicationError):
+    """Article が編集改訂 (editorial revision) を許さない状態にある。
+
+    promotion がまだ無い / Article.body・meta が空 / status が改訂可能でない /
+    revision_reason が空 / published なのに published_update_intent が無い /
+    候補 validator が fail / idempotency_key の identity 衝突 など。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"editorial revision state error: {reason}")
+        self.reason = reason
+
+
+class CanonicalContentChangedError(ApplicationError):
+    """改訂時に ``expected_current_body_hash`` / ``expected_current_meta_hash`` /
+    ``expected_revision_content_hash`` のいずれかが現在の canonical 値と一致しない。
+
+    「編集者が見ていた本文」と「今 DB にある本文」が別物であることを意味する
+    (改訂は必ず現在の canonical 本文を起点にしなければならない)。
+    """
+
+    def __init__(self, field: str, expected: str, actual: str) -> None:
+        super().__init__(
+            f"canonical article content changed since review: {field} expected "
+            f"{expected!r}, current {actual!r}"
+        )
+        self.field = field
+        self.expected = expected
+        self.actual = actual
+
+
 class CandidateChangedError(ApplicationError):
     """promote 時に ``expected_body_hash`` / ``expected_meta_hash`` /
     ``expected_candidate_content_hash`` のいずれかが現在の候補から計算した hash と

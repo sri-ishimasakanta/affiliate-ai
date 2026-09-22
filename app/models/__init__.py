@@ -47,6 +47,7 @@ from app.models.article_content_subject import (
     ArticleContentSubject,
 )
 from app.models.article_draft_promotion import ArticleDraftPromotion
+from app.models.article_editorial_revision import ArticleEditorialRevision
 from app.models.article_fact import ArticleFact
 from app.models.article_link_substitution_mapping import (
     ALSM_ACTIVE,
@@ -193,6 +194,7 @@ __all__ = [
     "ArticleAffiliateProgram",
     "ArticleContentSubject",
     "ArticleDraftPromotion",
+    "ArticleEditorialRevision",
     "ArticleFact",
     "ArticleLinkSubstitutionMapping",
     "ArticleMetric",

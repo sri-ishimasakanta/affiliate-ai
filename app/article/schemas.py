@@ -731,3 +731,81 @@ class DraftPromotionCreateResponse(BaseModel):
     promotion: DraftPromotionRead
     article_status: str
     already_promoted: bool
+
+
+# --- ArticleEditorialRevision (採用後の編集改訂) ----------------------------
+
+
+class EditorialRevisionGates(BaseModel):
+    article_exists: bool
+    article_has_promotion: bool
+    article_status_revisable: bool
+    article_body_present: bool
+    article_meta_present: bool
+    revision_reason_present: bool
+    published_update_intent_ok: bool
+    candidate_parses: bool
+    candidate_validation_pass: bool
+
+
+class EditorialRevisionPreviewResponse(BaseModel):
+    article_id: int
+    base_promotion_id: int | None
+    article_status: str
+    current_body_hash: str
+    current_meta_hash: str
+    body_hash: str
+    meta_hash: str
+    revision_content_hash: str
+    body_chars: int
+    meta_chars: int
+    is_noop: bool
+    validation_report: dict
+    can_revise: bool
+    gates: EditorialRevisionGates
+
+
+class EditorialRevisionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body_markdown: str = Field(min_length=1)
+    meta_description: str = Field(min_length=1, max_length=400)
+    expected_current_body_hash: str = Field(min_length=64, max_length=64)
+    expected_current_meta_hash: str = Field(min_length=64, max_length=64)
+    expected_revision_content_hash: str = Field(min_length=64, max_length=64)
+    revision_reason: str = Field(min_length=1, max_length=2000)
+    published_update_intent: str | None = Field(default=None, max_length=2000)
+    idempotency_key: str | None = Field(default=None, max_length=64)
+    editor_notes: list[str] | None = None
+
+
+class EditorialRevisionSummaryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    article_id: int
+    base_promotion_id: int
+    revision_reason: str
+    article_status_at_revision: str
+    previous_body_hash: str
+    previous_meta_hash: str
+    body_hash: str
+    meta_hash: str
+    revision_content_hash: str
+    idempotency_key: str | None
+    revised_at: datetime
+    created_at: datetime
+
+
+class EditorialRevisionRead(EditorialRevisionSummaryRead):
+    body_markdown: str
+    meta_description: str
+    validation_report: dict
+    editor_notes: list[str] | None
+    published_update_intent: str | None
+
+
+class EditorialRevisionCreateResponse(BaseModel):
+    revision: EditorialRevisionRead
+    article_status: str
+    already_applied: bool

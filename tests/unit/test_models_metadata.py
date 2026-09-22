@@ -95,6 +95,7 @@ def test_all_tables_registered() -> None:
         "draft_input_snapshots",
         "draft_generation_runs",
         "article_draft_promotions",
+        "article_editorial_revisions",
         "wordpress_draft_runs",
         "wordpress_publication_runs",
         "search_console_import_runs",

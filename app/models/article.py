@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.article_affiliate_program import ArticleAffiliateProgram
     from app.models.article_content_subject import ArticleContentSubject
     from app.models.article_draft_promotion import ArticleDraftPromotion
+    from app.models.article_editorial_revision import ArticleEditorialRevision
     from app.models.article_fact import ArticleFact
     from app.models.article_metric import ArticleMetric
     from app.models.draft_generation_run import DraftGenerationRun
@@ -134,6 +135,13 @@ class Article(Base, TimestampMixin):
     # Human が採用した draft の immutable な採用記録。Article 削除で全削除
     # (source_run より先に削除される必要があるため cascade を Article 側に持つ)。
     draft_promotions: Mapped[list[ArticleDraftPromotion]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # 採用後の編集改訂の immutable な履歴 (append-only)。base_promotion を FK RESTRICT で
+    # 参照するため promotion より先に削除される必要があり、cascade を Article 側に持つ。
+    editorial_revisions: Mapped[list[ArticleEditorialRevision]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )
