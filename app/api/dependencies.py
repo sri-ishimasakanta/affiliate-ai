@@ -20,6 +20,7 @@ from app.services.article_draft_promotion_service import (
     ArticleDraftPromotionService,
 )
 from app.services.article_fact_service import ArticleFactService
+from app.services.article_monetization_service import ArticleMonetizationService
 from app.services.article_plan_service import ArticlePlanService
 from app.services.article_publication_approval_service import (
     ArticlePublicationApprovalService,
@@ -55,6 +56,10 @@ def get_article_service(session: SessionDep) -> ArticleService:
 
 def get_article_plan_service(session: SessionDep) -> ArticlePlanService:
     return ArticlePlanService(session)
+
+
+def get_article_monetization_service(session: SessionDep) -> ArticleMonetizationService:
+    return ArticleMonetizationService(session)
 
 
 def get_article_affiliate_program_service(
@@ -141,6 +146,9 @@ KeywordServiceDep = Annotated[KeywordService, Depends(get_keyword_service)]
 ArticleServiceDep = Annotated[ArticleService, Depends(get_article_service)]
 ArticlePlanServiceDep = Annotated[
     ArticlePlanService, Depends(get_article_plan_service)
+]
+ArticleMonetizationServiceDep = Annotated[
+    ArticleMonetizationService, Depends(get_article_monetization_service)
 ]
 ArticleAffiliateProgramServiceDep = Annotated[
     ArticleAffiliateProgramService,

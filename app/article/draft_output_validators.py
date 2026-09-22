@@ -218,6 +218,15 @@ def _commission_leakage_check(text: str) -> list[dict]:
 
 def _fairness_check(body: str, package: dict) -> list[dict]:
     checks: list[dict] = []
+    if package["primary"] is None:
+        # C2.5.8: supporting content には primary が無い (fairness の primary 検査は対象外)
+        return [
+            _check(
+                "fairness_primary_superlative",
+                "pass",
+                "supporting content: primary なし (対象外)",
+            )
+        ]
     primary = package["primary"]["subject_ref"]
 
     superlative_bad = any(

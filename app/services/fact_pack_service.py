@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.article import monetization
 from app.article.fact_freshness import ensure_aware, is_fresh, max_age_for
 from app.article.fact_keys import (
     MIN_LIST_LEN,
@@ -184,8 +185,24 @@ class FactPackService:
                 )
             )
 
-        blocking = self._blocking_reasons(programs, per_tool_readiness)
-        drafting_allowed = bool(programs) and not blocking
+        # C2.5.8: mode は article の明示値 (NULL の legacy 行だけ primary link から導出)。
+        # affiliate の有無ではなく、比較対象 (subject) が要る記事タイプかどうかで「subject 0 件」を
+        # 判定する (affiliate の要件と内容の要件を分ける)
+        effective = monetization.resolve_effective_mode(
+            article.monetization_mode, self._links.list_by_article(article_id)
+        )
+        mode = effective.mode
+        article_type = plan_metadata.article_type if plan_metadata is not None else None
+        subjects_required = monetization.requires_comparison_subjects(article_type)
+        blocking = self._blocking_reasons(
+            programs, per_tool_readiness, mode=mode, subjects_required=subjects_required
+        )
+        drafting_allowed = not blocking
+        if mode == monetization.MODE_SUPPORTING:
+            warnings.append(
+                "affiliate_monetization_absent_by_design: supporting content (primary の "
+                "affiliate 無し)。affiliate CTA を置かない。error ではない"
+            )
         if plan_metadata is not None and plan_metadata.article_type is None:
             warnings.append(
                 "article_type_undetermined: ArticlePlan の記事タイプが未確定"
@@ -219,6 +236,13 @@ class FactPackService:
                 drafting_allowed=drafting_allowed,
                 per_tool=per_tool_readiness,
                 blocking_reasons=blocking,
+                monetization_mode=mode,
+                monetization_mode_source=effective.source,
+                affiliate_monetization=(
+                    "present" if mode == monetization.MODE_AFFILIATE else "absent_by_design"
+                ),
+                comparison_subjects_required=subjects_required,
+                comparison_subject_count=len(programs),
             ),
             warnings=warnings,
         )
@@ -353,10 +377,21 @@ class FactPackService:
         self,
         programs: list[AffiliateProgram],
         per_tool: list[ToolReadiness],
+        *,
+        mode: str = monetization.MODE_AFFILIATE,
+        subjects_required: bool = True,
     ) -> list[str]:
         reasons: list[str] = []
         if not programs:
-            reasons.append("no comparison subjects (Article に affiliate link がない)")
+            if mode == monetization.MODE_AFFILIATE:
+                reasons.append("no comparison subjects (Article に affiliate link がない)")
+            elif subjects_required:
+                # affiliate ではなく内容の要件: 比較型の記事は調査済みの比較対象が要る
+                reasons.append(
+                    "no comparison subjects: this article type compares tools and needs at "
+                    "least one researched comparison subject (link a candidate as a secondary "
+                    "program); non-affiliate subjects are not modelled yet"
+                )
         for r in per_tool:
             if not r.ok:
                 parts = []

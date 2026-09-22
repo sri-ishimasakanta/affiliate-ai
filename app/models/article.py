@@ -70,6 +70,12 @@ class Article(Base, TimestampMixin):
 
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # C2.5.8: content monetization mode ("affiliate" / "supporting")。**編集上の意図**であって
+    # affiliate link の状態ではない。NULL = 明示されていない legacy 行 (C2.5.8 より前に承認された
+    # article)。NULL の解決は :func:`app.article.monetization.resolve_effective_mode` が行う
+    # (primary の link があれば affiliate、無ければ supporting)。既存行は backfill しない。
+    monetization_mode: Mapped[str | None] = mapped_column(String(20))
+
     keyword: Mapped[Keyword | None] = relationship(
         back_populates="articles",
     )

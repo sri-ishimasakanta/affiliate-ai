@@ -59,6 +59,8 @@ class DraftInputSnapshotService:
             payload=result.payload,
             readiness=result.readiness,
             gate_status=DraftInputGateStatus(**result.gate_status),
+            monetization_mode=result.monetization_mode,
+            monetization_mode_source=result.monetization_mode_source,
         )
 
     def list_for_article(

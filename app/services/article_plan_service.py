@@ -16,7 +16,8 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.article import planning
+from app.article import monetization, planning
+from app.article.cluster_plan import template_readiness
 from app.article.planning import ArticleType
 from app.article.schemas import (
     AffiliateCandidateRead,
@@ -111,6 +112,23 @@ class ArticlePlanService:
             keyword=keyword.keyword,
         )
 
+        # C2.5.8: monetization mode。affiliate の有無は「作ってよいか」を決めない
+        primary_eligible_count = sum(1 for c in candidates if c.read.primary_eligible)
+        recommended_mode, recommendation_reason = monetization.recommend_mode(
+            primary_eligible_count
+        )
+        existing, production_blockers = self._production_state(keyword.id, article_type)
+        supporting_blockers = (
+            [monetization.SUBJECTS_UNAVAILABLE]
+            if monetization.requires_comparison_subjects(article_type) and not candidates
+            else []
+        )
+        acknowledgements = []
+        if not readiness.complete:
+            acknowledgements.append("incomplete_plan")
+        if cannibalization.acknowledgment_required:
+            acknowledgements.append("cannibalization")
+
         return ArticlePlanDTO(
             keyword_id=keyword.id,
             keyword=keyword.keyword,
@@ -159,10 +177,17 @@ class ArticlePlanService:
                 for c in candidates
                 if c.read.match_tier == TIER_WEAK and c.read.fit == FIT_UNREVIEWED
             ),
-            primary_eligible_candidate_count=sum(
-                1 for c in candidates if c.read.primary_eligible
-            ),
-            no_primary_eligible_candidate=not any(c.read.primary_eligible for c in candidates),
+            primary_eligible_candidate_count=primary_eligible_count,
+            no_primary_eligible_candidate=primary_eligible_count == 0,
+            recommended_monetization_mode=recommended_mode,
+            monetization_recommendation_reason=recommendation_reason,
+            monetization_mode=existing.mode if existing is not None else None,
+            monetization_mode_source=existing.source if existing is not None else None,
+            affiliate_ready=primary_eligible_count > 0,
+            supporting_ready=not supporting_blockers,
+            supporting_blockers=supporting_blockers,
+            production_blockers=production_blockers,
+            acknowledgements_required=acknowledgements,
             alias_only_strong_programs=list(alias_only_strong),
             cta_strategy=planning.cta_strategy(article_type),
             cannibalization=cannibalization,
@@ -185,14 +210,17 @@ class ArticlePlanService:
         self._validate_cannibalization(plan, payload)
         self._validate_no_live_article(keyword_id)
         self._validate_slug(payload.slug)
-        primary_id, secondary_ids = self._validate_affiliates(plan, payload)
+        mode, primary_id, secondary_ids = self._validate_affiliates(plan, payload)
 
         # 3) writes (単一 transaction)
         try:
+            # C2.5.8: 新規承認は必ず mode を **明示** で保存する (link からは導出しない)。
+            # 以後 link を変えても mode は変わらない (変更は明示操作のみ)。
             article = self._articles.create(
                 title=payload.title,
                 slug=payload.slug,
                 keyword_id=keyword_id,
+                monetization_mode=mode,
             )
             ensure_transition_allowed(
                 _ARTICLE,
@@ -269,12 +297,50 @@ class ArticlePlanService:
         if self._articles.get_by_slug(slug) is not None:
             raise DuplicateEntityError(_ARTICLE, "slug", slug)
 
+    def _production_state(
+        self, keyword_id: int, article_type: ArticleType | None
+    ) -> tuple[monetization.EffectiveMode | None, list[str]]:
+        """既存 article の実効 mode と、affiliate 以外の blocker (mode に関わらない)。"""
+
+        blockers: list[str] = []
+        existing: monetization.EffectiveMode | None = None
+        for article in self._articles.list_by_keyword(keyword_id):
+            if ArticleStatus(article.status) in _LIVE_ARTICLE_STATUSES:
+                blockers.append(f"live_article_exists:{article.id}")
+                if existing is None:
+                    # 明示値があればそれ。無い legacy 行だけ link から導出する
+                    existing = monetization.resolve_effective_mode(
+                        article.monetization_mode, self._links.list_by_article(article.id)
+                    )
+        if article_type is None:
+            blockers.append("article_type_undetermined")
+        else:
+            template = template_readiness(article_type)
+            if not template.ready:
+                blockers.append(f"no_prompt_template:{article_type.value}")
+        return existing, blockers
+
     def _validate_affiliates(
         self, plan: ArticlePlanDTO, payload: ArticlePlanApproveRequest
-    ) -> tuple[int | None, list[int]]:
+    ) -> tuple[str, int | None, list[int]]:
         candidate_ids = {c.program_id for c in plan.affiliate_candidates}
         primary_id = payload.primary_affiliate_program_id
         secondary_ids = list(payload.secondary_affiliate_program_ids)
+
+        # C2.5.8: monetization mode。省略時は request から決める (primary あり = affiliate)
+        mode = monetization.resolve_requested_mode(payload.monetization_mode, primary_id)
+        if mode == monetization.MODE_AFFILIATE and primary_id is None:
+            raise PlanApprovalError(
+                "monetization_mode=affiliate requires primary_affiliate_program_id (a current "
+                "primary-eligible candidate: strong, or weak with core fit). Choose one, or use "
+                "monetization_mode=supporting to approve the article without an affiliate primary"
+            )
+        if mode == monetization.MODE_SUPPORTING and primary_id is not None:
+            raise PlanApprovalError(
+                "monetization_mode=supporting does not take a primary affiliate "
+                f"(got primary_affiliate_program_id {primary_id}). Use "
+                "monetization_mode=affiliate, or remove the primary"
+            )
 
         if primary_id is not None and primary_id not in candidate_ids:
             raise PlanApprovalError(
@@ -308,7 +374,7 @@ class ArticlePlanService:
                 f"secondary_affiliate_program_ids {invalid} are not active matched "
                 "candidates for this keyword"
             )
-        return primary_id, secondary_ids
+        return mode, primary_id, secondary_ids
 
     # -- building blocks ------------------------------------------
     def _readiness(self, keyword: Keyword) -> PlanReadiness:
@@ -518,6 +584,8 @@ class ArticlePlanService:
             created_at=entity.created_at,
             updated_at=entity.updated_at,
             published_at=entity.published_at,
+            # C2.5.8: 保存値そのまま (legacy 行は None)。実効 mode は導出しない
+            monetization_mode=entity.monetization_mode,
         )
 
 

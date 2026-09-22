@@ -728,6 +728,63 @@ overload しない。
   fit は term を消さずに「数えない」だけなので、hygiene 未適用の catalog でも loose の inflation は
   score / primary に入らない。
 
+### Content monetization mode (C2.5.8)
+
+「この記事を作って公開してよいか」と「この記事に今 affiliate の primary があるか」を分ける
+(`app/article/monetization.py`)。keyword scoring と affiliate fit policy は変えない。
+
+| mode | primary | link | 用途 |
+| --- | --- | --- | --- |
+| `affiliate` | **必須** (C2.5.7 の `primary_eligible` = strong / weak+core) | primary を含む | affiliate の primary で収益化 |
+| `supporting` | **指定不可** | 0 件でもよい (secondary は既存の candidate 検証を通るものだけ) | SEO / topic authority / 内部リンク |
+
+- **推奨**: plan の `recommended_monetization_mode` = primary_eligible な candidate が 1 件以上なら
+  `affiliate`、無ければ `supporting` (理由は `monetization_recommendation_reason`)。affiliate 無しは
+  blocker ではない。`affiliate_ready` / `supporting_ready` / `supporting_blockers` /
+  `production_blockers` (既存 article・記事タイプ未確定・prompt template 無し) /
+  `acknowledgements_required` を別々に出す。
+- **approve**: request の `monetization_mode` (省略可)。省略時は request から決める: primary を
+  指定していれば `affiliate`、無ければ `supporting` (従来の呼び出しはそのまま動く。affiliate を
+  自動で選ぶことは無い)。affiliate で primary 無し / supporting で primary 有りは `PlanApprovalError`。
+- **保存 (`articles.monetization_mode`、明示)**: mode は **編集上の意図** であって link の状態では
+  ない。新規 approve は必ず明示値を保存する (request が省略したときの既定値も approve 時に確定)。
+  承認後に link を足す / primary を外すことでは mode は **変わらない** -- `affiliate` の article から
+  primary を外しても `supporting` にはならず、readiness / freeze gate が「primary が無い」と報告する。
+  `NULL` は C2.5.8 より前に承認された legacy 行 (**backfill しない**)。読み取り時に
+  `monetization.resolve_effective_mode` が primary link から導出し、出どころを
+  `monetization_mode_source` = `explicit` / `legacy_derived` で明示する
+  (published の article #1 は NULL のまま primary=Make なので `affiliate` に解決される)。
+- **mode の変更 (明示操作のみ)**: `PUT /api/v1/articles/{id}/monetization-mode`
+  (`ArticleMonetizationService`、1 transaction)。`* -> affiliate` は primary がちょうど 1 件あり、
+  それが現在の catalog で `primary_eligible` (strong / weak+core) であること。`* -> supporting` は
+  primary が 1 件も残っていないこと。NULL の legacy 行にこの操作をすると明示値に昇格する。
+  汎用の `PATCH /articles/{id}` では mode を変更できない (domain 検証を迂回させない)。
+- **published は凍結**: published の article は mode を変更できない (同じ値の明示・legacy NULL の
+  昇格も含めて 409 `monetization_mode_transition_rejected`、DB へは一切書かない)。公開済み記事の
+  収益化方針変更は revision の判断で、その workflow は後続 phase の責務。
+- **公開表現**: `ArticleRead.monetization_mode` は **保存値のみ** (legacy 行は `null`)。実効 mode /
+  出どころ / 要件違反 (`mode_requirement_violations`) は専用の
+  `GET /api/v1/articles/{id}/monetization-mode` が返す。
+- **drafting readiness**: affiliate の要件 (link ≥1・primary ちょうど 1 件) は `affiliate` mode だけ。
+  fact pack の `readiness.affiliate_monetization` は `present` / `absent_by_design` (supporting は
+  error ではない)。**比較対象 (subject) の要件は affiliate とは別** に残す:
+  recommendation_roundup / comparison_listicle (と記事タイプ未確定: fail-closed) は調査済みの
+  比較対象が 1 件以上必要。現在の fact model では比較対象 = link した catalog program なので、
+  supporting の比較型は candidate を secondary として link する (dummy の program は作らない)。
+  link した program の fact 検証・freshness・article の status / body 等の gate は mode に関わらず同じ。
+- **prompt**: supporting の snapshot (selection の primary が null) では `EditorialOverridesV1.primary`
+  を省略し、package の `primary` は null、prompt は「primary: なし」、出力検証の primary fairness は
+  対象外。affiliate の snapshot / package / prompt は従来と同一 (snapshot payload と content_hash は不変)。
+- **snapshot / content_hash**: mode は gate / prompt / primary の要件を変える意味的な入力なので、
+  **明示値のときだけ** canonical payload の `monetization` (`mode` / `source`) に入り content_hash の
+  対象になる。明示値の無い legacy 行ではキー自体を出さないので、既存 article の payload /
+  content_hash は C2.5.8 導入前と同一 (snapshot version は据え置き、historical snapshot は
+  書き換えない。`monetization` キーの無い古い snapshot はそのまま読める)。明示 mode を変えると
+  **新しい** snapshot の hash だけが変わる。
+- **queue**: entry の `monetization` (`recommended_mode` / `production_readiness` =
+  `affiliate_ready` / `supporting_only` / `blocked` / `not_a_slot` / `blockers`) と summary の
+  `production_readiness`。順序・判定は変えない。
+
 ## Originality signal (Phase 2B-7)
 
 `originality` は **サイト内部のカニバリゼーション可能性の逆指標**。この keyword で

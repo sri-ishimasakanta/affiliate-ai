@@ -334,6 +334,14 @@ keyword が現在のサイトテーマ (AI・生成AI・業務効率化・業務
 - **affiliate fit policy (C2.5.7)**: scoring / 新規 primary の対象 = strong、または weak かつ core。
   weak + loose / unreviewed は score 0・primary 不可 (文脈用)。`unreviewed` は根拠が出るまでの
   fail-closed。詳細は [architecture.md](architecture.md) の「Affiliate fit policy (C2.5.7)」。
+- **content monetization mode (C2.5.8)**: `affiliate` (primary 必須・primary_eligible) /
+  `supporting` (primary 無し・affiliate 0 件可)。affiliate が無いことは記事を作らない理由にならない。
+  mode は `articles.monetization_mode` に **明示** で保存する (link からは導出しない)。NULL は
+  C2.5.8 より前の legacy 行だけで backfill せず、読み取り時に primary link から導出する
+  (`monetization_mode_source`)。変更は `PUT /articles/{id}/monetization-mode` の明示操作のみで、
+  published は凍結。`ArticleRead.monetization_mode` は保存値だけを出す。
+  比較型の記事の比較対象の要件は affiliate とは別に残る。
+  詳細は [architecture.md](architecture.md) の「Content monetization mode (C2.5.8)」。
 - **match_terms の保守 (C2.5.5)**: catalog の正本は production DB で、version 管理された source は
   無い (CSV importer は insert 専用で既存行を更新しない)。既存 program の term を外すときは matcher
   に特例を足さず、`app/config/affiliate_catalog_hygiene.json` に **宣言** し

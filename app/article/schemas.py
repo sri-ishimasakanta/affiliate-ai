@@ -38,6 +38,32 @@ class ArticleUpdate(BaseModel):
     draft_content: str | None = None
 
 
+class ArticleMonetizationModeUpdate(BaseModel):
+    """C2.5.8: content monetization mode の **明示** 変更 (editorial intent)。
+
+    affiliate link を足す / 外すことでは mode は変わらない。この専用操作だけが変更できる。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    monetization_mode: Literal["affiliate", "supporting"]
+
+
+class ArticleMonetizationModeRead(BaseModel):
+    """article の実効 mode とその出どころ、および現在の affiliate primary の状態。"""
+
+    article_id: int
+    # 保存されている明示値 (legacy 行は None)
+    monetization_mode: Literal["affiliate", "supporting"] | None
+    # 実効 mode: 明示値、無ければ primary link からの legacy fallback
+    effective_monetization_mode: Literal["affiliate", "supporting"]
+    monetization_mode_source: Literal["explicit", "legacy_derived"]
+    primary_affiliate_program_id: int | None
+    affiliate_program_link_count: int
+    # affiliate mode なのに primary が無い等、mode と link 状態の不整合 (mode は変えない)
+    mode_requirement_violations: list[str] = Field(default_factory=list)
+
+
 class ArticleStatusUpdate(BaseModel):
     """status 変更専用の入力。
 
@@ -75,6 +101,10 @@ class ArticleRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     published_at: datetime | None
+    # C2.5.8: 保存されている content monetization mode (編集上の意図)。
+    # None = C2.5.8 より前に承認された legacy 行 (backfill しない)。実効 mode / 出どころ /
+    # 要件違反は GET /articles/{id}/monetization-mode が返す。
+    monetization_mode: Literal["affiliate", "supporting"] | None = None
 
 
 # --- Article <-> AffiliateProgram の関連 (中間モデル操作) ---------------------
@@ -210,6 +240,24 @@ class ArticlePlanDTO(BaseModel):
     unreviewed_weak_candidate_count: int | None = None
     primary_eligible_candidate_count: int | None = None
     no_primary_eligible_candidate: bool | None = None
+    # C2.5.8 (追加): monetization mode。「作ってよいか」と「affiliate primary があるか」を分ける
+    recommended_monetization_mode: Literal["affiliate", "supporting"] | None = None
+    monetization_recommendation_reason: str | None = None
+    # この keyword の既存 (live) article の実効 mode。未承認なら None
+    monetization_mode: Literal["affiliate", "supporting"] | None = None
+    # explicit = articles.monetization_mode の明示値 /
+    # legacy_derived = 明示値が無く primary link から導出
+    monetization_mode_source: Literal["explicit", "legacy_derived"] | None = None
+    # affiliate_ready: primary_eligible な candidate がある (affiliate mode を選べる)
+    affiliate_ready: bool | None = None
+    # supporting_ready: supporting mode の要件 (affiliate 以外) を満たす。比較型で比較対象の候補が
+    # 0 件なら False (比較対象は内容の要件で、affiliate とは別)
+    supporting_ready: bool | None = None
+    supporting_blockers: list[str] = Field(default_factory=list)
+    # mode に関わらない、affiliate 以外の blocker (既存 article / 記事タイプ未確定 / template 無し)
+    production_blockers: list[str] = Field(default_factory=list)
+    # 承認時に acknowledge が必要な項目 (blocker ではない)
+    acknowledgements_required: list[str] = Field(default_factory=list)
     # alias だけで strong になった program (legacy の candidates には入らない)
     alias_only_strong_programs: list[str] = Field(default_factory=list)
 
@@ -233,6 +281,9 @@ class ArticlePlanApproveRequest(BaseModel):
     slug: str = Field(min_length=1, max_length=255)
     primary_affiliate_program_id: int | None = None
     secondary_affiliate_program_ids: list[int] = Field(default_factory=list)
+    # C2.5.8: affiliate = primary 必須 (primary_eligible) / supporting = primary 無し。
+    # 省略時は request から決める: primary があれば affiliate、無ければ supporting (後方互換)
+    monetization_mode: Literal["affiliate", "supporting"] | None = None
     acknowledge_cannibalization: bool = False
     acknowledge_incomplete_plan: bool = False
     notes: str | None = Field(default=None, max_length=2000)
@@ -367,6 +418,14 @@ class FactPackReadiness(BaseModel):
     drafting_allowed: bool
     per_tool: list[ToolReadiness]
     blocking_reasons: list[str]
+    # C2.5.8 (追加): 実効 mode。supporting の affiliate 無しは設計どおり (error でない)
+    monetization_mode: Literal["affiliate", "supporting"] | None = None
+    monetization_mode_source: Literal["explicit", "legacy_derived"] | None = None
+    # present = primary の affiliate がある / absent_by_design = supporting (affiliate 収益化なし)
+    affiliate_monetization: Literal["present", "absent_by_design"] | None = None
+    # 記事タイプが比較対象 (subject) を必要とするか (affiliate とは別の内容要件)
+    comparison_subjects_required: bool | None = None
+    comparison_subject_count: int | None = None
 
 
 class FactPackPlanMetadata(BaseModel):
@@ -427,6 +486,9 @@ class DraftInputPreviewRead(BaseModel):
     payload: dict
     readiness: dict
     gate_status: DraftInputGateStatus
+    # C2.5.8 (追加): 実効 mode。明示値のときだけ payload / content_hash にも入る
+    monetization_mode: Literal["affiliate", "supporting"] | None = None
+    monetization_mode_source: Literal["explicit", "legacy_derived"] | None = None
 
 
 class DraftInputFreezeRequest(BaseModel):

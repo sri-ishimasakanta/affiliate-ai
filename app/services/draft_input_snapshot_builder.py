@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.article import monetization
 from app.article.draft_input_canonical import (
     canonical_commission,
     canonical_datetime,
@@ -83,6 +84,11 @@ class BuildResult:
     primary_affiliate_program_id: int | None
     comparison_program_ids: list[int]
     drafting_allowed_at_freeze: bool
+    # C2.5.8: 実効 mode と出どころ。**明示値 (explicit) のときだけ** payload の
+    # ``monetization`` に入り content_hash の入力になる (legacy NULL 行の payload /
+    # content_hash は C2.5.8 以前と 1 bit も変わらない: 既存 snapshot を書き換えない)。
+    monetization_mode: str = monetization.MODE_AFFILIATE
+    monetization_mode_source: str = monetization.SOURCE_LEGACY
 
     @property
     def can_freeze(self) -> bool:
@@ -271,6 +277,17 @@ class DraftInputSnapshotBuilder:
             ),
         }
 
+        # C2.5.8: mode は gate / prompt / primary の要件を変える意味的な入力なので、
+        # **明示値** は canonical payload に入れて content_hash の対象にする。明示値の無い
+        # legacy 行 (NULL) ではキー自体を出さないので、既存 article の payload / content_hash は
+        # C2.5.8 導入前と同一のまま (historical snapshot を書き換えない)。
+        effective = monetization.resolve_effective_mode(article.monetization_mode, links)
+        if effective.is_explicit:
+            payload["monetization"] = {
+                "mode": effective.mode,
+                "source": monetization.SOURCE_EXPLICIT,
+            }
+
         content_hash = compute_content_hash(payload)
         gate_status = self._gate_status(
             article=article,
@@ -278,6 +295,7 @@ class DraftInputSnapshotBuilder:
             primary_links=primary_links,
             programs_by_id=programs_by_id,
             fact_pack=fact_pack,
+            mode=effective.mode,
         )
 
         return BuildResult(
@@ -292,6 +310,8 @@ class DraftInputSnapshotBuilder:
             primary_affiliate_program_id=selection["primary_affiliate_program_id"],
             comparison_program_ids=comparison_program_ids,
             drafting_allowed_at_freeze=bool(readiness_payload["drafting_allowed"]),
+            monetization_mode=effective.mode,
+            monetization_mode_source=effective.source,
         )
 
     # -- cell / grid --------------------------------------------------
@@ -529,7 +549,13 @@ class DraftInputSnapshotBuilder:
     # -- freeze gate ------------------------------------------------
     @staticmethod
     def _gate_status(
-        *, article: Article, links, primary_links, programs_by_id, fact_pack
+        *,
+        article: Article,
+        links,
+        primary_links,
+        programs_by_id,
+        fact_pack,
+        mode: str = monetization.MODE_AFFILIATE,
     ) -> dict:
         failed: list[str] = []
         if str(article.status) != ArticleStatus.PLANNED.value:
@@ -542,14 +568,17 @@ class DraftInputSnapshotBuilder:
             failed.append("article_published_url_present")
         if article.wordpress_post_id is not None:
             failed.append("article_wordpress_post_id_present")
-        if len(links) < 1:
-            failed.append("no_comparison_links")
-        if len(primary_links) != 1:
-            failed.append("primary_not_exactly_one")
-        else:
-            primary_pid = primary_links[0].affiliate_program_id
-            if primary_pid not in {link.affiliate_program_id for link in links}:
-                failed.append("primary_not_in_comparison_set")
+        # C2.5.8: link / primary の要件は affiliate mode だけ。supporting は affiliate 0 件でもよい
+        # (比較対象が要る記事タイプは fact pack の blocking_reasons で止まる)
+        if mode == monetization.MODE_AFFILIATE:
+            if len(links) < 1:
+                failed.append("no_comparison_links")
+            if len(primary_links) != 1:
+                failed.append("primary_not_exactly_one")
+            else:
+                primary_pid = primary_links[0].affiliate_program_id
+                if primary_pid not in {link.affiliate_program_id for link in links}:
+                    failed.append("primary_not_in_comparison_set")
         for link in links:
             program = programs_by_id.get(link.affiliate_program_id)
             if program is None or str(program.status) != AffiliateProgramStatus.ACTIVE.value:

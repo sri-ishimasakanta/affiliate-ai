@@ -170,7 +170,8 @@ class EditorialOverridesV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    primary: str
+    # C2.5.8: supporting content (snapshot の selection に primary が無い) では None
+    primary: str | None = None
     comparison_set_size: int
     axis_rulings: list[AxisRulingV1] = Field(default_factory=list)
     japanese_support_ruling: JapaneseSupportRulingV1 | None = None
@@ -248,6 +249,7 @@ def build_prompt_package(
 
     p = snapshot_payload
     do_not_assert = set(overrides.do_not_assert)
+    _assert_primary_matches_mode(p, overrides)
 
     tools = [_tool_entry(t, do_not_assert) for t in p["tools"]]
 
@@ -283,10 +285,12 @@ def build_prompt_package(
             "quality_guardrails": list(p["plan"]["quality_guardrails"]),
             "source_requirements": list(p["plan"]["source_requirements"]),
         },
-        "primary": {
-            "subject_ref": overrides.primary,
-            "meaning": _PRIMARY_MEANING,
-        },
+        # C2.5.8: supporting content は primary 無し (None)。affiliate の出力は従来どおり
+        "primary": (
+            {"subject_ref": overrides.primary, "meaning": _PRIMARY_MEANING}
+            if overrides.primary is not None
+            else None
+        ),
         "comparison_tools": tools,
         "fact_key_order": _fact_key_order(p),
         "editorial_overrides": overrides.model_dump(mode="json"),
@@ -306,6 +310,40 @@ def build_prompt_package(
 
     assert_no_forbidden_keys(package)
     return package
+
+
+def _assert_primary_matches_mode(payload: dict, overrides: EditorialOverridesV1) -> None:
+    """snapshot の mode / primary と override の primary を一致させる (C2.5.8)。
+
+    selection を持たない payload (旧来の呼び出し) では何も検証しない。snapshot が
+    ``monetization.mode = affiliate`` を明示しているのに primary が無い場合は、
+    editorial overrides で埋められる不整合ではないので not-ready にする。
+    """
+
+    selection = payload.get("selection")
+    if not isinstance(selection, dict) or "primary_affiliate_program_id" not in selection:
+        return
+    snapshot_has_primary = selection["primary_affiliate_program_id"] is not None
+    declared = payload.get("monetization")
+    if (
+        isinstance(declared, dict)
+        and declared.get("mode") == "affiliate"
+        and not snapshot_has_primary
+    ):
+        raise DraftGenerationNotReadyError(
+            "snapshot declares monetization_mode=affiliate but has no primary affiliate; "
+            "link a primary-eligible program, or change the mode to supporting"
+        )
+    if snapshot_has_primary and overrides.primary is None:
+        raise DraftGenerationNotReadyError(
+            "affiliate-mode snapshot has a primary affiliate; editorial overrides must name "
+            "the primary"
+        )
+    if not snapshot_has_primary and overrides.primary is not None:
+        raise DraftGenerationNotReadyError(
+            "supporting-mode snapshot has no primary affiliate; omit overrides.primary "
+            "(approve the article in affiliate mode to have a primary)"
+        )
 
 
 def assert_no_forbidden_keys(package: object, *, path: str = "") -> None:

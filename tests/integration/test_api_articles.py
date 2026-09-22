@@ -235,3 +235,123 @@ def test_change_article_status_invalid_enum_returns_422(api_client: TestClient) 
     )
 
     assert resp.status_code == 422
+
+
+# -- monetization mode (C2.5.8) ----------------------------------------------
+def test_get_monetization_mode_reports_the_legacy_derived_default(
+    api_client: TestClient,
+) -> None:
+    article = _create_article(api_client, title="legacy", slug="legacy-mode")
+
+    resp = api_client.get(f"/api/v1/articles/{article['id']}/monetization-mode")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["monetization_mode"] is None  # 明示値なし (backfill しない)
+    assert body["effective_monetization_mode"] == "supporting"
+    assert body["monetization_mode_source"] == "legacy_derived"
+    assert body["affiliate_program_link_count"] == 0
+    assert body["mode_requirement_violations"] == []
+
+
+def test_put_monetization_mode_persists_an_explicit_value(api_client: TestClient) -> None:
+    article = _create_article(api_client, title="supporting", slug="supporting-mode")
+
+    resp = api_client.put(
+        f"/api/v1/articles/{article['id']}/monetization-mode",
+        json={"monetization_mode": "supporting"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["monetization_mode"] == "supporting"
+    assert resp.json()["monetization_mode_source"] == "explicit"
+    reread = api_client.get(f"/api/v1/articles/{article['id']}/monetization-mode").json()
+    assert reread["monetization_mode"] == "supporting"
+
+
+def test_put_monetization_mode_affiliate_without_a_primary_returns_409(
+    api_client: TestClient,
+) -> None:
+    article = _create_article(api_client, title="no primary", slug="no-primary-mode")
+
+    resp = api_client.put(
+        f"/api/v1/articles/{article['id']}/monetization-mode",
+        json={"monetization_mode": "affiliate"},
+    )
+
+    assert resp.status_code == 409
+    _assert_error_shape(resp.json(), "monetization_mode_transition_rejected")
+
+
+def test_put_monetization_mode_rejects_an_unknown_value(api_client: TestClient) -> None:
+    article = _create_article(api_client, title="bad mode", slug="bad-mode")
+
+    resp = api_client.put(
+        f"/api/v1/articles/{article['id']}/monetization-mode",
+        json={"monetization_mode": "sponsored"},
+    )
+
+    assert resp.status_code == 422
+
+
+def test_put_monetization_mode_not_found_returns_404(api_client: TestClient) -> None:
+    resp = api_client.put(
+        "/api/v1/articles/999999/monetization-mode",
+        json={"monetization_mode": "supporting"},
+    )
+
+    assert resp.status_code == 404
+    _assert_error_shape(resp.json(), "entity_not_found")
+
+
+def test_article_read_exposes_the_stored_monetization_mode(api_client: TestClient) -> None:
+    article = _create_article(api_client, title="stored mode", slug="stored-mode")
+    assert article["monetization_mode"] is None  # 明示されるまで null (legacy 行も null)
+
+    api_client.put(
+        f"/api/v1/articles/{article['id']}/monetization-mode",
+        json={"monetization_mode": "supporting"},
+    )
+
+    assert api_client.get(f"/api/v1/articles/{article['id']}").json()["monetization_mode"] == (
+        "supporting"
+    )
+    listed = api_client.get("/api/v1/articles").json()
+    assert [a["monetization_mode"] for a in listed if a["id"] == article["id"]] == ["supporting"]
+    # 実効 mode / 出どころ / 要件違反は専用エンドポイントの担当 (ArticleRead は保存値だけ)
+    detail = api_client.get(f"/api/v1/articles/{article['id']}/monetization-mode").json()
+    assert set(detail) == {
+        "article_id",
+        "monetization_mode",
+        "effective_monetization_mode",
+        "monetization_mode_source",
+        "primary_affiliate_program_id",
+        "affiliate_program_link_count",
+        "mode_requirement_violations",
+    }
+    assert detail["monetization_mode"] == "supporting"
+    assert detail["effective_monetization_mode"] == "supporting"
+    assert detail["monetization_mode_source"] == "explicit"
+
+
+def test_put_monetization_mode_on_a_published_article_returns_409(
+    api_client: TestClient, session
+) -> None:
+    from app.models import Article
+    from app.models.enums import ArticleStatus
+
+    article = _create_article(api_client, title="published", slug="published-mode")
+    row = session.get(Article, article["id"])
+    row.status = ArticleStatus.PUBLISHED
+    session.commit()
+
+    resp = api_client.put(
+        f"/api/v1/articles/{article['id']}/monetization-mode",
+        json={"monetization_mode": "supporting"},
+    )
+
+    assert resp.status_code == 409
+    _assert_error_shape(resp.json(), "monetization_mode_transition_rejected")
+    assert "published" in resp.json()["error"]["message"]
+    session.refresh(row)
+    assert row.monetization_mode is None  # 何も書かれていない

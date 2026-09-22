@@ -193,9 +193,19 @@ def test_freeze_gate_article_fields(session: Session, mutate, gate) -> None:
     assert _count(session) == 0
 
 
-def test_freeze_gate_primary_zero(session: Session) -> None:
+def test_clearing_the_primary_makes_the_article_supporting_and_is_caught_by_drift(
+    session: Session,
+) -> None:
+    """C2.5.8: mode は link から導出 (primary 無し = supporting)。
+
+    affiliate で preview した後に primary を外すと、payload (is_primary) が変わるので freeze は
+    drift guard で拒否される。新しい preview は mode=supporting を明示し、primary の gate は
+    affiliate mode だけに掛かる (supporting は primary を要求しない)。
+    """
+
     sc = build_scenario(session, n_tools=3)
-    h = _svc(session).preview(sc.article_id, now=sc.now).content_hash
+    before = _svc(session).preview(sc.article_id, now=sc.now)
+    assert before.monetization_mode == "affiliate"
     for link in session.scalars(
         select(ArticleAffiliateProgram).where(
             ArticleAffiliateProgram.article_id == sc.article_id
@@ -203,10 +213,14 @@ def test_freeze_gate_primary_zero(session: Session) -> None:
     ):
         link.is_primary = False
     session.commit()
-    with pytest.raises(DraftInputNotReadyError) as exc:
-        _svc(session).freeze(sc.article_id, h, now=sc.now)
-    assert "primary_not_exactly_one" in str(exc.value)
+    with pytest.raises(SnapshotInputChangedError):
+        _svc(session).freeze(sc.article_id, before.content_hash, now=sc.now)
     assert _count(session) == 0
+    after = _svc(session).preview(sc.article_id, now=sc.now)
+    assert after.monetization_mode == "supporting"
+    assert after.payload["selection"]["primary_affiliate_program_id"] is None
+    assert "primary_not_exactly_one" not in after.gate_status.failed_gates
+    assert "no_comparison_links" not in after.gate_status.failed_gates
 
 
 def test_freeze_gate_primary_multiple(session: Session) -> None:

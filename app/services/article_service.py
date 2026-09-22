@@ -152,4 +152,6 @@ class ArticleService:
             created_at=entity.created_at,
             updated_at=entity.updated_at,
             published_at=entity.published_at,
+            # C2.5.8: 保存値そのまま (legacy 行は None)。実効 mode は導出しない
+            monetization_mode=entity.monetization_mode,
         )

@@ -104,11 +104,18 @@ def _join_or_none(values: list[str]) -> str:
 
 def _render_overrides(package: dict) -> str:
     ov = package["editorial_overrides"]
-    lines: list[str] = [
-        f"- primary（CTA 上の候補）: {package['primary']['subject_ref']}",
-        f"  意味: {package['primary']['meaning']}",
-        f"- 比較対象ツール数: {ov['comparison_set_size']}",
-    ]
+    if package["primary"] is not None:
+        lines: list[str] = [
+            f"- primary（CTA 上の候補）: {package['primary']['subject_ref']}",
+            f"  意味: {package['primary']['meaning']}",
+        ]
+    else:
+        # C2.5.8: supporting content。affiliate の primary は設計上無い
+        lines = [
+            "- primary: なし（supporting content。affiliate の CTA 候補は無い。"
+            "特定ツールへの購入・登録の誘導をしない）",
+        ]
+    lines.append(f"- 比較対象ツール数: {ov['comparison_set_size']}")
     for ruling in ov.get("axis_rulings", []):
         lines.append(
             f"- 比較軸ルール [{ruling['action']}] 「{ruling['axis']}」: "

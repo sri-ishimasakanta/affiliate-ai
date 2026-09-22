@@ -75,6 +75,13 @@ def _print_table(queue: ContentQueue) -> None:
         f"new_slots={s['new_slots']} merged={s['merged']} blocked={s['blocked']} "
         f"template_ready_slots={s['template_ready_slots']}"
     )
+    readiness = s.get("production_readiness")
+    if readiness is not None:
+        # C2.5.8: affiliate 無しは「作らない」ではない (supporting_only は作れる)
+        print(
+            f"production readiness (slots): affiliate_ready={readiness['affiliate_ready']} "
+            f"supporting_only={readiness['supporting_only']} blocked={readiness['blocked']}"
+        )
     print(f"\n-- new slots ({len(queue.slots)}), in production order --")
     for entry in queue.slots:
         print(f"{entry.position:>2}. {_line(entry)}")
@@ -84,6 +91,13 @@ def _print_table(queue: ContentQueue) -> None:
             print(f"      prerequisites: {', '.join(entry.prerequisites)}")
         if entry.notes:
             print(f"      notes: {', '.join(entry.notes)}")
+        if entry.monetization is not None:
+            m = entry.monetization
+            extra = f" ({', '.join(m.blockers)})" if m.blockers else ""
+            print(
+                f"      monetization: mode={m.recommended_mode or '-'} "
+                f"readiness={m.production_readiness}{extra}"
+            )
     print(f"\n-- merged into another slot ({len(queue.merged)}) --")
     for entry in queue.merged:
         print(f"   {entry.cluster_id} | {entry.keyword} -> {entry.merge_target_keyword}")

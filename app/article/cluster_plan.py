@@ -695,6 +695,27 @@ class FactResearch:
 
 
 @dataclass(frozen=True)
+class ContentMonetization:
+    """C2.5.8: queue entry の monetization mode と production readiness (報告のみ・順序は不変)。
+
+    affiliate の有無は「作ってよいか」を決めない。
+
+    - ``recommended_mode``: affiliate (strong か core の weak) | supporting。tier 未算出は None
+    - ``production_readiness``:
+      ``affiliate_ready`` (affiliate の primary を選べ、他の blocker が無い) /
+      ``supporting_only`` (affiliate の primary は無いが supporting として作れる) /
+      ``blocked`` (affiliate 以外の理由で止まる: ``blockers``) /
+      ``not_a_slot`` (merge / blocked の entry。新しい記事にはならない)
+    - ``blockers``: affiliate 以外の blocker (記事タイプ未確定 / template 無し / 比較対象なし)
+    """
+
+    recommended_mode: str | None
+    production_readiness: str
+    blockers: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
 class TemplateReadiness:
     ready: bool
     template_version: str | None
@@ -733,6 +754,8 @@ class QueueEntry:
     template: TemplateReadiness
     prerequisites: tuple[str, ...]
     notes: tuple[str, ...]
+    # C2.5.8 (追加・末尾): monetization mode / production readiness (報告のみ)
+    monetization: ContentMonetization | None = None
 
 
 @dataclass(frozen=True)
@@ -855,6 +878,56 @@ def fact_research(
         strong_subjects=strong_subjects,
         core_subjects=core_subjects,
         contextual_subjects=contextual_subjects,
+    )
+
+
+def content_monetization(
+    *,
+    decision: str,
+    article_type: ArticleType | None,
+    template: TemplateReadiness,
+    coverage: AffiliateCoverage,
+) -> ContentMonetization:
+    """C2.5.8: entry の mode と production readiness。affiliate 無しは blocker にしない。"""
+
+    from app.article import monetization  # 循環 import を避ける (monetization -> planning)
+
+    tiered = coverage.strong_program_count is not None
+    eligible = bool(coverage.eligible_program_names)
+    recommended = (
+        (monetization.MODE_AFFILIATE if eligible else monetization.MODE_SUPPORTING)
+        if tiered
+        else None
+    )
+    if decision != DECISION_OK:
+        return ContentMonetization(
+            recommended, "not_a_slot", (), f"decision={decision} (not a new article)"
+        )
+    blockers: list[str] = []
+    if article_type is None:
+        blockers.append("article_type_undetermined")
+    elif not template.ready:
+        blockers.append(f"no_prompt_template:{article_type.value}")
+    any_candidate = (coverage.strong_program_count or 0) + (coverage.weak_program_count or 0) > 0
+    if (
+        not eligible
+        and monetization.requires_comparison_subjects(article_type)
+        and not any_candidate
+    ):
+        blockers.append(monetization.SUBJECTS_UNAVAILABLE)
+    if blockers:
+        return ContentMonetization(
+            recommended, "blocked", tuple(blockers), "blocked for non-affiliate reasons"
+        )
+    if eligible:
+        return ContentMonetization(
+            recommended, "affiliate_ready", (), "primary-eligible affiliate available"
+        )
+    return ContentMonetization(
+        recommended,
+        "supporting_only",
+        (),
+        "no primary-eligible affiliate: produce as supporting content (not a blocker)",
     )
 
 
@@ -1119,6 +1192,12 @@ def build_content_queue(
             template=template,
             prerequisites=tuple(prerequisites),
             notes=tuple(notes),
+            monetization=content_monetization(
+                decision=work.decision,
+                article_type=work.article_type,
+                template=template,
+                coverage=coverage,
+            ),
         )
 
     merged_works = sorted(
@@ -1163,6 +1242,15 @@ def build_content_queue(
         "template_ready_slots": sum(1 for e in slot_entries if e.template.ready),
         "slots_with_prerequisites": sum(1 for e in slot_entries if e.prerequisites),
         "by_cluster": by_cluster,
+        # C2.5.8 (追加): slot の production readiness (affiliate 無し != 作らない)
+        "production_readiness": {
+            state: sum(
+                1
+                for e in slot_entries
+                if e.monetization is not None and e.monetization.production_readiness == state
+            )
+            for state in ("affiliate_ready", "supporting_only", "blocked")
+        },
     }
     return ContentQueue(
         config_version=config.version,

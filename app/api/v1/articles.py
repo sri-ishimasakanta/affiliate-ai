@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, status
 
 from app.api.dependencies import (
     ArticleAffiliateProgramServiceDep,
+    ArticleMonetizationServiceDep,
     ArticlePublicationApprovalServiceDep,
     ArticleServiceDep,
 )
@@ -17,6 +18,8 @@ from app.article.schemas import (
     ArticleAffiliateProgramRead,
     ArticleAffiliateProgramUpdate,
     ArticleCreate,
+    ArticleMonetizationModeRead,
+    ArticleMonetizationModeUpdate,
     ArticlePublicationApprovalRequest,
     ArticleRead,
     ArticleStatusUpdate,
@@ -104,6 +107,35 @@ def change_article_status(
     service: ArticleServiceDep,
 ) -> ArticleRead:
     return service.change_status(article_id, payload.status)
+
+
+@router.get(
+    "/{article_id}/monetization-mode",
+    response_model=ArticleMonetizationModeRead,
+    status_code=status.HTTP_200_OK,
+    summary="記事の content monetization mode (実効値と出どころ) を取得する",
+)
+def get_article_monetization_mode(
+    article_id: int,
+    service: ArticleMonetizationServiceDep,
+) -> ArticleMonetizationModeRead:
+    return service.get_mode(article_id)
+
+
+@router.put(
+    "/{article_id}/monetization-mode",
+    response_model=ArticleMonetizationModeRead,
+    status_code=status.HTTP_200_OK,
+    summary="content monetization mode を明示的に変更する "
+    "(affiliate は primary_eligible な primary が必須 / supporting は primary 不可)",
+)
+def set_article_monetization_mode(
+    article_id: int,
+    payload: ArticleMonetizationModeUpdate,
+    service: ArticleMonetizationServiceDep,
+) -> ArticleMonetizationModeRead:
+    # link 操作では mode は変わらない。mode の変更はこの明示操作だけ (C2.5.8)。
+    return service.set_mode(article_id, payload)
 
 
 @router.post(

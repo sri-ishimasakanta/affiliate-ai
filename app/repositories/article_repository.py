@@ -27,8 +27,16 @@ class ArticleRepository:
         title: str,
         slug: str,
         keyword_id: int | None = None,
+        monetization_mode: str | None = None,
     ) -> Article:
-        entity = Article(title=title, slug=slug, keyword_id=keyword_id)
+        # monetization_mode は C2.5.8 の明示値。既定 (None) は「明示されていない」= legacy 行で、
+        # 読み取り時に primary link から導出される (ArticlePlanService.approve は必ず明示する)。
+        entity = Article(
+            title=title,
+            slug=slug,
+            keyword_id=keyword_id,
+            monetization_mode=monetization_mode,
+        )
         self._session.add(entity)
         self._session.flush()
         return entity

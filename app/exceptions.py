@@ -491,6 +491,19 @@ class PlanApprovalError(ApplicationError):
         self.reason = reason
 
 
+class MonetizationModeTransitionError(ApplicationError):
+    """C2.5.8: content monetization mode の明示変更が拒否された。
+
+    affiliate へは primary がちょうど 1 件あり、それが primary_eligible (strong、または
+    weak かつ core) でなければならない。supporting へは primary が残っていてはならない。
+    link を変えるだけで mode が変わることは無いので、変更は必ずこの操作を通る。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"monetization mode transition rejected: {reason}")
+        self.reason = reason
+
+
 class ProviderNotConfiguredError(ApplicationError):
     """外部プロバイダの認証情報 / 設定が未設定 (運用上の構成エラー)。
 

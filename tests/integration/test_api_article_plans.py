@@ -210,3 +210,40 @@ def test_get_plan_serializes_tier_metadata_without_changing_existing_fields(
     assert (body["strong_candidate_count"], body["weak_candidate_count"]) == (0, 2)
     assert body["no_strong_affiliate_candidate"] is True
     assert body["alias_only_strong_programs"] == []
+
+
+# ================================================================ C2.5.8: monetization mode
+def test_api_supporting_mode_approves_without_affiliates_and_rejects_a_primary(
+    api_client, session: Session
+) -> None:
+    k, ids = _complete(session)
+    url = f"/api/v1/keywords/{k.id}/article-plan/approve"
+    base = {"title": "t", "acknowledge_cannibalization": True, "monetization_mode": "supporting"}
+    with_primary = {**base, "slug": "sp", "primary_affiliate_program_id": ids["Make"]}
+    r = api_client.post(url, json=with_primary)
+    assert r.status_code == 409
+    assert "supporting does not take a primary" in r.json()["error"]["message"]
+    assert session.scalar(select(func.count()).select_from(Article)) == 0
+    r = api_client.post(url, json={**base, "slug": "sp"})
+    assert r.status_code == 201, r.text
+    assert session.scalar(select(func.count()).select_from(ArticleAffiliateProgram)) == 0
+    plan = api_client.get(f"/api/v1/keywords/{k.id}/article-plan").json()
+    assert plan["monetization_mode"] == "supporting"
+    assert {"recommended_monetization_mode", "monetization_recommendation_reason",
+            "affiliate_ready", "supporting_ready", "production_blockers"} <= set(plan)
+
+
+def test_api_rejects_an_unknown_mode_and_affiliate_without_primary(
+    api_client, session: Session
+) -> None:
+    k, _ids = _complete(session)
+    url = f"/api/v1/keywords/{k.id}/article-plan/approve"
+    r = api_client.post(url, json={"title": "t", "slug": "x", "monetization_mode": "sponsored"})
+    assert r.status_code == 422
+    r = api_client.post(
+        url,
+        json={"title": "t", "slug": "x", "monetization_mode": "affiliate",
+              "acknowledge_cannibalization": True},
+    )
+    assert r.status_code == 409
+    assert "requires primary_affiliate_program_id" in r.json()["error"]["message"]
