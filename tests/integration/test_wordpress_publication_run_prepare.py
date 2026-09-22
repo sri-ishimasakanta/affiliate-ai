@@ -337,3 +337,46 @@ def test_api_prepare_not_approved_returns_409(api_client, session: Session, wp_e
     )
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "wordpress_publication_run_preparation_error"
+
+
+def test_prepare_accepts_an_article_revised_through_the_editorial_path(
+    session: Session, wp_env
+) -> None:
+    """改訂後も drift guard が通る。
+
+    draft run が凍結した hash と比べると、正規の編集改訂経路を通った記事は
+    公開 prepare に到達できなくなる。
+    """
+    from app.article.draft_promotion_canonical import compute_text_hash
+    from app.article.editorial_revision_canonical import compute_revision_content_hash
+    from app.services.article_editorial_revision_service import (
+        ArticleEditorialRevisionService,
+    )
+
+    art, run = _ready(session)
+    session.commit()
+    assert _prepare(session, art, run).status == "prepared"
+
+    # 改訂は review 状態で行う (approved のままでは改訂経路の対象外)
+    art.status = ArticleStatus.REVIEW.value
+    session.commit()
+    new_body = (art.body or "") + "\n\n関連記事: [関連](https://example.test/x/)\n"
+    ArticleEditorialRevisionService(session).revise(
+        art.id,
+        body_markdown=new_body,
+        meta_description=art.meta_description,
+        expected_current_body_hash=compute_text_hash(art.body or ""),
+        expected_current_meta_hash=compute_text_hash(art.meta_description or ""),
+        expected_revision_content_hash=compute_revision_content_hash(
+            article_id=art.id, body_markdown=new_body,
+            meta_description=art.meta_description),
+        revision_reason="内部リンクを追加",
+    )
+    art = article_of(session, art.id)
+    art.status = ArticleStatus.APPROVED.value
+    session.commit()
+
+    # draft run の hash とは一致しなくなるが、最新 revision とは一致するので通る
+    assert compute_text_hash(art.body) != run.canonical_body_hash
+    out = _prepare(session, art, run, idempotency_key="after-revision")
+    assert out.status == "prepared"

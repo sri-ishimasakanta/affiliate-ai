@@ -44,6 +44,9 @@ from app.exceptions import (
 from app.models.enums import ArticleStatus
 from app.models.wordpress_draft_run import WP_RUN_SUCCEEDED
 from app.models.wordpress_publication_run import WP_PUBRUN_PREPARED, WP_PUBRUN_RUNNING
+from app.repositories.article_editorial_revision_repository import (
+    ArticleEditorialRevisionRepository,
+)
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.wordpress_draft_run_repository import WordPressDraftRunRepository
 from app.repositories.wordpress_publication_run_repository import (
@@ -78,6 +81,7 @@ class WordPressPublicationRunService:
         self._wordpress_client = wordpress_client
         self._articles = ArticleRepository(session)
         self._draft_runs = WordPressDraftRunRepository(session)
+        self._revisions = ArticleEditorialRevisionRepository(session)
         self._repo = WordPressPublicationRunRepository(session)
 
     # -- prepare (transaction owner; 通信なし) ---------------------------
@@ -414,14 +418,21 @@ class WordPressPublicationRunService:
                 "source WordPressDraftRun.target_request_identity_hash does not match "
                 "the caller-approved value"
             )
-        if body_hash != source_run.canonical_body_hash:
-            fails.append(
-                "current Article body hash has drifted from the approved draft run"
-            )
-        if meta_hash != source_run.canonical_meta_hash:
-            fails.append(
-                "current Article meta hash has drifted from the approved draft run"
-            )
+        # 現在の canonical 本文の正本は、改訂があれば最新の revision、無ければ draft run が
+        # 送った内容。draft run の hash と比べると、正規の改訂経路を通った記事が必ず落ちる。
+        latest_revision = self._revisions.get_latest(article.id)
+        if latest_revision is not None:
+            expected_body = latest_revision.body_hash
+            expected_meta = latest_revision.meta_hash
+            origin = f"revision #{latest_revision.id}"
+        else:
+            expected_body = source_run.canonical_body_hash
+            expected_meta = source_run.canonical_meta_hash
+            origin = "the approved draft run"
+        if body_hash != expected_body:
+            fails.append(f"current Article body hash has drifted from {origin}")
+        if meta_hash != expected_meta:
+            fails.append(f"current Article meta hash has drifted from {origin}")
 
         if not settings.wordpress_configured:
             fails.append("wordpress_configured is false")
