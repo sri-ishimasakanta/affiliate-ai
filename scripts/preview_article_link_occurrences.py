@@ -99,7 +99,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        preview = run_preview(article_id=args.article_id)
+        # SessionLocal は default 引数ではなく **呼び出し時** に解決する
+        # (default に束縛すると test の差し替えが効かず実 DB を見てしまう)。
+        preview = run_preview(article_id=args.article_id, session_factory=SessionLocal)
     except EntityNotFoundError as exc:
         print(f"NOT FOUND: {exc}")
         return EXIT_NOT_FOUND

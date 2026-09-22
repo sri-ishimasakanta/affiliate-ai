@@ -101,3 +101,27 @@ def test_main_exit_code_ok(cli_session_factory, monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "Article Link Occurrence Preview" in out
     assert "dry-run: no DB write, no WordPress request" in out
+
+
+def test_main_reads_the_injected_session_factory_not_the_real_database(
+    cli_session_factory, monkeypatch, capsys
+) -> None:
+    """``SessionLocal`` は default 引数ではなく呼び出し時に解決されること (回帰)。
+
+    default 引数に束縛されていると monkeypatch が効かず、``main`` が実 DB
+    (``affiliate_ai.db``) を読んでしまう。テスト用 DB にしか存在しないタイトルで検出する。
+    """
+
+    with cli_session_factory() as session:
+        article = Article(title="scratch-only-article", slug="scratch-only", keyword_id=None)
+        session.add(article)
+        session.commit()
+        article_id = article.id
+    monkeypatch.setattr(
+        "scripts.preview_article_link_occurrences.SessionLocal", cli_session_factory
+    )
+
+    code = main(["--article-id", str(article_id)])
+
+    assert code == 0
+    assert "article_title               = scratch-only-article" in capsys.readouterr().out
