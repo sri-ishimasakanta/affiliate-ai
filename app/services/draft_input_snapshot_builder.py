@@ -58,6 +58,9 @@ from app.repositories.article_affiliate_program_repository import (
     ArticleAffiliateProgramRepository,
 )
 from app.repositories.article_fact_repository import ArticleFactRepository
+from app.repositories.article_reference_fact_repository import (
+    ArticleReferenceFactRepository,
+)
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.keyword_repository import KeywordRepository
 from app.repositories.source_repository import SourceRepository
@@ -241,6 +244,31 @@ class DraftInputSnapshotBuilder:
                 }
             )
 
+        # --- 記事レベルの参照文献エビデンス (C4.6) ---
+        # 製品ではない一次情報 (ガイドライン等) を根拠にする記事のための block。
+        # 出典は tools と同じ referenced-source union に載せる。
+        reference_rows = ArticleReferenceFactRepository(
+            self._session
+        ).get_latest_for_article(article_id)
+        reference_payload: list[dict] = []
+        for row in reference_rows:
+            source = all_sources_by_id.get(row.source_id)
+            if source is None:
+                raise DraftInputNotReadyError(
+                    f"reference fact {row.id} points at source {row.source_id}, "
+                    "which does not belong to this article"
+                )
+            referenced_source_ids.add(source.id)
+            reference_payload.append(
+                {
+                    "reference_key": row.reference_key,
+                    "statement": row.statement,
+                    "section_label": row.section_label,
+                    "position": row.position,
+                    "source_id": source.id,
+                }
+            )
+
         # --- sources: referenced-only, source_id ASC (§3-B / §26) ---
         sources_payload = [
             self._source_entry(all_sources_by_id[sid])
@@ -308,6 +336,11 @@ class DraftInputSnapshotBuilder:
         # **明示値** は canonical payload に入れて content_hash の対象にする。明示値の無い
         # legacy 行 (NULL) ではキー自体を出さないので、既存 article の payload / content_hash は
         # C2.5.8 導入前と同一のまま (historical snapshot を書き換えない)。
+        # 参照文献エビデンスを持つ記事だけがこのキーを持つ。持たない記事の payload /
+        # content_hash は C4.6 導入前と完全に同一のまま (historical snapshot を壊さない)。
+        if reference_payload:
+            payload["reference_evidence"] = reference_payload
+
         if subject_resolution.source == SUBJECT_SOURCE_PERSISTED:
             payload["content_subjects"] = [
                 {

@@ -43,6 +43,9 @@ from app.repositories.article_affiliate_program_repository import (
     ArticleAffiliateProgramRepository,
 )
 from app.repositories.article_fact_repository import ArticleFactRepository
+from app.repositories.article_reference_fact_repository import (
+    ArticleReferenceFactRepository,
+)
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.keyword_repository import KeywordRepository
 from app.repositories.source_repository import SourceRepository
@@ -205,6 +208,9 @@ class FactPackService:
         )
         article_type = effective_type.article_type
         subjects_required = monetization.requires_comparison_subjects(article_type)
+        reference_facts = ArticleReferenceFactRepository(
+            self._session
+        ).get_latest_for_article(article_id)
         blocking = self._blocking_reasons(
             subjects, per_tool_readiness, mode=mode, subjects_required=subjects_required
         )
@@ -217,6 +223,14 @@ class FactPackService:
         if article_type is None:
             warnings.append(
                 "article_type_undetermined: 記事タイプが未確定 (承認時に明示できる)"
+            )
+        if not subjects and not subjects_required and not reference_facts:
+            # 比較対象も参照文献エビデンスも無い = prompt に載る根拠が 1 件も無い。
+            # blocker にはしない (C3 で「事実未調査は通常の production 作業」と決めた)
+            # が、この状態で書くと推測で書くことになるため明示する。
+            warnings.append(
+                "no_evidence_at_all: 比較対象も参照文献エビデンスも無い。"
+                "この状態では frozen prompt に根拠が 1 件も載らない"
             )
 
         pricing_checked_all = [
@@ -259,6 +273,7 @@ class FactPackService:
                 non_affiliate_subject_count=sum(
                     1 for s in subjects if not s.is_affiliate_backed
                 ),
+                reference_evidence_count=len(reference_facts),
             ),
             warnings=warnings,
         )
@@ -399,6 +414,7 @@ class FactPackService:
                     "no comparison subjects: this article type compares subjects and needs at "
                     "least one selected content subject (affiliate-backed or editorial)"
                 )
+
         for r in per_tool:
             if not r.ok:
                 parts = []

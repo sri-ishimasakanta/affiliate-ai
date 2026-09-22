@@ -60,6 +60,7 @@ from app.models.article_link_substitution_mapping import (
 )
 from app.models.article_metric import ArticleMetric
 from app.models.article_publication_artifact import ArticlePublicationArtifact
+from app.models.article_reference_fact import ArticleReferenceFact
 from app.models.base import Base, TimestampMixin
 from app.models.draft_generation_run import (
     EXECUTION_MODES,
@@ -195,6 +196,7 @@ __all__ = [
     "ArticleContentSubject",
     "ArticleDraftPromotion",
     "ArticleEditorialRevision",
+    "ArticleReferenceFact",
     "ArticleFact",
     "ArticleLinkSubstitutionMapping",
     "ArticleMetric",

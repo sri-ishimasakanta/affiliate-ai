@@ -181,6 +181,30 @@ class EditorialOverridesV1(BaseModel):
     commission_to_llm: bool = False
 
 
+def _reference_evidence(payload: dict) -> list[dict]:
+    """参照文献エビデンスを、出典を添えた形で prompt へ渡す。"""
+
+    sources = {s["id"]: s for s in payload.get("sources", [])}
+    out: list[dict] = []
+    for row in payload.get("reference_evidence", []):
+        source = sources.get(row["source_id"], {})
+        out.append(
+            {
+                "reference_key": row["reference_key"],
+                "statement": row["statement"],
+                "section_label": row.get("section_label"),
+                "source": {
+                    "source_id": row["source_id"],
+                    "source_type": source.get("source_type"),
+                    "source_url": source.get("source_url"),
+                    "title": source.get("title"),
+                    "checked_at": source.get("checked_at"),
+                },
+            }
+        )
+    return out
+
+
 def _fact_key_order(payload: dict) -> list[str]:
     return list(payload.get("policy", {}).get("fact_key_order", []))
 
@@ -294,6 +318,13 @@ def build_prompt_package(
             else None
         ),
         "comparison_tools": tools,
+        # C4.6: 記事レベルの参照文献エビデンス。持つ記事だけがこのキーを持つため、
+        # 既存 package の prompt_input_hash は変わらない。
+        **(
+            {"reference_evidence": _reference_evidence(p)}
+            if p.get("reference_evidence")
+            else {}
+        ),
         "fact_key_order": _fact_key_order(p),
         "editorial_overrides": overrides.model_dump(mode="json"),
         "pricing_notice_policy": {

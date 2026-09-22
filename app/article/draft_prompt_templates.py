@@ -98,6 +98,30 @@ _COMPLIANCE_SUPPORTING = "\n".join(
 )
 
 
+#: C4.6: 参照文献エビデンス (ガイドライン・標準・官公庁資料など) を持つ記事にだけ付ける。
+#: 製品 fact とは根拠の性質が違うため、扱い方を明示的に分ける。
+_REFERENCE_EVIDENCE_RULES = "\n".join(
+    [
+        "[参照文献エビデンスの扱い]",
+        "- reference_evidence は、この記事が依拠する一次情報（ガイドライン・標準・"
+        "官公庁の公表資料など）から取った記述です。各項目は statement と source を持ちます。",
+        "- 文書の内容として書いてよいのは reference_evidence の statement の範囲だけです。"
+        "そこに無い条項・要件・数値を作らないでください。",
+        "- 出典の記述と、あなたの編集上の説明を区別して書いてください。"
+        "文書が述べていることは「◯◯には〜と記載されています」、"
+        "読み手向けの整理は地の文、というように書き分けます。",
+        "- 版・公表日が evidence にある場合は、本文でもその版・日付を明示してください"
+        "（文書は改訂されるため）。",
+        "- 出典が「法的義務」と述べていない限り、義務・強制・罰則があるかのように"
+        "書かないでください。指針・ガイドラインは、出典がそう書いていなければ"
+        "拘束力のあるものとして扱わないこと。",
+        "- 存在しない条文番号・章番号・ページ番号を作らないでください。"
+        "section_label がある場合だけ、その表記を使えます。",
+        "- 参照文献を製品として扱ったり、推薦の対象にしたりしないでください。",
+    ]
+)
+
+
 def _compose(role: str, type_rules: str, *, pricing: bool = True) -> Callable[[dict], str]:
     """役割 + type 固有ルール + 共通ルールから system_rules を組み立てる。"""
 
@@ -112,6 +136,8 @@ def _compose(role: str, type_rules: str, *, pricing: bool = True) -> Callable[[d
             "",
             _FACT_RULES,
         ]
+        if package.get("reference_evidence"):
+            blocks += ["", _REFERENCE_EVIDENCE_RULES]
         if pricing:
             blocks += ["", _PRICING_RULES]
         blocks += [

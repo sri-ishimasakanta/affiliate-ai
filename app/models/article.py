@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.article_editorial_revision import ArticleEditorialRevision
     from app.models.article_fact import ArticleFact
     from app.models.article_metric import ArticleMetric
+    from app.models.article_reference_fact import ArticleReferenceFact
     from app.models.draft_generation_run import DraftGenerationRun
     from app.models.draft_input_snapshot import DraftInputSnapshot
     from app.models.keyword import Keyword
@@ -142,6 +143,13 @@ class Article(Base, TimestampMixin):
     # 採用後の編集改訂の immutable な履歴 (append-only)。base_promotion を FK RESTRICT で
     # 参照するため promotion より先に削除される必要があり、cascade を Article 側に持つ。
     editorial_revisions: Mapped[list[ArticleEditorialRevision]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # 記事レベルの参照文献エビデンス (append-only)。Source を FK RESTRICT で参照するため
+    # source より先に削除される必要があり、cascade を Article 側に持つ。
+    reference_facts: Mapped[list[ArticleReferenceFact]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

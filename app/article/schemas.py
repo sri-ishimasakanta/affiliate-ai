@@ -441,6 +441,8 @@ class FactPackReadiness(BaseModel):
     # persisted = 承認時に固定した選択 / legacy_affiliate_links = link からの fallback
     comparison_subject_source: Literal["persisted", "legacy_affiliate_links"] | None = None
     non_affiliate_subject_count: int | None = None
+    # C4.6: 記事レベルの参照文献エビデンス件数 (製品 fact とは別の根拠)
+    reference_evidence_count: int = 0
 
 
 class FactPackPlanMetadata(BaseModel):

@@ -162,6 +162,10 @@ def _fact_data_block(package: dict) -> str:
         "comparison_tools": package["comparison_tools"],
         "fact_key_order": package["fact_key_order"],
     }
+    # C4.6: 参照文献エビデンスを持つ記事だけに出す。持たない記事の rendered prompt は
+    # 従来と 1 バイトも変わらない。
+    if package.get("reference_evidence"):
+        data["reference_evidence"] = package["reference_evidence"]
     return canonical_json(data)
 
 
