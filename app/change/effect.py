@@ -21,12 +21,31 @@
     露出が少なすぎて、差がノイズと区別できない。
 
 窓は変更日そのものを **どちらにも含めない**。適用当日は変更前後が混ざるため。
+
+暦日は **運用/レポートのタイムゾーン** (``app/config/operations_policy.json`` の
+``timezone``、本番では ``Asia/Tokyo``) で決める。UTC の暦日ではない。保存されている
+適用時刻は UTC のままで、ここでは読むときに変換するだけである
+(C8 の ``OperationsRunner._effective_date`` と同じ規約)。
+
+    2026-09-22T17:43:41Z  ->  2026-09-23 (Asia/Tokyo) が変更日
+
+provider の日付の意味は揃っていないので、揃っているふりをしない:
+
+- GA4   -- property のタイムゾーンの暦日 (本番では Asia/Tokyo。窓と一致する)
+- GSC   -- **Pacific Time** の暦日 (:mod:`app.search_console.date_window`)
+- 窓     -- レポートタイムゾーンの暦日
+
+GSC は窓の境界に対して最大 1 日ずれうる。行を書き換えて合わせることはしない
+(provider-faithful を壊すため)。境界日付近の差は、この 1 日のずれの範囲内では
+読み取らない -- 成熟度判定が既に「窓が経過し取り込みが届くまで読まない」と
+しているので、実務上はそこで吸収される。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 #: 成熟度の理由コード。
 POST_WINDOW_NOT_ELAPSED = "POST_WINDOW_NOT_ELAPSED"
@@ -89,16 +108,45 @@ class MaturityVerdict:
         return {"status": self.status, "reasons": list(self.reasons), "notes": list(self.notes)}
 
 
+@dataclass(frozen=True)
+class EffectWindows:
+    """変更日と、その前後の同じ長さの 2 窓。"""
+
+    #: レポートタイムゾーンでの変更日 (どちらの窓にも含まれない)。
+    effective_date: date
+    timezone_name: str
+    pre: EffectWindow
+    post: EffectWindow
+
+
+def local_effective_date(moment: datetime, tz: ZoneInfo) -> date:
+    """UTC で保存された時刻を、レポートタイムゾーンの暦日に直す。
+
+    SQLite は tzinfo を落とすので、naive な値は UTC とみなす
+    (:func:`app.article.fact_freshness.ensure_aware` と同じ前提)。手で +9 時間
+    足すようなことはしない -- DST のある tz でも正しく動く必要がある。
+    """
+
+    aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+    return aware.astimezone(tz).date()
+
+
 def build_windows(
     *,
-    change_date: date,
+    change_at: datetime,
+    reporting_timezone: ZoneInfo,
     today: date,
     window_days: int = DEFAULT_WINDOW_DAYS,
     coverage_through: date | None,
-) -> tuple[EffectWindow, EffectWindow]:
-    """変更日を挟んだ同じ長さの 2 窓を作る (変更当日はどちらにも入れない)。"""
+) -> EffectWindows:
+    """変更日を挟んだ同じ長さの 2 窓を作る (変更当日はどちらにも入れない)。
+
+    暦日は ``reporting_timezone`` で決める。UTC の暦日で切ると、深夜の適用が
+    前日側に落ちて、変更当日を post 窓に含めてしまう。
+    """
 
     window_days = max(1, int(window_days))
+    change_date = local_effective_date(change_at, reporting_timezone)
     pre_end = change_date - timedelta(days=1)
     pre_start = pre_end - timedelta(days=window_days - 1)
     post_start = change_date + timedelta(days=1)
@@ -107,9 +155,11 @@ def build_windows(
     def _covered(end: date) -> bool:
         return coverage_through is not None and coverage_through >= end and today >= end
 
-    return (
-        EffectWindow(pre_start, pre_end, _covered(pre_end), coverage_through),
-        EffectWindow(post_start, post_end, _covered(post_end), coverage_through),
+    return EffectWindows(
+        effective_date=change_date,
+        timezone_name=str(getattr(reporting_timezone, "key", reporting_timezone)),
+        pre=EffectWindow(pre_start, pre_end, _covered(pre_end), coverage_through),
+        post=EffectWindow(post_start, post_end, _covered(post_end), coverage_through),
     )
 
 

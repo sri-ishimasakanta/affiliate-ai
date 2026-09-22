@@ -7,6 +7,9 @@ read-only。DB にも WordPress にも書かない。
 
 **因果は主張しない。** 出力は「同じ長さの窓の同じ指標を並べたもの」+「それを
 信じてよいか」だけで、成熟していなければ ``insufficient_data`` と明示する。
+
+暦日の境界は運用ポリシーのタイムゾーン (本番では ``Asia/Tokyo``) で決まる。
+保存されている適用時刻は UTC のままで、表示と窓の計算で変換するだけである。
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print("=== change effects ===")
     print(f"generated_at        = {report.generated_at}")
+    print(f"reporting timezone  = {report.reporting_timezone}")
     print(f"window_days         = {report.window_days}")
     print(f"gsc coverage        = {report.gsc_coverage_through}")
     print(f"ga4 coverage        = {report.ga4_coverage_through}")
@@ -60,7 +64,11 @@ def main(argv: list[str] | None = None) -> int:
             f"\n-- application {effect.change_application_id} (request {effect.change_request_id})"
         )
         print(f"   article        = {effect.article_id} {effect.article_url}")
-        print(f"   change_date    = {effect.change_date}  type={effect.change_type}")
+        print(
+            f"   change_date    = {effect.change_date} ({effect.reporting_timezone})"
+            f"  type={effect.change_type}"
+        )
+        print(f"   applied_at     = {effect.applied_at} (UTC stored)")
         print(f"   pre  window    = {effect.pre_window['start']} .. {effect.pre_window['end']}")
         print(f"   post window    = {effect.post_window['start']} .. {effect.post_window['end']}")
         print(f"   maturity       = {effect.maturity['status']} {effect.maturity['reasons']}")

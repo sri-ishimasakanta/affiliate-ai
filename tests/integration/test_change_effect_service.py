@@ -232,3 +232,48 @@ def test_a_failed_application_is_not_compared(session: Session, applied) -> None
     report = _build(session, now=datetime(2026, 7, 1, tzinfo=UTC))
 
     assert report.effects == []
+
+
+# -- C9.5: calendar boundary uses the reporting timezone -----------------------
+def test_a_late_utc_application_uses_the_next_local_day(session: Session, applied) -> None:
+    """本番 application 2 と同じ形: UTC 9/22 17:43 -> Asia/Tokyo 9/23。"""
+
+    _, _, application = applied
+    moment = datetime(2026, 9, 22, 17, 43, 41, tzinfo=UTC)
+    application.attempted_at = moment.replace(tzinfo=None)
+    application.finished_at = moment.replace(tzinfo=None)
+    session.commit()
+
+    report = ChangeEffectService(session, settings=_Settings()).build(
+        window_days=28, minimum_impressions=10, now=datetime(2026, 11, 1, tzinfo=UTC)
+    )
+    effect = report.effects[0]
+
+    assert report.reporting_timezone == "Asia/Tokyo"
+    assert effect.change_date == "2026-09-23"
+    assert effect.reporting_timezone == "Asia/Tokyo"
+    assert effect.pre_window["start"] == "2026-08-26"
+    assert effect.pre_window["end"] == "2026-09-22"
+    assert effect.post_window["start"] == "2026-09-24"
+    assert effect.post_window["end"] == "2026-10-21"
+    # 変更当日 (JST) は post 窓の外。
+    assert effect.post_window["start"] > "2026-09-23"
+    # 保存された時刻は UTC のまま。
+    assert effect.applied_at.startswith("2026-09-22T17:43:41")
+
+
+def test_building_the_report_performs_no_http(session: Session, applied, monkeypatch) -> None:
+    """効果追跡は read-only -- WordPress にも /go/ にも触れない。"""
+
+    import httpx
+
+    def _boom(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("effect tracking must not perform any HTTP request")
+
+    monkeypatch.setattr(httpx, "Client", _boom)
+    monkeypatch.setattr(httpx, "get", _boom)
+    monkeypatch.setattr(httpx, "post", _boom)
+
+    report = _build(session, now=datetime(2026, 7, 1, tzinfo=UTC))
+
+    assert report.effects

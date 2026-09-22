@@ -16,6 +16,10 @@ read-only。DB にも WordPress にも書かない。やることは 1 つだけ
 
 アフィリエイトクリックは C7 の ``trusted_measurement_start_at`` より前を
 **読者行動として数えない** (計測用リクエストが作ったクリックのため)。
+
+暦日の境界は **運用ポリシーのタイムゾーン** (本番では ``Asia/Tokyo``) で決める。
+C8 の ``OperationsRunner._effective_date`` と同じ規約で、UTC の暦日では切らない。
+保存された適用時刻は UTC のままで、読むときに変換するだけである。
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from app.change.effect import (
     assess_maturity,
     build_windows,
     delta,
+    local_effective_date,
 )
 from app.models import (
     Article,
@@ -43,6 +48,7 @@ from app.models import (
     Ga4PageDaily,
     SearchConsolePageDaily,
 )
+from app.operations.policy import get_policy as get_operations_policy
 from app.revenue.policy import load_policy
 from app.seo.url_normalization import normalize_url_key
 from app.services.affiliate_click_metrics_service import AffiliateClickMetricsService
@@ -90,7 +96,9 @@ class ChangeEffect:
     change_type: str
     proposal_hash: str
     applied_at: str
+    #: レポートタイムゾーンでの変更日 (UTC の暦日ではない)。
     change_date: str
+    reporting_timezone: str
     window_days: int
     pre_window: dict
     post_window: dict
@@ -112,6 +120,7 @@ class ChangeEffect:
             "proposal_hash": self.proposal_hash,
             "applied_at": self.applied_at,
             "change_date": self.change_date,
+            "reporting_timezone": self.reporting_timezone,
             "window_days": self.window_days,
             "pre_window": self.pre_window,
             "post_window": self.post_window,
@@ -127,6 +136,7 @@ class ChangeEffect:
 @dataclass
 class ChangeEffectReport:
     generated_at: str
+    reporting_timezone: str
     window_days: int
     minimum_impressions: int
     gsc_coverage_through: str | None
@@ -138,6 +148,7 @@ class ChangeEffectReport:
     def as_dict(self) -> dict:
         return {
             "generated_at": self.generated_at,
+            "reporting_timezone": self.reporting_timezone,
             "window_days": self.window_days,
             "minimum_impressions": self.minimum_impressions,
             "gsc_coverage_through": self.gsc_coverage_through,
@@ -170,13 +181,15 @@ class ChangeEffectService:
         now: datetime | None = None,
     ) -> ChangeEffectReport:
         now = now or datetime.now(UTC)
-        today = now.date()
+        tz = get_operations_policy().timezone
+        today = local_effective_date(now, tz)
         coverage = self._coverage_through()
         policy = load_policy()
         trusted_from = policy.trusted_measurement_start_at
 
         report = ChangeEffectReport(
             generated_at=now.isoformat(),
+            reporting_timezone=str(getattr(tz, "key", tz)),
             window_days=window_days,
             minimum_impressions=minimum_impressions,
             gsc_coverage_through=_iso(coverage.get("search_console")),
@@ -201,6 +214,7 @@ class ChangeEffectService:
                 minimum_impressions=minimum_impressions,
                 gsc_coverage=coverage.get("search_console"),
                 trusted_from=trusted_from,
+                reporting_timezone=tz,
             )
             if effect is not None:
                 report.effects.append(effect)
@@ -223,6 +237,7 @@ class ChangeEffectService:
         minimum_impressions: int,
         gsc_coverage: date | None,
         trusted_from: datetime | None,
+        reporting_timezone,
     ) -> ChangeEffect | None:
         article = self._session.get(Article, application.article_id)
         request = self._session.get(ChangeRequest, application.change_request_id)
@@ -230,13 +245,14 @@ class ChangeEffectService:
             return None
 
         applied_at = application.finished_at or application.attempted_at
-        change_date = applied_at.date()
-        pre, post = build_windows(
-            change_date=change_date,
+        windows = build_windows(
+            change_at=applied_at,
+            reporting_timezone=reporting_timezone,
             today=today,
             window_days=window_days,
             coverage_through=gsc_coverage,
         )
+        pre, post = windows.pre, windows.post
 
         key = normalize_url_key(article.published_url or "")
         pre_metrics = self._measure(pre, key, base, article.id, trusted_from)
@@ -266,7 +282,8 @@ class ChangeEffectService:
             change_type=request.change_type,
             proposal_hash=application.proposal_hash,
             applied_at=applied_at.isoformat(),
-            change_date=change_date.isoformat(),
+            change_date=windows.effective_date.isoformat(),
+            reporting_timezone=windows.timezone_name,
             window_days=window_days,
             pre_window=pre.as_dict(),
             post_window=post.as_dict(),
