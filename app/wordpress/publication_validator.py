@@ -51,6 +51,7 @@ def validate_wordpress_publication_preview(
     article_wordpress_post_id: int | None,
     article_published_at,
     promotion: object | None,
+    latest_revision: object | None,
     rendered_html: str,
     rendered_h1_count: int,
     rendered_h2_count: int,
@@ -90,24 +91,32 @@ def validate_wordpress_publication_preview(
                 f"promotion.validation_report.overall={report.get('overall')!r}",
             )
         )
+        # 採用後に編集改訂があれば、現在の canonical 本文の正本は最新の revision。
+        # promotion の hash と比べると、正規の改訂経路を通った記事が必ず fail する。
+        origin = latest_revision if latest_revision is not None else promotion
+        origin_label = (
+            f"revision #{latest_revision.id}"
+            if latest_revision is not None
+            else f"promotion #{promotion.id}"
+        )
         body_h = compute_text_hash(article_body)
         meta_h = compute_text_hash(article_meta_description)
         checks.append(
             _check(
                 "body_hash_matches_promotion",
-                "pass" if body_h == promotion.body_hash else "fail",
-                "canonical body hash != promotion.body_hash"
-                if body_h != promotion.body_hash
-                else "ok",
+                "pass" if body_h == origin.body_hash else "fail",
+                f"canonical body hash != {origin_label}.body_hash"
+                if body_h != origin.body_hash
+                else f"ok ({origin_label})",
             )
         )
         checks.append(
             _check(
                 "meta_hash_matches_promotion",
-                "pass" if meta_h == promotion.meta_hash else "fail",
-                "canonical meta hash != promotion.meta_hash"
-                if meta_h != promotion.meta_hash
-                else "ok",
+                "pass" if meta_h == origin.meta_hash else "fail",
+                f"canonical meta hash != {origin_label}.meta_hash"
+                if meta_h != origin.meta_hash
+                else f"ok ({origin_label})",
             )
         )
 

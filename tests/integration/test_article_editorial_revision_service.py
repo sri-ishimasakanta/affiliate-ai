@@ -270,3 +270,26 @@ def test_article_delete_cascades_revisions(session: Session) -> None:
     session.delete(session.get(Article, ps.article_id))
     session.commit()
     assert session.scalar(select(func.count()).select_from(ArticleEditorialRevision)) == 0
+
+
+def test_a_revised_article_still_passes_the_publication_hash_check(
+    session: Session,
+) -> None:
+    """改訂後も公開前 validator の hash 照合が通る。
+
+    promotion の hash と比べると、正規の改訂経路を通った記事が必ず fail する。
+    """
+    from app.services.wordpress_preview_service import WordPressPreviewService
+
+    ps = promoted_scenario(session)
+    before = WordPressPreviewService(session).preview(ps.article_id)
+    assert "body_hash_matches_promotion" not in {
+        c["id"] for c in before.validation_report["checks"] if c["level"] == "fail"
+    }
+
+    _revise(session, ps.article_id, ps.body_markdown + _LINK, ps.meta_description)
+
+    after = WordPressPreviewService(session).preview(ps.article_id)
+    failed = {c["id"] for c in after.validation_report["checks"] if c["level"] == "fail"}
+    assert "body_hash_matches_promotion" not in failed
+    assert "meta_hash_matches_promotion" not in failed

@@ -22,6 +22,9 @@ from app.repositories.article_affiliate_program_repository import (
 from app.repositories.article_draft_promotion_repository import (
     ArticleDraftPromotionRepository,
 )
+from app.repositories.article_editorial_revision_repository import (
+    ArticleEditorialRevisionRepository,
+)
 from app.repositories.article_repository import ArticleRepository
 from app.wordpress.draft_request import (
     ENDPOINT_PATH,
@@ -74,6 +77,10 @@ class WordPressPreviewService:
 
         promotions = self._promotions.list_by_article(article_id)
         promotion = promotions[0] if promotions else None
+        # 改訂済みなら、現在の canonical 本文の正本は最新の revision。
+        latest_revision = ArticleEditorialRevisionRepository(
+            self._session
+        ).get_latest(article_id)
 
         expected_tools, allowed_domains = self._package_meta(promotion)
         # 自サイトのホストは常に許可する。内部リンクは編集方針として必要であり、
@@ -123,6 +130,7 @@ class WordPressPreviewService:
             article_wordpress_post_id=article.wordpress_post_id,
             article_published_at=article.published_at,
             promotion=promotion,
+            latest_revision=latest_revision,
             rendered_html=rendered.html,
             rendered_h1_count=rendered.h1_count,
             rendered_h2_count=rendered.h2_count,

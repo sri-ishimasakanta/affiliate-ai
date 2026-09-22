@@ -51,6 +51,7 @@ def _run(**over):
         article_wordpress_post_id=None,
         article_published_at=None,
         promotion=_Promo(),
+        latest_revision=None,
         rendered_html=r.html,
         rendered_h1_count=r.h1_count,
         rendered_h2_count=r.h2_count,
