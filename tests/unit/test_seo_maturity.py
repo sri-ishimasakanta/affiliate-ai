@@ -145,3 +145,57 @@ def test_search_and_engagement_maturity_are_independent() -> None:
 
 def test_assessment_is_deterministic() -> None:
     assert _assess() == _assess()
+
+
+# ==================== C8.5: coverage vs activity ==============================
+def test_coverage_decides_observation_not_the_latest_metric_row() -> None:
+    """取り込みが公開日以降まで到達していれば「観測済み」。
+
+    最新の metric 行が公開日より前でも、それは活動が無いだけであって
+    「API が追いついていない」ではない。
+    """
+
+    result = _assess(
+        published_at=datetime(2026, 9, 20, tzinfo=UTC),
+        gsc_data_through=date(2026, 9, 15),
+        gsc_coverage_through=date(2026, 10, 28),
+        impressions=0,
+    )
+    assert result.search_data_covers_article is True
+    assert result.search_state == SEARCH_INDEXED_AWAITING_DATA
+    assert "no impressions were returned" in result.search_reason
+
+
+def test_coverage_short_of_publication_is_still_awaiting_data() -> None:
+    # 年齢ゲートは通し、coverage だけが公開日に届いていない状況にする。
+    result = _assess(
+        published_at=datetime(2026, 9, 20, tzinfo=UTC),
+        gsc_coverage_through=date(2026, 9, 10),
+        gsc_data_through=date(2026, 9, 10),
+        impressions=0,
+    )
+    assert result.search_data_covers_article is False
+    assert "does not cover the publication date" in result.search_reason
+
+
+def test_coverage_never_loosens_the_impression_gates() -> None:
+    """観測済みでも、表示回数のゲートは従来どおり効く。"""
+
+    assert _assess(gsc_coverage_through=date(2026, 10, 28), impressions=5).search_state == (
+        SEARCH_INSUFFICIENT_IMPRESSIONS
+    )
+    assert (
+        _assess(
+            gsc_coverage_through=date(2026, 10, 28),
+            published_at=datetime(2026, 10, 30, tzinfo=UTC),
+            impressions=5000,
+        ).search_state
+        == SEARCH_NEWLY_PUBLISHED
+    )
+
+
+def test_missing_coverage_falls_back_to_the_activity_date() -> None:
+    """coverage を渡さない呼び出し元でも従来どおり動く。"""
+
+    result = _assess(gsc_coverage_through=None, gsc_data_through=date(2026, 10, 28))
+    assert result.search_state == SEARCH_SUFFICIENT_SAMPLE

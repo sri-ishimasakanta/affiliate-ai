@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import date
 
 from app.operations.policy import PRIORITY_ORDER, OperationsPolicy
 
@@ -101,52 +100,10 @@ def evaluate_import_failures(
 
 
 # ==================== 2. data staleness =======================================
-def evaluate_data_staleness(
-    *,
-    source: str,
-    data_through: date | None,
-    ever_had_data: bool,
-    today: date,
-    policy: OperationsPolicy,
-) -> AlertDraft | None:
-    """遅延の範囲内、あるいは一度も届いていない初期状態ではアラートにしない。"""
-
-    config = policy.import_config(source)
-    stale_after = config.get("stale_after_days")
-    if stale_after is None:
-        return None
-
-    if data_through is None:
-        # 一度も届いていない = 初期状態。壊れた証拠ではないので黙る。
-        if not ever_had_data:
-            return None
-        age = None
-    else:
-        age = (today - data_through).days
-        expected = int(config.get("expected_lag_days", 0))
-        if age <= max(int(stale_after), expected):
-            return None
-
-    return AlertDraft(
-        alert_type=DATA_STALE,
-        severity=policy.severity_for(DATA_STALE),
-        source=source,
-        title=f"{source} data is stale",
-        summary=(
-            f"{source} previously delivered data but the most recent row is "
-            f"{data_through} ({age} day(s) old; gate {stale_after})"
-            if data_through
-            else f"{source} previously delivered data but now has none"
-        ),
-        fingerprint=fingerprint(DATA_STALE, source),
-        evidence={
-            "source": source,
-            "data_through": data_through.isoformat() if data_through else None,
-            "age_days": age,
-            "gate_stale_after_days": stale_after,
-            "ever_had_data": ever_had_data,
-        },
-    )
+# C8.5: ソースの鮮度判定は :mod:`app.operations.source_health` へ移した。
+# 旧実装は「最新の metric 行が古い」ことを故障として扱い、低トラフィックのサイトで
+# 誤検知した (Search Console は 2026-09-22 まで正常に取り込めていたのに、活動が
+# 2026-09-15 で止まっていたため stale と報告した)。判定は取り込みの網羅範囲で行う。
 
 
 # ==================== 3./4. article health ====================================

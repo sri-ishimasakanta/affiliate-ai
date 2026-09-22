@@ -86,6 +86,7 @@ def assess_maturity(
     google_index_state: str | None,
     gsc_data_through: date | None,
     ga4_data_through: date | None,
+    gsc_coverage_through: date | None = None,
     impressions: int,
     organic_sessions: int,
     ga4_configured: bool,
@@ -98,12 +99,15 @@ def assess_maturity(
 
     # -- 検索側 -------------------------------------------------------------
     published_on = published_at.date() if isinstance(published_at, datetime) else published_at
-    # 検索データがそもそも公開日以降を含んでいるか。含んでいなければ、表示回数が
-    # ゼロでも「成績が悪い」ことの証拠にはならない。
+    # C8.5: 「観測できたか」は **取り込みの網羅範囲** で判定する。最新の metric 行の
+    # 日付 (= 活動) ではない -- 低トラフィックのサイトでは活動が止まるのが正常で、
+    # それを「API が追いついていない」と読むと判断を誤る。
+    # coverage が渡されない呼び出し元のために、活動日付へフォールバックする。
+    observed_through = gsc_coverage_through or gsc_data_through
     covers = bool(
-        gsc_data_through is not None
+        observed_through is not None
         and published_on is not None
-        and gsc_data_through >= published_on
+        and observed_through >= published_on
     )
 
     if age_days is None:
@@ -115,15 +119,20 @@ def assess_maturity(
     elif not covers:
         search_state = SEARCH_INDEXED_AWAITING_DATA
         search_reason = (
-            f"search console data only reaches {gsc_data_through}, "
+            f"search console coverage only reaches {observed_through}, "
             f"which does not cover the publication date {published_on}"
         )
     elif google_index_state is not None and google_index_state not in (_INDEXED, _UNKNOWN):
         search_state = SEARCH_AWAITING_INDEX_DISCOVERY
         search_reason = f"google reports {google_index_state}"
     elif impressions <= 0:
+        # 期間は観測済みだが表示回数が返ってこなかった、という状態。
+        # 「API が追いついていない」ではなく「まだ露出が無い」。
         search_state = SEARCH_INDEXED_AWAITING_DATA
-        search_reason = "no impressions recorded yet in the evaluation window"
+        search_reason = (
+            f"the evaluation window was observed through {observed_through} but no "
+            "impressions were returned for this article yet"
+        )
     elif impressions < int(policy.gate("ctr", "minimum_impressions", 200)) and impressions < int(
         policy.gate("ranking", "minimum_impressions", 100)
     ):

@@ -134,6 +134,7 @@ def _show_last() -> int:
         )
         if run.failure_summary:
             print(f"  failures: {run.failure_summary}")
+        monitoring = None
         for step in session.scalars(
             select(OperationsStepRun).where(OperationsStepRun.operations_run_id == run.id)
         ).all():
@@ -141,6 +142,20 @@ def _show_last() -> int:
                 f"    {step.step_name:28} {step.status:10} "
                 f"received={step.rows_received} changed={step.rows_changed}"
             )
+            if step.step_name == "evaluate_monitoring":
+                monitoring = step.result_json or {}
+
+        # C8.5: 取り込みの網羅範囲と、実データの活動を分けて見せる。
+        # 「coverage は進んでいるが活動が無い」= 正常、が一目で分かるようにする。
+        freshness = (monitoring or {}).get("source_freshness") or {}
+        if freshness:
+            print()
+            print("  source freshness (coverage vs activity):")
+            for name, value in sorted(freshness.items()):
+                print(f"    {name}:")
+                print(f"      coverage through      = {value.get('coverage_through')}")
+                print(f"      latest observed data  = {value.get('latest_observed_data_date')}")
+                print(f"      last successful import= {value.get('last_successful_import_at')}")
     return EXIT_OK
 
 

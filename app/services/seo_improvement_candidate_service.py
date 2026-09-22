@@ -194,6 +194,7 @@ class SeoImprovementCandidateService:
                 today=today,
                 google_index_state=row.google_index_state,
                 gsc_data_through=measurement.gsc_data_through,
+                gsc_coverage_through=measurement.gsc_coverage_through,
                 ga4_data_through=measurement.ga4_data_through,
                 impressions=row.impressions,
                 organic_sessions=row.organic_sessions,

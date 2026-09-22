@@ -1,12 +1,13 @@
 {
-  "policy_version": "c8.1",
+  "policy_version": "c8.5",
   "notes": [
     "Operational defaults for the recurring measurement pipeline. These are our own",
     "operating choices (windows, lags, staleness tolerances), NOT guarantees from",
     "Google or any provider about when data will arrive.",
     "Conservative on purpose: it is better to stay quiet than to page a human about",
     "a provider's normal reporting delay.",
-    "This pipeline never writes article content and never calls /go/<token>."
+    "This pipeline never writes article content and never calls /go/<token>.",
+    "C8.5: source freshness is judged on IMPORT COVERAGE (did a successful import reach the expected date?), never on DATA ACTIVITY (is the newest metric row recent?). A low-traffic site legitimately produces no new rows for days."
   ],
   "timezone": "Asia/Tokyo",
   "imports": {
@@ -14,22 +15,30 @@
       "days": 30,
       "lag_days": 1,
       "expected_lag_days": 3,
-      "stale_after_days": 7
+      "refresh_stale_after_hours": 48,
+      "coverage_stale_after_days": 3,
+      "activity_quiet_after_days": 30
     },
     "ga4": {
       "days": 30,
       "lag_days": 1,
       "expected_lag_days": 2,
-      "stale_after_days": 5,
-      "initial_grace_days": 7
+      "initial_grace_days": 7,
+      "refresh_stale_after_hours": 48,
+      "coverage_stale_after_days": 3,
+      "activity_quiet_after_days": 30
     },
     "affiliate_clicks": {
       "page_limit": 1000,
-      "stale_after_days": null
+      "refresh_stale_after_hours": 48,
+      "coverage_stale_after_days": null,
+      "activity_quiet_after_days": null
     },
     "make_commissions": {
       "days": 30,
-      "stale_after_days": null
+      "refresh_stale_after_hours": 72,
+      "coverage_stale_after_days": 3,
+      "activity_quiet_after_days": null
     }
   },
   "candidates": {
@@ -46,7 +55,8 @@
     "notify_min_severity": "warning",
     "notify_candidate_min_priority": "medium",
     "persisted_candidate_threshold": 3,
-    "max_consecutive_failures": 3
+    "max_consecutive_failures": 3,
+    "activity_alerts_enabled": false
   },
   "severity": {
     "IMPORT_FAILURE": "error",
@@ -55,7 +65,8 @@
     "INDEXABILITY_REGRESSION": "warning",
     "MONETIZATION_STRUCTURE_REGRESSION": "error",
     "CANDIDATE_CHANGE": "info",
-    "AUTOMATION_HEALTH": "error"
+    "AUTOMATION_HEALTH": "error",
+    "NO_RECENT_ACTIVITY": "info"
   },
   "locking": {
     "stale_lock_after_minutes": 120

@@ -30,12 +30,15 @@ from app.operations.monitoring import (
     evaluate_article_health,
     evaluate_automation_health,
     evaluate_candidate_changes,
-    evaluate_data_staleness,
     evaluate_import_failures,
     evaluate_monetization_regression,
 )
 from app.operations.notifications import build_notifiers
 from app.operations.policy import OperationsPolicy, get_policy
+from app.operations.source_health import (
+    evaluate_recent_activity,
+    evaluate_source_refresh,
+)
 from app.services.operations_alert_service import OperationsAlertService
 
 
@@ -61,14 +64,16 @@ class OperationsMonitoringService:
         step_results = [s.as_dict() for s in outcome.steps]
         drafts += evaluate_import_failures(step_results=step_results, policy=self._policy)
 
-        for source in ("search_console", "ga4"):
-            draft = evaluate_data_staleness(
-                source=source,
-                data_through=self._data_through(source),
-                ever_had_data=self._ever_had_data(source),
-                today=today,
-                policy=self._policy,
+        # C8.5: ソースの鮮度は「取り込みが動いているか」で判定する。
+        # 「最新の行が古いか」は活動の話であり、低トラフィックでは正常。
+        freshness = self._source_freshness()
+        for value in freshness.values():
+            draft = evaluate_source_refresh(
+                freshness=value, today=today, now=now, policy=self._policy
             )
+            if draft is not None:
+                drafts.append(draft)
+            draft = evaluate_recent_activity(freshness=value, today=today, policy=self._policy)
             if draft is not None:
                 drafts.append(draft)
 
@@ -117,19 +122,17 @@ class OperationsMonitoringService:
             "suppressed_by_cooldown": alert_outcome.suppressed_by_cooldown,
             "notification_failures": alert_outcome.notification_failures,
             "candidate_changes": len(changes),
+            "source_freshness": {k: v.as_dict() for k, v in freshness.items()},
             "notifier_names": [getattr(n, "name", "?") for n in notifiers],
         }
 
     # -- facts ----------------------------------------------------------------
-    def _data_through(self, source: str) -> date | None:
-        from app.services.operations_runner_service import latest_data_through
+    def _source_freshness(self):
+        from app.services.operations_source_health_service import (
+            collect_source_freshness,
+        )
 
-        return latest_data_through(self._session, source)
-
-    def _ever_had_data(self, source: str) -> bool:
-        from app.services.operations_runner_service import ever_had_data
-
-        return ever_had_data(self._session, source)
+        return collect_source_freshness(self._session)
 
     def _current_monetization_state(self) -> dict[int, dict]:
         state: dict[int, dict] = {}

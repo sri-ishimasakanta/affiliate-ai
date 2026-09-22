@@ -21,7 +21,6 @@ from app.operations.monitoring import (
     CHANGE_PERSISTED,
     CHANGE_PRIORITY_DECREASED,
     CHANGE_PRIORITY_INCREASED,
-    DATA_STALE,
     IMPORT_FAILURE,
     INDEXABILITY_REGRESSION,
     MONETIZATION_STRUCTURE_REGRESSION,
@@ -29,7 +28,6 @@ from app.operations.monitoring import (
     evaluate_article_health,
     evaluate_automation_health,
     evaluate_candidate_changes,
-    evaluate_data_staleness,
     evaluate_import_failures,
     evaluate_monetization_regression,
     fingerprint,
@@ -64,59 +62,6 @@ def test_successful_steps_produce_no_alert() -> None:
             step_results=[{"step_name": "import_ga4", "status": "succeeded"}], policy=_POLICY
         )
         == []
-    )
-
-
-# ==================== data staleness ==========================================
-def test_ga4_that_never_had_data_does_not_alert() -> None:
-    """GA4 は 2026-09-22 に計測開始したばかり -- これは故障ではない。"""
-
-    assert (
-        evaluate_data_staleness(
-            source="ga4",
-            data_through=None,
-            ever_had_data=False,
-            today=_TODAY,
-            policy=_POLICY,
-        )
-        is None
-    )
-
-
-def test_ga4_that_previously_had_data_and_stopped_does_alert() -> None:
-    draft = evaluate_data_staleness(
-        source="ga4",
-        data_through=date(2026, 9, 1),
-        ever_had_data=True,
-        today=_TODAY,
-        policy=_POLICY,
-    )
-    assert draft is not None
-    assert draft.alert_type == DATA_STALE
-    assert draft.evidence["ever_had_data"] is True
-
-
-def test_search_console_within_its_reporting_lag_does_not_alert() -> None:
-    draft = evaluate_data_staleness(
-        source="search_console",
-        data_through=_TODAY - __import__("datetime").timedelta(days=3),
-        ever_had_data=True,
-        today=_TODAY,
-        policy=_POLICY,
-    )
-    assert draft is None
-
-
-def test_source_without_a_staleness_gate_never_alerts() -> None:
-    assert (
-        evaluate_data_staleness(
-            source="affiliate_clicks",
-            data_through=date(2020, 1, 1),
-            ever_had_data=True,
-            today=_TODAY,
-            policy=_POLICY,
-        )
-        is None
     )
 
 
@@ -286,8 +231,8 @@ def test_a_single_failure_is_not_yet_escalated() -> None:
 
 # ==================== fingerprints ============================================
 def test_fingerprint_is_deterministic_and_date_free() -> None:
-    assert fingerprint(DATA_STALE, "ga4") == fingerprint(DATA_STALE, "ga4")
-    assert fingerprint(DATA_STALE, "ga4") != fingerprint(DATA_STALE, "search_console")
+    assert fingerprint("DATA_STALE", "ga4") == fingerprint("DATA_STALE", "ga4")
+    assert fingerprint("DATA_STALE", "ga4") != fingerprint("DATA_STALE", "search_console")
 
 
 # ==================== notifications ===========================================

@@ -117,8 +117,11 @@ class MeasurementReport:
     article_count: int
     gsc_property: str | None = None
     gsc_data_through: date | None = None
+    #: C8.5: 取り込みが問い合わせ終えた最終日 (活動の最終日とは別)。
+    gsc_coverage_through: date | None = None
     ga4_property: str | None = None
     ga4_data_through: date | None = None
+    ga4_coverage_through: date | None = None
     ga4_property_timezone: str | None = None
     ga4_configured: bool = False
     indexability_included: bool = False
@@ -131,7 +134,14 @@ class MeasurementReport:
     def as_dict(self) -> dict:
         payload = asdict(self)
         payload["generated_at"] = self.generated_at.isoformat()
-        for key in ("window_start", "window_end", "gsc_data_through", "ga4_data_through"):
+        for key in (
+            "window_start",
+            "window_end",
+            "gsc_data_through",
+            "gsc_coverage_through",
+            "ga4_data_through",
+            "ga4_coverage_through",
+        ):
             value = getattr(self, key)
             payload[key] = value.isoformat() if value else None
         return payload
@@ -172,6 +182,9 @@ class ArticleMeasurementReportService:
         gsc_queries = self._gsc_queries(window_start, window_end)
         ga4_pages, report.ga4_data_through = self._ga4_pages(window_start, window_end, base)
         report.ga4_property_timezone = self._ga4_timezone()
+        coverage = self._coverage_through()
+        report.gsc_coverage_through = coverage.get("search_console")
+        report.ga4_coverage_through = coverage.get("ga4")
         clicks = AffiliateClickMetricsService(self._session).aggregate(
             start_date=window_start, end_date=window_end
         )
@@ -285,6 +298,16 @@ class ArticleMeasurementReportService:
             scope["engagement_seconds"] += r.average_engagement_time_seconds * r.active_users
         data_through = self._session.scalar(select(func.max(Ga4PageDaily.metric_date)))
         return grouped, data_through
+
+    def _coverage_through(self) -> dict[str, date | None]:
+        """取り込みが実際に問い合わせ終えた最終日 (0 行成功でも前進する)。"""
+
+        from app.services.operations_source_health_service import collect_source_freshness
+
+        return {
+            name: value.coverage_through
+            for name, value in collect_source_freshness(self._session).items()
+        }
 
     def _ga4_timezone(self) -> str | None:
         run = self._session.scalars(
