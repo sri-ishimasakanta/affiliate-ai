@@ -1,0 +1,65 @@
+{
+  "policy_version": "c7.1",
+  "notes": [
+    "These are OPERATIONAL HEURISTICS for deciding when we have enough evidence to",
+    "look at an article's monetization by hand. They are NOT universal conversion",
+    "benchmarks and NOT claims about what converts.",
+    "Every gate is a named threshold in this file so it can be argued with and",
+    "revised once real audience data accumulates. There is no composite revenue score.",
+    "Defaults are deliberately conservative: staying silent beats manufacturing a",
+    "revenue conclusion from a sample that cannot support it."
+  ],
+  "trusted_click_measurement": {
+    "trusted_measurement_start_at": "2026-09-23T00:00:00+00:00",
+    "rationale": [
+      "Every outbound click recorded before this instant was produced by our own",
+      "instrumentation, not by readers. The affiliate redirect runtime counts any",
+      "GET of /go/<token>, including the health checks run during C4.8, C4.9, C5.1",
+      "and C5.2; the last verified probe click is 2026-09-22T13:45:43Z.",
+      "Independently, no article had a single recorded search impression on or",
+      "before 2026-09-22 (Search Console data-through 2026-09-15 shows impressions",
+      "only on a category page), so no click in the historical set can be safely",
+      "attributed to audience behaviour.",
+      "Historical rows are NEVER deleted or rewritten. They stay in",
+      "affiliate_outbound_clicks for audit and are reported as excluded_clicks.",
+      "Revise this instant only with evidence, and record why."
+    ]
+  },
+  "evaluation": {
+    "minimum_article_age_days": 14,
+    "require_overlapping_windows": true
+  },
+  "traffic": {
+    "minimum_organic_sessions_for_click_review": 100,
+    "minimum_total_sessions_for_click_review": 200,
+    "minimum_sessions_for_zero_click_review": 200,
+    "minimum_sessions_for_unmonetized_review": 300
+  },
+  "clicks": {
+    "minimum_clean_clicks_for_pattern_review": 20
+  },
+  "link_health": {
+    "expect_target_for_modes": ["affiliate"],
+    "allowed_target_statuses": ["active"]
+  },
+  "structural": {
+    "max_candidates_per_article": 2
+  },
+  "priority": {
+    "AFFILIATE_LINK_HEALTH_REVIEW": "high",
+    "MONETIZATION_COVERAGE_GAP": "medium",
+    "TRACKING_SETUP_REQUIRED": "medium",
+    "HIGH_TRAFFIC_UNMONETIZED": "medium",
+    "ZERO_CLICK_REVIEW": "medium",
+    "AFFILIATE_CLICK_THROUGH_REVIEW": "medium",
+    "AFFILIATE_DATA_QUALITY_REVIEW": "low",
+    "COMMISSION_SIGNAL_REVIEW": "low"
+  },
+  "priority_escalations": [
+    {
+      "candidate_type": "HIGH_TRAFFIC_UNMONETIZED",
+      "to": "high",
+      "when": "sessions >= traffic.minimum_sessions_for_unmonetized_review * 3"
+    }
+  ]
+}

@@ -108,6 +108,8 @@ from app.models.keyword import Keyword
 from app.models.keyword_score import KeywordScore
 from app.models.keyword_score_signal import KeywordScoreSignal
 from app.models.keyword_signal import KeywordSignal
+from app.models.revenue_optimization_candidate import RevenueOptimizationCandidate
+from app.models.revenue_optimization_run import RevenueOptimizationRun
 from app.models.search_console_import_run import (
     SC_IMPORT_ACTIVE_STATUSES,
     SC_IMPORT_PREPARED,
@@ -152,6 +154,8 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "RevenueOptimizationCandidate",
+    "RevenueOptimizationRun",
     "SeoImprovementCandidate",
     "SeoImprovementRun",
     "Ga4ImportRun",

@@ -22,6 +22,8 @@ from app.models import (
     KeywordScore,
     KeywordScoreSignal,
     KeywordSignal,
+    RevenueOptimizationCandidate,
+    RevenueOptimizationRun,
     SearchConsoleImportRun,
     SearchConsolePageDaily,
     SearchConsoleQueryDaily,
@@ -90,6 +92,9 @@ IMMUTABLE_HISTORY_MODELS = (
     # SEO 改善候補の評価 1 回分とその候補 (append-only)。updated_at なし。
     SeoImprovementRun,
     SeoImprovementCandidate,
+    # 収益最適化候補の評価 1 回分とその候補 (append-only)。updated_at なし。
+    RevenueOptimizationRun,
+    RevenueOptimizationCandidate,
 )
 
 
@@ -117,6 +122,8 @@ def test_all_tables_registered() -> None:
         "wordpress_publication_runs",
         "search_console_import_runs",
         "seo_improvement_runs",
+        "revenue_optimization_runs",
+        "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",
         "ga4_page_daily",
