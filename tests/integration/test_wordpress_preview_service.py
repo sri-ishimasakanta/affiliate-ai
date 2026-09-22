@@ -161,3 +161,27 @@ def test_expected_heading_counts_fall_back_without_a_package() -> None:
     assert WordPressPreviewService._expected_heading_counts(
         None, subject_count=0
     ) == (7, 7)
+
+
+def test_internal_links_to_the_site_itself_are_allowed(session: Session) -> None:
+    """自サイトへの内部リンクは「想定外ドメイン」にしない。
+
+    許可ドメインは fact の source URL から導出するため、自サイトのホストは
+    決してその集合に入らない。加えないと内部リンクを 1 本でも張った時点で
+    publishable=False になる。
+    """
+    from urllib.parse import urlparse
+
+    from app.config.settings import get_settings
+
+    ps = promoted_scenario(session)
+    own_host = urlparse(get_settings().wordpress_base_url or "https://example.test").netloc
+    body = ps.body_markdown + f"\n\n関連記事: [関連](https://{own_host}/related/)\n"
+    art = article_of(session, ps.article_id)
+    art.body = body
+    session.commit()
+
+    out = _svc(session).preview(ps.article_id)
+
+    failed = {c["id"] for c in out.validation_report["checks"] if c["level"] == "fail"}
+    assert "external_links_official_domains" not in failed

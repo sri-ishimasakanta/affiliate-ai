@@ -62,6 +62,11 @@ class WordPressPreviewService:
         promotion = promotions[0] if promotions else None
 
         expected_tools, allowed_domains = self._package_meta(promotion)
+        # 自サイトのホストは常に許可する。内部リンクは編集方針として必要であり、
+        # fact の source URL から導出される「公式ドメイン」集合には決して現れない。
+        own_host = urlparse(get_settings().wordpress_base_url or "").netloc
+        if own_host:
+            allowed_domains = allowed_domains | {own_host}
         expected_h2, expected_h3 = self._expected_heading_counts(
             promotion, subject_count=len(expected_tools)
         )
