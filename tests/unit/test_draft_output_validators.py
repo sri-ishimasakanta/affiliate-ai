@@ -113,3 +113,40 @@ def test_unqualified_superlative_about_primary_is_warn() -> None:
     assert ids["fairness_primary_superlative"] == "warn"
     # warn だけなら promotion_eligible は True でよい
     assert r["promotion_eligible"] is True
+
+
+def _supporting_package() -> dict:
+    """supporting 記事 = primary 無し (C2.5.8)。"""
+    pkg = _package()
+    pkg["primary"] = None
+    for t in pkg["comparison_tools"]:
+        t["is_primary"] = False
+    return pkg
+
+
+def _ids(rep, level):
+    return {c["id"] for c in rep["checks"] if c["level"] == level}
+
+
+def test_supporting_article_does_not_need_a_pr_disclosure() -> None:
+    """supporting 記事は収益リンクを持たないため PR 表記を必須にしない。
+
+    prompt template 側も「PR / 広告表示は不要」と指示しており、必須化すると
+    実態のない広告表記を書かせることになる。
+    """
+    body = _body_ok().replace("本記事は広告（アフィリエイト）を含みます。\n\n", "")
+    rep = validate_draft_output(parsed=_parsed(body), package=_supporting_package())
+    assert "pr_disclosure" not in _ids(rep, "fail")
+    assert "pr_disclosure" not in _ids(rep, "warn")
+
+
+def test_affiliate_article_still_requires_a_pr_disclosure() -> None:
+    body = _body_ok().replace("本記事は広告（アフィリエイト）を含みます。\n\n", "")
+    rep = validate_draft_output(parsed=_parsed(body), package=_package())
+    assert "pr_disclosure" in _ids(rep, "fail")
+
+
+def test_supporting_article_with_a_pr_disclosure_warns() -> None:
+    """収益リンクが無いのに広告表記があるのは実態と合わないので warn。"""
+    rep = validate_draft_output(parsed=_parsed(_body_ok()), package=_supporting_package())
+    assert "pr_disclosure" in _ids(rep, "warn")

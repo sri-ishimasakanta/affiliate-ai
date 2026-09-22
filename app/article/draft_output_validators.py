@@ -21,6 +21,7 @@ _SETEXT_H1_RE = re.compile(r"^\S.*\n=+\s*$", re.MULTILINE)
 _H2_LINE_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 _PR_MARKERS = ("PR", "広告", "アフィリエイト", "プロモーション", "スポンサー")
+_PR_HEAD = 700
 _PRICE_TOKENS = ("円", "$", "ドル", "/月", "/年", "／月", "／年", "USD")
 _ASOF_MARKERS = ("時点",)
 _EXAGGERATION = (
@@ -80,11 +81,32 @@ def _structural_checks(parsed: ParsedDraft, package: dict) -> list[dict]:
     else:
         checks.append(_check("meta_length", "pass", f"{ml} chars"))
 
-    head = body[:700]
-    if any(m in head for m in _PR_MARKERS):
-        checks.append(_check("pr_disclosure", "pass", "冒頭に PR/広告表記あり"))
+    # PR 表記の要否は monetization mode で変わる。affiliate 記事 (primary あり) は
+    # 冒頭の PR/広告表記が必須。supporting 記事は収益リンクを持たないため、
+    # prompt template 側も「PR / 広告表示は不要」と指示している —— ここで一律に
+    # 必須化すると、実態のない広告表記を書かせることになる。
+    head = body[:_PR_HEAD]
+    found = any(m in head for m in _PR_MARKERS)
+    if package.get("primary") is not None:
+        checks.append(
+            _check(
+                "pr_disclosure",
+                "pass" if found else "fail",
+                "冒頭に PR/広告表記あり" if found else "冒頭に PR/広告表記なし",
+            )
+        )
+    elif found:
+        checks.append(
+            _check(
+                "pr_disclosure",
+                "warn",
+                "supporting 記事に PR/広告表記がある (収益リンクが無いため実態と合わない)",
+            )
+        )
     else:
-        checks.append(_check("pr_disclosure", "fail", "冒頭に PR/広告表記なし"))
+        checks.append(
+            _check("pr_disclosure", "pass", "supporting 記事のため PR 表記は不要")
+        )
 
     missing = [
         t["subject_ref"]
