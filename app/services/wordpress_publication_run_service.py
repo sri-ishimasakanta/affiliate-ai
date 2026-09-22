@@ -125,13 +125,18 @@ class WordPressPublicationRunService:
         )
         wp_post_id = str(article.wordpress_post_id)
 
+        # 公開 run が凍結すべきは「いま公開しようとしている canonical 本文」であって、
+        # draft run が送った当時の本文ではない。編集改訂があれば両者は異なる。
+        canonical_body_hash = compute_text_hash(article.body or "")
+        canonical_meta_hash = compute_text_hash(article.meta_description or "")
+
         pr = build_wordpress_publish_request(
             article_id=article_id,
             source_wordpress_draft_run_id=source_run.id,
             wordpress_post_id=wp_post_id,
             target_base_url=target_base_url,
-            canonical_body_hash=source_run.canonical_body_hash,
-            canonical_meta_hash=source_run.canonical_meta_hash,
+            canonical_body_hash=canonical_body_hash,
+            canonical_meta_hash=canonical_meta_hash,
             wordpress_raw_content_hash=wordpress_raw_content_hash,
             expected_pre_publish_status=V1_EXPECTED_PRE_PUBLISH_STATUS,
         )
@@ -191,8 +196,8 @@ class WordPressPublicationRunService:
                 target_publication_request_identity_hash=(
                     pr.target_publication_request_identity_hash
                 ),
-                canonical_body_hash=source_run.canonical_body_hash,
-                canonical_meta_hash=source_run.canonical_meta_hash,
+                canonical_body_hash=canonical_body_hash,
+                canonical_meta_hash=canonical_meta_hash,
                 wordpress_raw_content_hash=wordpress_raw_content_hash,
                 expected_pre_publish_status=V1_EXPECTED_PRE_PUBLISH_STATUS,
                 idempotency_key=idempotency_key,

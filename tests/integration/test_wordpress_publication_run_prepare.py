@@ -380,3 +380,42 @@ def test_prepare_accepts_an_article_revised_through_the_editorial_path(
     assert compute_text_hash(art.body) != run.canonical_body_hash
     out = _prepare(session, art, run, idempotency_key="after-revision")
     assert out.status == "prepared"
+
+
+def test_prepare_freezes_the_current_canonical_hash_not_the_draft_runs(
+    session: Session, wp_env
+) -> None:
+    """公開 run が凍結するのは「いま公開する本文」。
+
+    draft run の hash をそのまま写すと、改訂済みの記事では execute 側の
+    drift guard が必ず落ちる。
+    """
+    from app.article.draft_promotion_canonical import compute_text_hash
+    from app.article.editorial_revision_canonical import compute_revision_content_hash
+    from app.services.article_editorial_revision_service import (
+        ArticleEditorialRevisionService,
+    )
+
+    art, run = _ready(session)
+    art.status = ArticleStatus.REVIEW.value
+    session.commit()
+    new_body = (art.body or "") + "\n\n関連記事: [関連](https://example.test/x/)\n"
+    ArticleEditorialRevisionService(session).revise(
+        art.id,
+        body_markdown=new_body,
+        meta_description=art.meta_description,
+        expected_current_body_hash=compute_text_hash(art.body or ""),
+        expected_current_meta_hash=compute_text_hash(art.meta_description or ""),
+        expected_revision_content_hash=compute_revision_content_hash(
+            article_id=art.id, body_markdown=new_body,
+            meta_description=art.meta_description),
+        revision_reason="内部リンクを追加",
+    )
+    art = article_of(session, art.id)
+    art.status = ArticleStatus.APPROVED.value
+    session.commit()
+
+    out = _prepare(session, art, run)
+    prepared = session.get(WordPressPublicationRun, out.run_id)
+    assert prepared.canonical_body_hash == compute_text_hash(art.body)
+    assert prepared.canonical_body_hash != run.canonical_body_hash
