@@ -3,8 +3,11 @@
 - https のみ / userinfo 禁止 / 長さ制限
 - credential / secret 系 query は **reject** (除去して保存しない)
 - tracking (utm_*, ref, aff, partner, clickid, gclid など) は安全に除去して canonicalize
-- 既知の tracking / redirect ホスト、および現在の AffiliateProgram.tracking_url の
-  ホストは公式 Source として reject
+- 既知の tracking / redirect ホストは公式 Source として reject
+- 現在の AffiliateProgram.tracking_url そのもの (canonical 一致) も reject。
+  ベンダーの公式ページと tracking URL が同じホストに同居することは普通にあるため、
+  ホスト全体ではなく URL 単位で判定する (ホスト単位で弾くと、そのベンダーの公式
+  料金ページを根拠として保存できなくなる)。
 """
 
 from __future__ import annotations
@@ -68,10 +71,42 @@ def _is_tracking_key(key: str) -> bool:
     )
 
 
+def _canonicalize(parts, query_pairs) -> str:
+    kept = [(k, v) for k, v in query_pairs if not _is_tracking_key(k)]
+    return urlunparse(
+        (
+            "https",
+            (parts.netloc or "").lower(),
+            parts.path or "/",
+            parts.params,
+            urlencode(kept, doseq=True),
+            "",  # fragment は落とす
+        )
+    )
+
+
+def canonicalize_tracking_url(url: str) -> str | None:
+    """tracking URL を比較用の canonical 形にする。解釈できなければ ``None``。"""
+
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    try:
+        parts = urlparse(raw)
+        if not parts.hostname:
+            return None
+        return _canonicalize(parts, parse_qsl(parts.query, keep_blank_values=True))
+    except ValueError:
+        return None
+
+
 def validate_and_canonicalize(
-    url: str, *, blocked_hosts: frozenset[str] = frozenset()
+    url: str, *, blocked_urls: frozenset[str] = frozenset()
 ) -> str:
-    """安全なら canonical 化した URL を返す。危険なら :class:`UrlSafetyError`。"""
+    """安全なら canonical 化した URL を返す。危険なら :class:`UrlSafetyError`。
+
+    ``blocked_urls`` は canonical 化済みの affiliate tracking URL 集合。
+    """
 
     raw = (url or "").strip()
     if not raw or len(raw) > _MAX_LEN:
@@ -93,21 +128,8 @@ def validate_and_canonicalize(
 
     if any(frag in host for frag in _KNOWN_TRACKING_HOST_FRAGMENTS):
         raise UrlSafetyError("host looks like a tracking / redirect host")
-    for blocked in blocked_hosts:
-        b = blocked.lower()
-        if b and (host == b or host.endswith("." + b)):
-            raise UrlSafetyError("host matches an affiliate tracking host")
 
-    kept = [(k, v) for k, v in query_pairs if not _is_tracking_key(k)]
-    canonical_query = urlencode(kept, doseq=True)
-    canonical = urlunparse(
-        (
-            "https",
-            parts.netloc.lower(),
-            parts.path or "/",
-            parts.params,
-            canonical_query,
-            "",  # fragment は落とす
-        )
-    )
+    canonical = _canonicalize(parts, query_pairs)
+    if canonical in blocked_urls:
+        raise UrlSafetyError("url is an affiliate tracking url")
     return canonical

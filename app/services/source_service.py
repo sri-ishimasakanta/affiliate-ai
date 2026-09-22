@@ -14,7 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.article.schemas import SourceCreate, SourceRead
-from app.article.source_url_safety import UrlSafetyError, validate_and_canonicalize
+from app.article.source_url_safety import (
+    UrlSafetyError,
+    canonicalize_tracking_url,
+    validate_and_canonicalize,
+)
 from app.exceptions import (
     DuplicateEntityError,
     EntityInUseError,
@@ -91,14 +95,14 @@ class SourceService:
 
     def _safe_url(self, url: str) -> str:
         blocked = {
-            (p.tracking_url or "").split("//")[-1].split("/")[0].lower()
+            canonicalize_tracking_url(p.tracking_url or "")
             for p in self._session.scalars(
                 select(AffiliateProgram).where(AffiliateProgram.tracking_url.isnot(None))
             ).all()
         }
-        blocked.discard("")
+        blocked.discard(None)
         try:
-            return validate_and_canonicalize(url, blocked_hosts=frozenset(blocked))
+            return validate_and_canonicalize(url, blocked_urls=frozenset(blocked))
         except UrlSafetyError as exc:
             raise FactValidationError(f"source_url unsafe: {exc}") from exc
 
