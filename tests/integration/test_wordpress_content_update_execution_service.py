@@ -1229,3 +1229,72 @@ def test_outcome_unknown_durable_via_independent_session_without_refresh(
         assert row.finished_at is not None
     finally:
         indep.close()
+
+
+# ==================== C4.8: draft content update ==============================
+def _draft_update_scenario(session: Session, *, slug: str):
+    """公開実績が無く succeeded な draft run だけを持つ記事 (UPDATE_REQUIRED)。"""
+    art, artifact = _seed_article_and_artifact(session, slug=slug)
+    old = compute_text_hash("<p>OLD</p>")
+    assert old != artifact.tracked_html_hash
+    draft = _add_draft_run(session, art, rendered_content_hash=old)
+    return art, artifact, draft
+
+
+def test_draft_update_succeeds_and_verifies_against_draft_status(
+    session: Session, wp_env
+) -> None:
+    """draft 更新の read-back は draft を期待する。
+
+    publish 固定のままだと、書き込みが成功しても必ず outcome_unknown になる。
+    """
+    art, artifact, _draft = _draft_update_scenario(session, slug="exec-draft-ok")
+    raw = "current draft raw"
+    fake = _FakeWordPressClient(
+        get_responses=[
+            _wp_response(post_id=art.wordpress_post_id, status="draft", raw=raw),
+            _wp_response(post_id=art.wordpress_post_id, status="draft",
+                         raw="post-write draft raw"),
+        ],
+        post_response=WordPressUpdatedPost(
+            id=art.wordpress_post_id, status="draft", link=None),
+    )
+    svc = WordPressContentUpdateExecutionService(session, wordpress_client=fake)
+    result = svc.execute(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash=compute_text_hash(raw),
+    )
+
+    assert result.preflight_classification == CLASSIFICATION_UPDATE_REQUIRED
+    assert result.executed is True
+    assert result.run_status == WP_CONTENT_UPDATE_SUCCEEDED
+    assert fake.post_calls == 1
+    run = session.get(WordPressContentUpdateRun, result.run_id)
+    assert run.response_content_raw_hash is not None
+
+
+def test_draft_update_reports_outcome_unknown_if_it_became_published(
+    session: Session, wp_env
+) -> None:
+    """read-back の status が期待と違えば検証不能として扱う (成功と断定しない)。"""
+    art, artifact, _draft = _draft_update_scenario(session, slug="exec-draft-flip")
+    raw = "current draft raw"
+    fake = _FakeWordPressClient(
+        get_responses=[
+            _wp_response(post_id=art.wordpress_post_id, status="draft", raw=raw),
+            _wp_response(post_id=art.wordpress_post_id, status="publish",
+                         raw="post-write raw"),
+        ],
+        post_response=WordPressUpdatedPost(
+            id=art.wordpress_post_id, status="draft", link=None),
+    )
+    svc = WordPressContentUpdateExecutionService(session, wordpress_client=fake)
+    result = svc.execute(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash=compute_text_hash(raw),
+    )
+    assert result.run_status == WP_CONTENT_UPDATE_OUTCOME_UNKNOWN

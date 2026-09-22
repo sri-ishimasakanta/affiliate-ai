@@ -75,6 +75,8 @@ from app.wordpress.client import WordPressClient
 from app.wordpress.content_update_request import build_wordpress_content_update_request
 
 _EXPECTED_LIVE_STATUS = "publish"
+# C4.8: read-back で期待する status は、更新対象が publish か draft かで変わる。
+# ここを固定すると、draft 更新は書き込みが成功しても必ず outcome_unknown になる。
 
 # -- outcome/reason codes (execution-specific; distinct from D-D5C's classification
 # reason codes, which remain untouched and are surfaced verbatim as preflight_*). ---
@@ -340,7 +342,7 @@ class WordPressContentUpdateExecutionService:
 
         if (
             rb_id != wp_post_id_int
-            or rb_status != _EXPECTED_LIVE_STATUS
+            or rb_status != expected_wordpress_status
             or not rb_content_raw
         ):
             self._mark_outcome_unknown(
