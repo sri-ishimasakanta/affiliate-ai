@@ -12,6 +12,7 @@ DB アクセスは Repository に委譲する。
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
@@ -371,6 +372,22 @@ def to_signal_read(entity: KeywordSignal) -> KeywordSignalRead:
     )
 
 
+@dataclass(frozen=True)
+class AffiliateOpportunityComputation:
+    """affiliate_opportunity の計算結果 (保存前)。PLAN と EXECUTE が共有する。"""
+
+    keyword_id: int
+    keyword: str
+    result: AffiliateOpportunityResult
+    scored: list[MatchedProgram]
+    tiered: list[TieredMatch]
+    active_catalog_size: int
+
+    @property
+    def normalized_value(self) -> float:
+        return self.result.normalized_value
+
+
 class KeywordSignalService:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -443,13 +460,13 @@ class KeywordSignalService:
         self._session.refresh(entity)
         return to_signal_read(entity)
 
-    def derive_affiliate_opportunity(self, keyword_id: int) -> KeywordSignalRead:
-        """keyword とローカル Affiliate Catalog から affiliate_opportunity Signal を導出する。
+    def preview_affiliate_opportunity(
+        self, keyword_id: int
+    ) -> AffiliateOpportunityComputation:
+        """affiliate_opportunity を **計算するだけ** (DB write 0)。
 
-        **供給側** の評価 (この keyword で紹介できる active 案件がどれだけ / どの程度
-        儲かるか)。検索者の購買意図 (commercial_intent) とは別。catalog は読み取り専用で
-        変更しない。再実行で新しい Signal を追記する (immutable history 維持)。
-        時系列データではないため period_start / period_end は None。
+        :meth:`derive_affiliate_opportunity` が保存する値と同じものをこの 1 か所で計算するので、
+        PLAN (write 0) と EXECUTE が食い違うことはない。catalog は読み取り専用。
         """
 
         keyword = self._keywords.get_by_id(keyword_id)
@@ -475,15 +492,33 @@ class KeywordSignalService:
         # (weak の重みは作らない。式・重みは変えない)。
         tiered = match_catalog(keyword.keyword, facts)
         scored = scoring_programs(tiered)
-        result = calculate_affiliate_opportunity(scored)
-
-        raw_data = _build_affiliate_opportunity_raw_data(
-            scored,
-            result,
-            catalog_size=self._programs.count(),
-            active_catalog_size=len(facts),
+        return AffiliateOpportunityComputation(
+            keyword_id=keyword_id,
+            keyword=keyword.keyword,
+            result=calculate_affiliate_opportunity(scored),
+            scored=scored,
             tiered=tiered,
+            active_catalog_size=len(facts),
         )
+
+    def derive_affiliate_opportunity(self, keyword_id: int) -> KeywordSignalRead:
+        """keyword とローカル Affiliate Catalog から affiliate_opportunity Signal を導出する。
+
+        **供給側** の評価 (この keyword で紹介できる active 案件がどれだけ / どの程度
+        儲かるか)。検索者の購買意図 (commercial_intent) とは別。catalog は読み取り専用で
+        変更しない。再実行で新しい Signal を追記する (immutable history 維持)。
+        時系列データではないため period_start / period_end は None。
+        """
+
+        computed = self.preview_affiliate_opportunity(keyword_id)
+        raw_data = _build_affiliate_opportunity_raw_data(
+            computed.scored,
+            computed.result,
+            catalog_size=self._programs.count(),
+            active_catalog_size=computed.active_catalog_size,
+            tiered=computed.tiered,
+        )
+        result = computed.result
         observed_at = datetime.now(UTC)
 
         try:

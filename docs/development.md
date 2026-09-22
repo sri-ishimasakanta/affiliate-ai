@@ -352,6 +352,16 @@ keyword が現在のサイトテーマ (AI・生成AI・業務効率化・業務
   適用後は既存 signal の snapshot と live catalog がずれる (`catalog_drift`) ので、signal の再導出は
   別 phase で行う。**C2.5.5 時点では宣言のみで production には未適用**: 適用は、signal / score の
   移行と同時に行う (単独で `--execute` しない)。
+- **affiliate signal transition (C2.5.10)**: hygiene 適用後に live catalog と食い違った
+  `affiliate_opportunity` を直すのが `scripts/rederive_affiliate_opportunity.py`
+  (`AffiliateSignalTransitionService`)。既定は **PLAN (write 0 / commit 0)** で、EXECUTE が保存する
+  のと同じ計算 (`KeywordSignalService.preview_affiliate_opportunity`) で新しい値を見せる。
+  `--execute` は A: pool 全件の再導出 → B: **値が変わった既存 score だけ** の再スコア、の順に
+  通常の service path を通し、各 phase のあとに行数を検証する。再スコア対象は DB から決める
+  (ID を直書きしない): 「score がある」「その score の `affiliate_opportunity` と新しい値が違う」
+  「7 component が揃っている」。`--expect-keywords` / `--expect-rescores` で transition 固有の
+  件数を guard できる。冪等: 変わるものが無ければ write 0 の `already current`。
+  scoring の式 / 重み / fit policy / catalog / article / link / snapshot は触らない。
 
 ### Phase 2B-6B (affiliate_opportunity V1)
 
