@@ -76,14 +76,32 @@ class ArticlePlanService:
         self._links = ArticleAffiliateProgramRepository(session)
 
     # -- read-only plan ------------------------------------------------
-    def plan_for_keyword(self, keyword_id: int) -> ArticlePlanDTO:
+    def plan_for_keyword(
+        self,
+        keyword_id: int,
+        *,
+        article_type_override: planning.ArticleType | None = None,
+    ) -> ArticlePlanDTO:
+        """keyword から企画を導出する。
+
+        ``article_type_override`` は、承認済み Article が既に記事タイプを確定している
+        場合に呼び出し側が渡す。keyword から型を推論できない keyword
+        (ブランド名・カタカナ語など) でも、outline や target_reader が
+        確定済みの型に沿ったものになる。``recommended_article_type`` は
+        分類器の出力のままにする (「人が何を選んだか」と「機械が何を勧めたか」を混ぜない)。
+        """
+
         keyword = self._keywords.get_by_id(keyword_id)
         if keyword is None:
             raise EntityNotFoundError(_KEYWORD, keyword_id)
 
         readiness = self._readiness(keyword)
         type_result = planning.classify_article_type(keyword.keyword)
-        article_type = type_result.article_type
+        article_type = (
+            article_type_override
+            if article_type_override is not None
+            else type_result.article_type
+        )
 
         candidates, live_ids, alias_only_strong = self._affiliate_candidates(keyword.keyword)
         snapshot_available, snapshot_ids = self._snapshot_program_ids(keyword_id)

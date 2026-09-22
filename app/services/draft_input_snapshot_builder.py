@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.article import monetization
+from app.article import article_type_resolution, monetization
 from app.article.draft_input_canonical import (
     canonical_commission,
     canonical_datetime,
@@ -43,6 +43,7 @@ from app.article.fact_keys import (
     REQUIRED_FACT_KEYS,
     FactKey,
 )
+from app.article.planning import ArticleType
 from app.exceptions import DraftInputNotReadyError, EntityNotFoundError
 from app.models import (
     BUILDER_VERSION,
@@ -129,8 +130,18 @@ class DraftInputSnapshotBuilder:
                 f"keyword {article.keyword_id} not found; cannot build ArticlePlan"
             )
 
+        # 記事タイプが確定済みなら plan にも渡す。渡さないと、keyword から型を
+        # 推論できない記事 (ブランド名など) の outline が H1 だけの空殻になる。
+        effective_type = article_type_resolution.resolve_article_type(
+            article.article_type, keyword.keyword
+        ).article_type
         try:
-            plan = ArticlePlanService(self._session).plan_for_keyword(article.keyword_id)
+            plan = ArticlePlanService(self._session).plan_for_keyword(
+                article.keyword_id,
+                article_type_override=(
+                    ArticleType(effective_type) if effective_type is not None else None
+                ),
+            )
         except Exception as exc:  # noqa: BLE001 - surface as not-ready
             raise DraftInputNotReadyError(
                 f"ArticlePlan build failed: {exc}"

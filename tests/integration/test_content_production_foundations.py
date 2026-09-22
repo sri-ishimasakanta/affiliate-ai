@@ -573,3 +573,39 @@ def test_snapshot_tools_keep_affiliate_identity_for_linked_subjects(
     assert by_ref["Krisp"]["is_primary"] is True
     assert by_ref["Notion AI"]["affiliate_program_id"] is None
     assert by_ref["Notion AI"]["is_primary"] is False
+
+
+def test_plan_outline_follows_the_explicit_article_type(session: Session) -> None:
+    """keyword から型を推論できなくても、確定済みの型で outline が組まれる。
+
+    渡さないと outline が H1 だけの空殻になり、記事の構成が prompt に載らない。
+    """
+    _catalog(session)
+    keyword = _keyword(session, "ChatGPT Enterprise")
+    svc = ArticlePlanService(session)
+
+    inferred = svc.plan_for_keyword(keyword.id)
+    assert inferred.article_type is None
+    assert [s.level for s in inferred.outline] == ["H1"]
+
+    explicit = svc.plan_for_keyword(
+        keyword.id, article_type_override=ArticleType.INFORMATIONAL
+    )
+    assert explicit.article_type == ArticleType.INFORMATIONAL
+    # 分類器の推薦は「推論できなかった」ままにする
+    assert explicit.recommended_article_type is None
+    assert [s.level for s in explicit.outline].count("H2") >= 4
+
+
+def test_snapshot_outline_uses_the_articles_stored_type(session: Session) -> None:
+    _catalog(session)
+    read = _approve(
+        session, "ChatGPT Enterprise", slug="chatgpt-ent-outline",
+        monetization_mode="supporting", article_type=ArticleType.INFORMATIONAL,
+        content_subject_keys=["chatgpt"],
+    )
+    payload = _snapshot(session, read.id).payload
+
+    outline = payload["plan"]["outline"]
+    assert payload["plan"]["article_type"] == "informational"
+    assert len([s for s in outline if s["level"] == "H2"]) >= 4
