@@ -1,0 +1,624 @@
+{
+  "version": 1,
+  "phase": "C2.7",
+  "generated_from": {
+    "discovery_corpus": "deterministic union of the V1 seed run and the refined V2 (final) seed run",
+    "v1_seeds": "app/config/keyword_idea_seeds.json",
+    "v2_seeds": "app/config/keyword_idea_seeds_v2.json",
+    "corpus_ideas": 1293,
+    "corpus_keep": 855,
+    "corpus_merge": 383,
+    "corpus_reject": 55,
+    "geo_target_id": 2392,
+    "language_id": 1005
+  },
+  "notes": [
+    "Affiliate coverage is not required for selection (C2.5.8): supporting articles are first-class.",
+    "opportunity_score is present only where production holds a complete 7/7 signal set; the other entries are qualitatively prioritized and carry no fabricated number.",
+    "search_volume is the Google Ads avg_monthly_searches from the discovery corpus; null means the corpus did not return that production keyword.",
+    "No production article rows are created by this artifact; C3 and C4 consume it."
+  ],
+  "existing_articles": [
+    {
+      "keyword": "業務効率化 ツール おすすめ",
+      "cluster": "B",
+      "article_id": 1,
+      "status": "published",
+      "role": "pillar",
+      "note": "existing B pillar; no new article may target this intent"
+    }
+  ],
+  "articles": [
+    {
+      "wave": 1,
+      "priority": 1,
+      "keyword": "AI 議事録 おすすめ",
+      "cluster": "A",
+      "article_type": "recommendation_roundup",
+      "monetization_mode": "affiliate",
+      "search_volume": 320,
+      "competition": "HIGH",
+      "opportunity_score": null,
+      "affiliate_coverage": "strong_core",
+      "primary_candidates": [
+        "Krisp",
+        "Fireflies.ai"
+      ],
+      "role": "commercial",
+      "selection_reason": "Only plan that is affiliate_ready AND template_ready today; validates the affiliate path end to end.",
+      "internal_link_role": "A pillar hub for the 議事録 intent family",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 1,
+      "priority": 2,
+      "keyword": "文字起こし AI おすすめ",
+      "cluster": "A",
+      "article_type": "recommendation_roundup",
+      "monetization_mode": "affiliate",
+      "search_volume": null,
+      "competition": null,
+      "opportunity_score": null,
+      "affiliate_coverage": "strong_core",
+      "primary_candidates": [
+        "Krisp",
+        "Fireflies.ai"
+      ],
+      "role": "commercial",
+      "selection_reason": "Second affiliate_ready + template_ready plan; validates a second A-cluster roundup.",
+      "internal_link_role": "Sibling roundup to AI 議事録 おすすめ on a different head term",
+      "cannibalization_watch": [
+        "AI 議事録 おすすめ"
+      ]
+    },
+    {
+      "wave": 1,
+      "priority": 3,
+      "keyword": "CRM おすすめ",
+      "cluster": "E",
+      "article_type": "recommendation_roundup",
+      "monetization_mode": "affiliate",
+      "search_volume": 210,
+      "competition": "HIGH",
+      "opportunity_score": null,
+      "affiliate_coverage": "core_weak",
+      "primary_candidates": [
+        "HubSpot",
+        "Pipedrive"
+      ],
+      "role": "commercial",
+      "selection_reason": "Opens cluster E on the one template that already exists; HubSpot and Pipedrive are primary-eligible.",
+      "internal_link_role": "E pillar hub",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 1,
+      "priority": 4,
+      "keyword": "HubSpot 料金",
+      "cluster": "E",
+      "article_type": "pricing",
+      "monetization_mode": "affiliate",
+      "search_volume": 590,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "strong",
+      "primary_candidates": [
+        "HubSpot"
+      ],
+      "role": "commercial",
+      "selection_reason": "Strong affiliate match with healthy volume, recovered only by the refined V2 E seeds.",
+      "internal_link_role": "Child of CRM おすすめ",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 1,
+      "priority": 5,
+      "keyword": "AI 議事録 比較",
+      "cluster": "A",
+      "article_type": "comparison_listicle",
+      "monetization_mode": "affiliate",
+      "search_volume": null,
+      "competition": null,
+      "opportunity_score": null,
+      "affiliate_coverage": "strong_core",
+      "primary_candidates": [
+        "Krisp",
+        "Fireflies.ai"
+      ],
+      "role": "comparison",
+      "selection_reason": "Highest-intent A query; unblocks as soon as the comparison_listicle template lands.",
+      "internal_link_role": "Comparison node under the A pillar",
+      "cannibalization_watch": [
+        "AI 議事録 おすすめ"
+      ]
+    },
+    {
+      "wave": 2,
+      "priority": 6,
+      "keyword": "AI 議事録",
+      "cluster": "A",
+      "article_type": "category_landing",
+      "monetization_mode": "affiliate",
+      "search_volume": 6600,
+      "competition": null,
+      "opportunity_score": 56.04,
+      "affiliate_coverage": "strong_core",
+      "primary_candidates": [
+        "Krisp",
+        "Fireflies.ai"
+      ],
+      "role": "pillar",
+      "selection_reason": "Largest A head term with a complete 7/7 score; the topical anchor for the cluster.",
+      "internal_link_role": "A pillar; parent of the whole 議事録 family",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 2,
+      "priority": 7,
+      "keyword": "AI 議事録 無料",
+      "cluster": "A",
+      "article_type": "pricing",
+      "monetization_mode": "affiliate",
+      "search_volume": 1300,
+      "competition": null,
+      "opportunity_score": 57.61,
+      "affiliate_coverage": "strong_core",
+      "primary_candidates": [
+        "Krisp",
+        "Fireflies.ai"
+      ],
+      "role": "commercial",
+      "selection_reason": "Highest opportunity score in production (57.61) with competition_ease 99.",
+      "internal_link_role": "Child of AI 議事録",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 2,
+      "priority": 8,
+      "keyword": "AI 議事録 料金",
+      "cluster": "A",
+      "article_type": "pricing",
+      "monetization_mode": "affiliate",
+      "search_volume": null,
+      "competition": null,
+      "opportunity_score": null,
+      "affiliate_coverage": "strong_core",
+      "primary_candidates": [
+        "Krisp",
+        "Fireflies.ai"
+      ],
+      "role": "commercial",
+      "selection_reason": "Pricing intent completes the A commercial set; qualitatively prioritized, no competition_ease yet.",
+      "internal_link_role": "Child of AI 議事録; pairs with AI 議事録 無料",
+      "cannibalization_watch": [
+        "AI 議事録 無料"
+      ]
+    },
+    {
+      "wave": 2,
+      "priority": 9,
+      "keyword": "Make 使い方",
+      "cluster": "C",
+      "article_type": "how_to",
+      "monetization_mode": "affiliate",
+      "search_volume": 480,
+      "competition": "LOW",
+      "opportunity_score": null,
+      "affiliate_coverage": "strong",
+      "primary_candidates": [
+        "Make"
+      ],
+      "role": "how-to",
+      "selection_reason": "Only STRONG match for Make, the commission-wired primary program, at LOW competition.",
+      "internal_link_role": "C entry point; links to Make 料金",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 2,
+      "priority": 10,
+      "keyword": "Make 料金",
+      "cluster": "C",
+      "article_type": "pricing",
+      "monetization_mode": "affiliate",
+      "search_volume": null,
+      "competition": null,
+      "opportunity_score": null,
+      "affiliate_coverage": "strong",
+      "primary_candidates": [
+        "Make"
+      ],
+      "role": "commercial",
+      "selection_reason": "Pricing intent for the primary commission program; qualitatively prioritized.",
+      "internal_link_role": "Child of Make 使い方",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 2,
+      "priority": 11,
+      "keyword": "文字起こし 無料",
+      "cluster": "A",
+      "article_type": "supporting_informational",
+      "monetization_mode": "supporting",
+      "search_volume": 14800,
+      "competition": "HIGH",
+      "opportunity_score": null,
+      "affiliate_coverage": "core_weak",
+      "primary_candidates": [
+        "Fireflies.ai",
+        "Krisp"
+      ],
+      "role": "supporting",
+      "selection_reason": "Largest affiliate-relevant volume in the corpus (14,800); feeds the A pillar with internal links.",
+      "internal_link_role": "Supporting node under AI 議事録",
+      "cannibalization_watch": [
+        "文字起こし AI おすすめ"
+      ]
+    },
+    {
+      "wave": 2,
+      "priority": 12,
+      "keyword": "プロジェクト管理 ツール おすすめ",
+      "cluster": "B",
+      "article_type": "recommendation_roundup",
+      "monetization_mode": "affiliate",
+      "search_volume": 140,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "core_weak",
+      "primary_candidates": [
+        "ClickUp",
+        "monday.com"
+      ],
+      "role": "commercial",
+      "selection_reason": "Extends the existing B pillar without duplicating its intent; ClickUp and monday.com are primary-eligible.",
+      "internal_link_role": "Sibling of the published 業務効率化 ツール おすすめ pillar",
+      "cannibalization_watch": [
+        "タスク管理 ツール おすすめ"
+      ]
+    },
+    {
+      "wave": 2,
+      "priority": 13,
+      "keyword": "CRM SFA 違い",
+      "cluster": "E",
+      "article_type": "comparison_listicle",
+      "monetization_mode": "supporting",
+      "search_volume": 1000,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "core_weak",
+      "primary_candidates": [
+        "HubSpot",
+        "Pipedrive"
+      ],
+      "role": "comparison",
+      "selection_reason": "Category-education query that funnels into CRM おすすめ.",
+      "internal_link_role": "Child of CRM おすすめ",
+      "cannibalization_watch": [
+        "CRM ツール とは"
+      ]
+    },
+    {
+      "wave": 2,
+      "priority": 14,
+      "keyword": "Notion タスク管理",
+      "cluster": "B",
+      "article_type": "supporting_informational",
+      "monetization_mode": "supporting",
+      "search_volume": 2900,
+      "competition": "LOW",
+      "opportunity_score": null,
+      "affiliate_coverage": "core_weak",
+      "primary_candidates": [
+        "ClickUp",
+        "monday.com",
+        "Todoist"
+      ],
+      "role": "supporting",
+      "selection_reason": "2,900 volume at LOW competition; the compound form kept after the bare Notion brand seed was dropped.",
+      "internal_link_role": "Supporting node under the B pillar",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 3,
+      "priority": 15,
+      "keyword": "RPA おすすめ",
+      "cluster": "C",
+      "article_type": "recommendation_roundup",
+      "monetization_mode": "supporting",
+      "search_volume": 170,
+      "competition": "LOW",
+      "opportunity_score": 50.94,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "commercial",
+      "selection_reason": "Complete 7/7 score with competition_ease 98; supporting mode because no RPA program is in the catalog.",
+      "internal_link_role": "C hub for the RPA sub-topic",
+      "cannibalization_watch": [
+        "RPA 比較"
+      ]
+    },
+    {
+      "wave": 3,
+      "priority": 16,
+      "keyword": "RPA 比較",
+      "cluster": "C",
+      "article_type": "comparison_listicle",
+      "monetization_mode": "supporting",
+      "search_volume": 260,
+      "competition": null,
+      "opportunity_score": 50.51,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "comparison",
+      "selection_reason": "Complete score; pairs with RPA おすすめ as its comparison node.",
+      "internal_link_role": "Child of RPA おすすめ",
+      "cannibalization_watch": [
+        "RPA おすすめ"
+      ]
+    },
+    {
+      "wave": 3,
+      "priority": 17,
+      "keyword": "RPA 導入",
+      "cluster": "C",
+      "article_type": "how_to",
+      "monetization_mode": "supporting",
+      "search_volume": null,
+      "competition": null,
+      "opportunity_score": 50.54,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "how-to",
+      "selection_reason": "Complete score; converts RPA interest into an implementation guide.",
+      "internal_link_role": "Child of RPA おすすめ",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 3,
+      "priority": 18,
+      "keyword": "生成AI ツール おすすめ",
+      "cluster": "D",
+      "article_type": "recommendation_roundup",
+      "monetization_mode": "supporting",
+      "search_volume": null,
+      "competition": null,
+      "opportunity_score": null,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "commercial",
+      "selection_reason": "D roundup, supporting by design under C2.5.8 since no generative-AI program is in the catalog.",
+      "internal_link_role": "D pillar hub",
+      "cannibalization_watch": [
+        "生成AI ツール 比較"
+      ]
+    },
+    {
+      "wave": 3,
+      "priority": 19,
+      "keyword": "ChatGPT Enterprise",
+      "cluster": "D",
+      "article_type": "supporting_informational",
+      "monetization_mode": "supporting",
+      "search_volume": 2400,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "informational",
+      "selection_reason": "Largest on-theme enterprise-AI discovery from the refined D seeds.",
+      "internal_link_role": "Child of 生成AI ツール おすすめ",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 3,
+      "priority": 20,
+      "keyword": "生成AI ガイドライン",
+      "cluster": "D",
+      "article_type": "supporting_informational",
+      "monetization_mode": "supporting",
+      "search_volume": 1600,
+      "competition": "LOW",
+      "opportunity_score": null,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "supporting",
+      "selection_reason": "1,600 volume at LOW competition; the strongest governance query in the corpus.",
+      "internal_link_role": "Pairs with AI ガバナンス",
+      "cannibalization_watch": [
+        "AI ガバナンス"
+      ]
+    },
+    {
+      "wave": 3,
+      "priority": 21,
+      "keyword": "AI ガバナンス",
+      "cluster": "D",
+      "article_type": "supporting_informational",
+      "monetization_mode": "supporting",
+      "search_volume": 1600,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "supporting",
+      "selection_reason": "Enterprise governance intent that builds D topical authority.",
+      "internal_link_role": "Pairs with 生成AI ガイドライン",
+      "cannibalization_watch": [
+        "生成AI ガイドライン"
+      ]
+    },
+    {
+      "wave": 3,
+      "priority": 22,
+      "keyword": "ChatGPT 法人 プラン",
+      "cluster": "D",
+      "article_type": "pricing",
+      "monetization_mode": "supporting",
+      "search_volume": 320,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "commercial",
+      "selection_reason": "Clearest buyer-intent D query, recovered by the refined D seeds.",
+      "internal_link_role": "Child of 生成AI ツール おすすめ",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 3,
+      "priority": 23,
+      "keyword": "AI エージェント",
+      "cluster": "C",
+      "article_type": "category_landing",
+      "monetization_mode": "supporting",
+      "search_volume": 40500,
+      "competition": "MEDIUM",
+      "opportunity_score": null,
+      "affiliate_coverage": "contextual",
+      "primary_candidates": [
+        "n8n Cloud"
+      ],
+      "role": "pillar",
+      "selection_reason": "40,500 volume, the largest on-theme C head term; contextual n8n link only.",
+      "internal_link_role": "C topical anchor linking down to the Make and RPA nodes",
+      "cannibalization_watch": []
+    },
+    {
+      "wave": 3,
+      "priority": 24,
+      "keyword": "AI 業務効率化",
+      "cluster": "C",
+      "article_type": "supporting_informational",
+      "monetization_mode": "supporting",
+      "search_volume": 1300,
+      "competition": null,
+      "opportunity_score": 50.05,
+      "affiliate_coverage": "none",
+      "primary_candidates": [],
+      "role": "supporting",
+      "selection_reason": "Complete score and site_relevance 100, the highest in production; bridges clusters B, C and D.",
+      "internal_link_role": "Cross-cluster hub linking the B pillar, C automation and D generative AI",
+      "cannibalization_watch": []
+    }
+  ],
+  "reserve": [
+    {
+      "keyword": "業務自動化 ツール おすすめ",
+      "cluster": "C",
+      "reason": "absent from both discovery runs; the intent is already covered by RPA おすすめ and the B pillar"
+    },
+    {
+      "keyword": "Make n8n 比較",
+      "cluster": "C",
+      "reason": "absent even when used as an explicit seed; Google returns no demand data"
+    },
+    {
+      "keyword": "Fireflies 料金",
+      "cluster": "A",
+      "reason": "absent from the corpus; revisit if the brand gains JP demand"
+    },
+    {
+      "keyword": "生成AI 社内 ルール",
+      "cluster": "D",
+      "reason": "kept but only 30 searches per month; covered by 生成AI ガイドライン"
+    },
+    {
+      "keyword": "社内 ChatGPT 構築",
+      "cluster": "D",
+      "reason": "0 measured volume; seed echo only"
+    },
+    {
+      "keyword": "生成AI 研修",
+      "cluster": "D",
+      "reason": "880 volume but HIGH competition and a training-vendor SERP"
+    },
+    {
+      "keyword": "CRM ツール とは",
+      "cluster": "E",
+      "reason": "planner merges it into the CRM category intent"
+    },
+    {
+      "keyword": "ChatGPT Plus 料金",
+      "cluster": "D",
+      "reason": "score 56.4 but a pure vendor-pricing SERP with no catalog match"
+    },
+    {
+      "keyword": "Notion AI 料金",
+      "cluster": "D",
+      "reason": "score 56.3; same vendor-pricing constraint"
+    },
+    {
+      "keyword": "Zapier 料金",
+      "cluster": "C",
+      "reason": "score 54.2; competitor pricing with no catalog match"
+    },
+    {
+      "keyword": "業務効率化 ツール 比較",
+      "cluster": "B",
+      "reason": "too close to the published B pillar; hold until the pillar ranks"
+    },
+    {
+      "keyword": "生成AI ツール 比較",
+      "cluster": "D",
+      "reason": "hold until 生成AI ツール おすすめ establishes the D pillar"
+    }
+  ],
+  "merge_or_reject": [
+    {
+      "keyword": "タスク管理 ツール おすすめ",
+      "decision": "merge",
+      "into": "プロジェクト管理 ツール おすすめ",
+      "reason": "planner merge; same roundup intent family"
+    },
+    {
+      "keyword": "Zoom 議事録 自動",
+      "decision": "merge",
+      "into": "AI 議事録 おすすめ",
+      "reason": "planner merge; 70 searches, platform variant"
+    },
+    {
+      "keyword": "Teams 議事録 自動",
+      "decision": "merge",
+      "into": "AI 議事録 おすすめ",
+      "reason": "planner merge; 50 searches, platform variant"
+    },
+    {
+      "keyword": "音声 文字起こし",
+      "decision": "merge",
+      "into": "文字起こし 無料",
+      "reason": "planner merge; same transcription head intent"
+    },
+    {
+      "keyword": "議事録 AI",
+      "decision": "merge",
+      "into": "AI 議事録",
+      "reason": "planner merge; word-order variant of the pillar"
+    },
+    {
+      "keyword": "Zapier 代替",
+      "decision": "reject",
+      "reason": "20 searches, no catalog match, and an alternatives page would steer readers away from Make (C2.5.1 affiliate_conflict rule)"
+    },
+    {
+      "keyword": "AI サイバー攻撃 family",
+      "decision": "reject",
+      "reason": "off-theme cybersecurity neighbourhood; the AI セキュリティ seed was removed in V2 final"
+    },
+    {
+      "keyword": "Notion / Trello / Asana / Salesforce brand terms",
+      "decision": "reject",
+      "reason": "brand-navigational with no catalog match; bare brand seeds removed in V2 final"
+    },
+    {
+      "keyword": "ノーコード とは / ローコード とは",
+      "decision": "reject",
+      "reason": "informational with no commercial or affiliate value"
+    }
+  ],
+  "waves": {
+    "1": "Pipeline validation. AI 議事録 おすすめ and 文字起こし AI おすすめ are affiliate_ready and template_ready today, so they prove the affiliate path end to end; CRM おすすめ opens cluster E on the same roundup template; HubSpot 料金 and AI 議事録 比較 unblock as soon as the pricing and comparison_listicle templates land. Each roundup becomes the cluster hub that later waves link back to.",
+    "2": "Cluster reinforcement. Builds the A pillar (AI 議事録) and hangs its 無料, 料金 and 使い方 children off it, adds the Make how-to and pricing pair for the commission-wired primary program, and gives B and E one commercial node each. Children link up to their pillar and the pillar links down to the Wave 1 roundups.",
+    "3": "Topic authority. Completes the RPA sub-cluster, opens D as a supporting-only cluster, and adds the two highest-volume C and B anchors. AI エージェント and AI 業務効率化 act as cross-cluster hubs connecting the B pillar, the C automation nodes and the D generative-AI nodes."
+  }
+}

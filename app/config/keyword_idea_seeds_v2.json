@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "default_max_results": 200,
+  "clusters": {
+    "B": {
+      "name": "Business productivity / tools (V2 final)",
+      "seeds": [
+        "業務効率化",
+        "業務効率化 ツール",
+        "タスク管理",
+        "タスク管理 ツール",
+        "プロジェクト管理",
+        "プロジェクト管理 ツール",
+        "ナレッジ管理 ツール",
+        "社内 情報共有",
+        "工数管理 ツール",
+        "日程調整 ツール",
+        "バックオフィス 効率化",
+        "ClickUp",
+        "monday.com",
+        "Notion タスク管理",
+        "Backlog",
+        "タスク管理 ツール 比較",
+        "プロジェクト管理 ツール おすすめ"
+      ]
+    },
+    "C": {
+      "name": "No-code / automation / RPA (V2 final)",
+      "seeds": [
+        "業務自動化",
+        "業務自動化 ツール",
+        "ワークフロー 自動化",
+        "ノーコード 自動化",
+        "ノーコード",
+        "自動化 ツール",
+        "SaaS 連携",
+        "RPA",
+        "RPA ツール",
+        "RPA 比較",
+        "Make",
+        "n8n",
+        "Zapier",
+        "Zapier 代替",
+        "Make 使い方",
+        "Make n8n 比較",
+        "ワークフロー ツール",
+        "Slack 自動化",
+        "スプレッドシート 自動化",
+        "AI エージェント"
+      ]
+    },
+    "A": {
+      "name": "AI meeting notes / transcription (V2 final)",
+      "seeds": [
+        "議事録",
+        "AI 議事録",
+        "議事録 自動作成",
+        "議事録 ツール",
+        "文字起こし",
+        "音声 文字起こし",
+        "AI 文字起こし",
+        "会議 効率化",
+        "会議 効率化 ツール",
+        "Zoom 議事録",
+        "Teams 議事録",
+        "Google Meet 議事録",
+        "Fireflies",
+        "Krisp",
+        "Notta",
+        "Otter",
+        "議事録 ツール 比較",
+        "文字起こし ツール おすすめ"
+      ]
+    },
+    "D": {
+      "name": "Enterprise generative AI (V2 final)",
+      "seeds": [
+        "生成AI",
+        "生成AI 企業",
+        "生成AI 法人",
+        "生成AI 導入",
+        "法人 ChatGPT",
+        "企業 ChatGPT",
+        "社内 ChatGPT",
+        "社内 AI",
+        "AI 社内利用",
+        "法人向け AI",
+        "AI ガバナンス",
+        "生成AI ガイドライン",
+        "AI 利用規程",
+        "ChatGPT Enterprise",
+        "ChatGPT 法人 プラン",
+        "生成AI 研修",
+        "Microsoft Copilot",
+        "生成AI 導入 事例",
+        "社内 ChatGPT 構築"
+      ]
+    },
+    "E": {
+      "name": "CRM / sales operations (V2 final)",
+      "seeds": [
+        "CRM",
+        "CRM ツール",
+        "CRM 比較",
+        "CRM おすすめ",
+        "SFA",
+        "SFA ツール",
+        "SFA 比較",
+        "SFA おすすめ",
+        "顧客管理",
+        "顧客管理 システム",
+        "営業支援",
+        "営業支援 ツール",
+        "営業管理",
+        "セールスツール",
+        "営業 自動化",
+        "リード 管理",
+        "HubSpot",
+        "Pipedrive",
+        "HubSpot 料金",
+        "ActiveCampaign"
+      ]
+    }
+  }
+}

@@ -363,6 +363,21 @@ keyword が現在のサイトテーマ (AI・生成AI・業務効率化・業務
   件数を guard できる。冪等: 変わるものが無ければ write 0 の `already current`。
   scoring の式 / 重み / fit policy / catalog / article / link / snapshot は触らない。
 
+- **discovery seeds と初期ポートフォリオ (C2.6 / C2.7)**: keyword idea の seed は
+  `app/config/keyword_idea_seeds.json` (V1) と `app/config/keyword_idea_seeds_v2.json`
+  (V2 final: category / use-case / brand / comparison / enterprise の層構造) の 2 つを版管理する。
+  **V2 は V1 を置き換えない**: 1 cluster あたり 200 件という上限があるため、広い seed は V1 の
+  long tail を押し出してしまう (live 検証で strong match が 39 -> 18 に半減した)。公式の
+  discovery corpus は **V1 ∪ V2 の決定論的 union** (正規化 keyword で dedupe、cross-cluster の
+  重複は canonical cluster へ寄せる)。C2.6 の live 検証で `AI セキュリティ` は off-theme な
+  cybersecurity 近傍だけを生むと分かったため V2 final から外し、裸のブランド seed
+  (Notion / Trello / Asana / Salesforce) も no-match のブランド指名ばかりを生むため外した
+  (noise rule は追加していない。C2.5.1 の rule は不変)。
+  選定した初期記事ポートフォリオは `app/config/content_portfolio.json` (wave / cluster /
+  記事タイプ / monetization mode / affiliate coverage / 選定理由 / 内部リンク関係) に置き、
+  C3 / C4 の入力にする。**production の article 行はまだ作らない**。
+  大きな Google Ads の生成物 (ideas JSON) は git に入れない。
+
 ### Phase 2B-6B (affiliate_opportunity V1)
 
 keyword に対する **供給側** の評価 (active Affiliate Catalog にどれだけ収益化案件が
