@@ -460,10 +460,9 @@ def test_split_japanese_ideas_match_the_same_catalog_program_as_the_unsplit_form
     assert by["c rm"].affiliate.level == "none"
 
 
-def test_catalog_spacing_option_is_only_used_by_the_planner_not_by_the_c22_queue(
+def test_the_c22_queue_now_shares_the_japanese_spacing_match_with_the_planner(
     seeded: Session,
 ) -> None:
-
     AffiliateProgramRepository(seeded).create(
         name="Minutes Tool", provider="direct", match_terms=["議事録"]
     )
@@ -472,7 +471,12 @@ def test_catalog_spacing_option_is_only_used_by_the_planner_not_by_the_c22_queue
     seeded.commit()
     inputs, _articles = ContentQueueService(seeded).load_inputs()
     row = next(k for k in inputs if k.id == keyword.id)
-    assert row.affiliate_matches == ()  # C2.2 の既存 keyword の coverage は従来どおり
+    # C2.5.6: planner / scoring / plan / queue は同じ照合 (分かち書きを吸収): queue も weak
+    assert [(m.name, m.tier) for m in row.affiliate_matches] == [("Minutes Tool", "weak")]
+    plan = KeywordExpansionService(seeded).plan(
+        _CONFIG, _RULES, [IdeaCandidate(keyword="議事 録 テスト", cluster="A")]
+    )
+    assert plan.decisions[0].affiliate.weak_program_names == ("Minutes Tool",)
 
 
 # ================================================================ C2.5.4
@@ -514,7 +518,7 @@ def test_service_reports_tiers_and_keeps_the_legacy_coverage_fields(seeded: Sess
     assert aff["Make 使い方"].alias_only_strong_program_names == ()
 
 
-def test_summary_reports_keep_tier_counts_and_the_japanese_spacing_mismatch(
+def test_summary_reports_keep_tier_counts_and_has_no_spacing_mismatch_counters(
     seeded: Session,
 ) -> None:
     AffiliateProgramRepository(seeded).create(
@@ -525,21 +529,26 @@ def test_summary_reports_keep_tier_counts_and_the_japanese_spacing_mismatch(
         _CONFIG,
         _RULES,
         [
-            # spacing option でだけ covered
             IdeaCandidate(keyword="議事 録 作成 ツール", cluster="A"),
-            IdeaCandidate(keyword="議事録 自動 作成", cluster="A"),  # legacy でも covered
+            IdeaCandidate(keyword="議事録 自動 作成", cluster="A"),
             IdeaCandidate(keyword="Make 使い方", cluster="C"),
         ],
     )
     s = plan.summary
-    assert s["japanese_spacing_only_coverage"] == 1
-    assert s["keep_japanese_spacing_only_coverage"] == sum(
-        1 for d in plan.decisions if d.decision == "keep" and d.keyword == "議事 録 作成 ツール"
-    )
+    # C2.5.6: 全 consumer が同じ照合になったので、食い違いの counter は存在しない
+    assert "japanese_spacing_only_coverage" not in s
+    assert "keep_japanese_spacing_only_coverage" not in s
     keeps = [d for d in plan.decisions if d.decision == "keep"]
     assert s["keep_affiliate_strong"] == sum(1 for d in keeps if d.affiliate.strong_program_count)
     assert s["keep_no_strong_affiliate_match"] == sum(
         1 for d in keeps if d.affiliate.no_strong_affiliate_match
+    )
+    split = next(d for d in plan.decisions if d.keyword == "議事 録 作成 ツール")
+    unsplit = next(d for d in plan.decisions if d.keyword == "議事録 自動 作成")
+    assert (
+        split.affiliate.weak_program_names
+        == unsplit.affiliate.weak_program_names
+        == ("Minutes Tool",)
     )
 
 
@@ -581,9 +590,8 @@ def test_json_output_carries_additive_tier_metadata_and_the_legacy_keys(
         "keep_affiliate_strong",
         "keep_affiliate_weak_only",
         "keep_no_strong_affiliate_match",
-        "japanese_spacing_only_coverage",
-        "keep_japanese_spacing_only_coverage",
     } <= set(payload["summary"])
+    assert "japanese_spacing_only_coverage" not in payload["summary"]
     assert _TRACKING not in out and "example.invalid" not in out
 
 
@@ -599,7 +607,7 @@ def test_table_output_shows_tiers_after_the_legacy_affiliate_token(
     assert "japanese-spacing" not in out.lower()  # 不一致が無ければ note は出さない
 
 
-def test_table_output_notes_the_spacing_mismatch_only_when_present(
+def test_table_output_has_no_spacing_mismatch_note_because_consumers_share_the_matcher(
     seeded: Session, tmp_path: Path, capsys
 ) -> None:
     AffiliateProgramRepository(seeded).create(
@@ -609,5 +617,51 @@ def test_table_output_notes_the_spacing_mismatch_only_when_present(
     ideas = _write(tmp_path, {"candidates": {"A": ["議事 録 作成 ツール"]}})
     assert run(ideas_file=ideas, session_factory=_factory(seeded)) == EXIT_OK
     out = capsys.readouterr().out
-    assert "covered only through Japanese-spacing matching" in out
-    assert "scoring / article planning / the C2.2 queue use the legacy matcher" in out
+    assert "Japanese-spacing" not in out and "legacy matcher" not in out
+    assert "affiliate=single(1) tier=strong:0/weak:1" in out  # 分かち書きでも weak として match
+
+
+def test_summary_splits_the_weak_keeps_by_fit(seeded: Session) -> None:
+    """C2.5.7: strong 無しの keep を core の weak / 文脈だけ / 適格なし に分けて数える。"""
+
+    repo = AffiliateProgramRepository(seeded)
+    # seeded の HubSpot (CRM = core) に loose の term を足し、fit config に無い program も足す
+    hubspot = next(p for p in repo.list_active(limit=100) if p.name == "HubSpot")
+    hubspot.match_terms = ["HubSpot", "CRM", "業務効率化"]
+    repo.create(name="Acme Notes", provider="direct", match_terms=["Acme", "ノート術"])
+    seeded.commit()
+    ideas = [
+        IdeaCandidate(keyword="CRM 導入 手順", cluster="A"),  # HubSpot / Pipedrive: CRM (core)
+        IdeaCandidate(keyword="業務効率化 進め方", cluster="A"),  # HubSpot: loose だけ
+        IdeaCandidate(keyword="ノート術 まとめ方", cluster="A"),  # Acme Notes: unreviewed だけ
+    ]
+    plan = KeywordExpansionService(seeded).plan(_CONFIG, _RULES, ideas)
+    by = {d.keyword: d for d in plan.decisions}
+    crm = by["CRM 導入 手順"].affiliate
+    assert crm.core_weak_program_names == ("HubSpot", "Pipedrive")
+    assert crm.no_eligible_affiliate_match is False and crm.no_strong_affiliate_match is True
+    loose = by["業務効率化 進め方"].affiliate
+    assert loose.loose_weak_program_names == ("HubSpot",)
+    assert loose.no_eligible_affiliate_match is True
+    unrev = by["ノート術 まとめ方"].affiliate
+    assert unrev.unreviewed_weak_program_names == ("Acme Notes",)
+    assert unrev.no_eligible_affiliate_match is True
+    keeps = [d.affiliate for d in plan.decisions if d.decision == "keep"]
+    s = plan.summary
+    assert s["keep_affiliate_core_fit_only"] == sum(
+        1 for a in keeps if not a.strong_program_count and a.core_weak_program_names
+    )
+    assert s["keep_affiliate_context_only"] == sum(
+        1
+        for a in keeps
+        if a.no_eligible_affiliate_match
+        and (a.loose_weak_program_names or a.unreviewed_weak_program_names)
+    )
+    assert s["keep_no_eligible_affiliate_match"] == sum(
+        1 for a in keeps if a.no_eligible_affiliate_match
+    )
+    # 3 件とも独立した intent なので keep: 内訳は下の 3 集計に必ず現れる
+    assert {d.decision for d in plan.decisions} == {"keep"}
+    assert s["keep_affiliate_core_fit_only"] == 1
+    assert s["keep_affiliate_context_only"] == 2
+    assert s["keep_no_eligible_affiliate_match"] == 2

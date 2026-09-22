@@ -2,9 +2,10 @@
 
 from datetime import UTC, datetime
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Keyword
+from app.models import Article, ArticleAffiliateProgram, Keyword
 from app.models.enums import AffiliateProgramStatus
 from app.repositories.affiliate_program_repository import AffiliateProgramRepository
 from app.repositories.keyword_signal_repository import KeywordSignalRepository
@@ -98,8 +99,8 @@ def test_approve_201(api_client, session: Session) -> None:
         json={
             "title": "業務効率化ツールおすすめ",
             "slug": "gyoumu-osusume",
-            "primary_affiliate_program_id": ids["Make"],
-            "secondary_affiliate_program_ids": [ids["ClickUp"]],
+            # generic term だけの match (weak) は primary にできない (C2.5.6) -> secondary の文脈用
+            "secondary_affiliate_program_ids": [ids["Make"], ids["ClickUp"]],
             "acknowledge_cannibalization": True,
         },
     )
@@ -111,7 +112,25 @@ def test_approve_201(api_client, session: Session) -> None:
 
     links = api_client.get(f"/api/v1/articles/{art_id}/affiliate-programs").json()
     assert {x["affiliate_program_id"] for x in links} == {ids["Make"], ids["ClickUp"]}
-    assert sum(1 for x in links if x["is_primary"]) == 1
+    assert sum(1 for x in links if x["is_primary"]) == 0
+
+
+def test_approve_with_a_weak_only_primary_is_409_with_a_clear_message(
+    api_client, session: Session
+) -> None:
+    k, ids = _complete(session)
+    r = api_client.post(
+        f"/api/v1/keywords/{k.id}/article-plan/approve",
+        json={"title": "t", "slug": "weak-primary", "primary_affiliate_program_id": ids["Make"],
+              "acknowledge_cannibalization": True},
+    )
+    assert r.status_code == 409
+    error = r.json()["error"]
+    assert error["code"] == "plan_approval_rejected"
+    assert "weak" in error["message"]
+    assert "primary affiliate must be a strong match" in error["message"]
+    assert session.scalar(select(func.count()).select_from(Article)) == 0  # article は作られない
+    assert session.scalar(select(func.count()).select_from(ArticleAffiliateProgram)) == 0
 
 
 def test_approve_cannibalization_gate_409(api_client, session: Session) -> None:
@@ -181,7 +200,10 @@ def test_get_plan_serializes_tier_metadata_without_changing_existing_fields(
     body = api_client.get(f"/api/v1/keywords/{k.id}/article-plan").json()
     # 既存の項目はそのまま
     assert [c["name"] for c in body["affiliate_candidates"]] == ["Make", "ClickUp"]
-    assert [c["recommended_role"] for c in body["affiliate_candidates"]][0] == "primary_candidate"
+    assert [c["recommended_role"] for c in body["affiliate_candidates"]] == [
+        "comparison_candidate",
+        "comparison_candidate",
+    ]  # weak は comparison / 文脈用のみ (C2.5.6)
     # 追加の tier 項目 (generic term だけの match は weak)
     assert all(c["match_tier"] == "weak" for c in body["affiliate_candidates"])
     assert all(c["strong_terms"] == [] and c["weak_terms"] for c in body["affiliate_candidates"])

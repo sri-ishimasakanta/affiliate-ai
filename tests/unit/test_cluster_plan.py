@@ -888,7 +888,13 @@ def test_alias_only_strong_match_is_counted_as_strong_but_not_as_legacy_covered(
         [_kw(1, "RPA おすすめ", affiliate_matches=tuple(matches))],
     ).slots[0]
     assert "no_affiliate_match" in entry.notes and "no_strong_affiliate_match" not in entry.notes
-    assert entry.fact_research.suggested_subjects == ()  # 既存の subjects は legacy の covered だけ
+    # C2.5.7: research の対象は strong + core の weak。alias だけの strong も調査対象に含める
+    assert entry.fact_research.suggested_subjects == ("HubSpot",)
+    assert (
+        entry.fact_research.strong_subjects == ("HubSpot",)
+        and entry.fact_research.core_subjects == ()
+        and entry.fact_research.contextual_subjects == ()
+    )
 
 
 def test_queue_notes_report_no_strong_match_without_changing_order_or_decisions() -> None:
@@ -970,3 +976,79 @@ def test_weak_count_is_legacy_generic_matches_only_and_strong_count_includes_ali
     doc = type(cov).__doc__ or ""  # 仕様は class の docstring に文書化されている
     for name in ("strong_program_count", "weak_program_count", "alias_only_strong_program_names"):
         assert name in doc, name
+
+
+def _m(pid: int, name: str, tier: str, fit: str | None) -> AffiliateMatch:
+    eligible = tier == "strong" or fit == "core"
+    return AffiliateMatch(pid, name, "direct", tier=tier, fit=fit, eligible=eligible)
+
+
+def test_fact_research_subjects_are_monetization_ready_with_context_kept_separately() -> None:
+    matches = (
+        _m(1, "Zed", "weak", "loose"),
+        _m(2, "Alpha", "strong", None),
+        _m(3, "Mid", "weak", "core"),
+        _m(4, "Unrev", "weak", "unreviewed"),
+    )
+    entry = _queue(
+        [_cluster("C", 1, "RPA おすすめ")], [_kw(1, "RPA おすすめ", affiliate_matches=matches)]
+    ).slots[0]
+    research = entry.fact_research
+    # 収益化の対象になり得る subject = strong + core の weak (name 順)。loose 等は含めない
+    assert research.suggested_subjects == ("Alpha", "Mid")
+    assert research.strong_subjects == ("Alpha",) and research.core_subjects == ("Mid",)
+    assert research.contextual_subjects == ("Unrev", "Zed")  # 別枠で保持 (research に残せる)
+    cov = entry.affiliate
+    assert cov.no_strong_affiliate_match is False and cov.no_eligible_affiliate_match is False
+    assert cov.core_weak_program_names == ("Mid",)
+    assert cov.loose_weak_program_names == ("Zed",)
+    assert cov.unreviewed_weak_program_names == ("Unrev",)
+    assert cov.eligible_program_names == ("Alpha", "Mid")
+    assert "no_eligible_affiliate_match" not in entry.notes
+
+
+def test_core_weak_only_entry_keeps_its_subject_and_has_no_eligible_gap() -> None:
+    entry = _queue(
+        [_cluster("C", 1, "RPA おすすめ")],
+        [_kw(1, "RPA おすすめ", affiliate_matches=(_m(3, "Mid", "weak", "core"),))],
+    ).slots[0]
+    assert entry.fact_research.suggested_subjects == ("Mid",)
+    assert entry.fact_research.strong_subjects == ()
+    assert entry.fact_research.core_subjects == ("Mid",)
+    assert "no_strong_affiliate_match" in entry.notes  # brand は無い (意味を保つ)
+    assert "no_eligible_affiliate_match" not in entry.notes  # でも収益化の対象はある
+    assert "no_affiliate_match" not in entry.notes
+
+
+def test_loose_only_entry_does_not_inflate_subjects_but_keeps_the_context() -> None:
+    entry = _queue(
+        [_cluster("C", 1, "RPA おすすめ")],
+        [
+            _kw(
+                1,
+                "RPA おすすめ",
+                affiliate_matches=(
+                    _m(1, "Zed", "weak", "loose"),
+                    _m(4, "Unrev", "weak", "unreviewed"),
+                ),
+            )
+        ],
+    ).slots[0]
+    assert entry.fact_research.suggested_subjects == ()
+    assert entry.fact_research.contextual_subjects == ("Unrev", "Zed")
+    assert entry.affiliate.no_eligible_affiliate_match is True
+    assert "no_eligible_affiliate_match" in entry.notes
+    # legacy の covered 意味は不変 (program は 2 件 match している)
+    assert entry.affiliate.level == "multiple" and "no_affiliate_match" not in entry.notes
+
+
+def test_fact_research_subjects_without_tier_data_stay_the_legacy_covered_programs() -> None:
+    entry = _queue(
+        [_cluster("C", 1, "RPA おすすめ")],
+        [_kw(1, "RPA おすすめ", affiliate_matches=(AffiliateMatch(9, "UiPath", "direct"),))],
+    ).slots[0]
+    assert entry.fact_research.suggested_subjects == ("UiPath",)
+    assert entry.fact_research.strong_subjects == () and entry.fact_research.core_subjects == ()
+    assert entry.fact_research.contextual_subjects == ()
+    assert entry.affiliate.no_eligible_affiliate_match is None  # tier 未算出は判定しない
+    assert "no_eligible_affiliate_match" not in entry.notes

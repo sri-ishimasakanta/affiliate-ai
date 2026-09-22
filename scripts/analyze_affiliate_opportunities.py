@@ -1,8 +1,19 @@
-"""AffiliateProgram カタログと代表キーワードの match 分析 CLI (採点はしない)。
+"""AffiliateProgram カタログと代表キーワードの match 分析 CLI (Signal は作らない)。
 
 現在 DB に投入済みの **active** AffiliateProgram の ``match_terms`` と keyword を
-照合し、affiliate_opportunity V1 formula を設計するための「採点前の生データ」を
-表形式 / CSV で出力する。
+照合し、C2.5.7 の affiliate fit policy で分類して表形式 / CSV で出力する:
+
+- brand tier: strong (自身の名前 / 明示 alias) | weak
+- fit: core | loose | unreviewed (weak の term ごと。``app/config/affiliate_match_fit.json``)
+- scoring_eligible / primary_eligible = strong、または weak かつ core
+- keyword の分類: strong / core_weak (brand 無しで core の weak あり) / context_only
+  (weak の loose / unreviewed だけ: score 0・primary 不可) / none
+
+照合は scoring / plan / queue と同じ ``match_catalog`` (日本語の分かち書きも同じ扱い)。
+``affiliate_opportunity`` 列は production と同じ式で eligible な program だけから計算した値。
+legacy の「どれか 1 term でも match」(``matched_*`` 列) は CSV の後方互換のために残すが、
+収益化の意味ではない (fit を見ない)。fit config に載っていない active program / term は
+fail-closed で ``unreviewed`` になり、警告を出す (停止はしない)。
 
     uv run python scripts/analyze_affiliate_opportunities.py \
         --keyword "AI 議事録 おすすめ" --keyword "ChatGPT 料金"
@@ -30,16 +41,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # matching semantics は production normalizer / service と共有 (乖離防止)。
 from app.config.database import SessionLocal  # noqa: E402
+from app.keyword.affiliate_fit import FIT_CORE, FIT_LOOSE, FIT_UNREVIEWED  # noqa: E402
 from app.keyword.affiliate_matching import (  # noqa: E402
     MatchedProgram,
     ProgramFacts,
     match_programs,
 )
 from app.keyword.affiliate_tiers import (  # noqa: E402
+    TIER_STRONG,
+    TIER_WEAK,
     TieredMatch,
-    match_programs_tiered,
+    fit_config_gaps,
+    match_catalog,
+    scoring_programs,
     summarize_tiers,
     unreviewed_brand_tokens,
+)
+from app.keyword.normalizers.affiliate_opportunity import (  # noqa: E402
+    calculate_affiliate_opportunity,
 )
 from app.models.enums import AffiliateProgramStatus  # noqa: E402
 from app.repositories.affiliate_program_repository import (  # noqa: E402
@@ -54,13 +73,67 @@ _PERCENTAGE = "percentage"
 _ACTIVE_LIMIT = 10_000
 _UNKNOWN_CURRENCY = "UNKNOWN"
 
+COVERAGE_STRONG = "strong"
+COVERAGE_CORE_WEAK = "core_weak"
+COVERAGE_CONTEXT_ONLY = "context_only"
+COVERAGE_NONE = "none"
+
 
 @dataclass
 class KeywordAnalysis:
     keyword: str
+    # legacy の「どれか 1 term でも match」(後方互換の列のためだけ。収益化の意味ではない)
     matched: list[MatchedProgram] = field(default_factory=list)
-    # C2.5.4 (報告専用・追加): strong / weak の tier。matched (legacy の covered) は変わらない。
+    # C2.5.7: scoring / plan / queue と同じ照合 (``match_catalog``) の tier + fit 付き match
     tiered: list[TieredMatch] = field(default_factory=list)
+
+    # ---- C2.5.7: affiliate fit policy (strong、または weak かつ core が適格)
+    @property
+    def eligible(self) -> list[TieredMatch]:
+        return [t for t in self.tiered if t.scoring_eligible]
+
+    @property
+    def scoring_eligible_program_names(self) -> list[str]:
+        return [t.name for t in self.eligible]
+
+    @property
+    def primary_eligible_program_names(self) -> list[str]:
+        return [t.name for t in self.tiered if t.primary_eligible]
+
+    def _weak_names(self, fit: str) -> list[str]:
+        return sorted(t.name for t in self.tiered if t.tier == TIER_WEAK and t.fit == fit)
+
+    @property
+    def core_weak_program_names(self) -> list[str]:
+        return self._weak_names(FIT_CORE)
+
+    @property
+    def loose_weak_program_names(self) -> list[str]:
+        return self._weak_names(FIT_LOOSE)
+
+    @property
+    def unreviewed_weak_program_names(self) -> list[str]:
+        return sorted(
+            t.name
+            for t in self.tiered
+            if t.tier == TIER_WEAK and t.fit not in (FIT_CORE, FIT_LOOSE)
+        )
+
+    @property
+    def coverage_class(self) -> str:
+        if any(t.tier == TIER_STRONG for t in self.tiered):
+            return COVERAGE_STRONG
+        if self.eligible:
+            return COVERAGE_CORE_WEAK
+        if self.tiered:
+            return COVERAGE_CONTEXT_ONLY
+        return COVERAGE_NONE
+
+    @property
+    def affiliate_opportunity(self) -> float:
+        """production と同じ式・重みで eligible な program だけから計算した値。"""
+
+        return calculate_affiliate_opportunity(scoring_programs(self.tiered)).normalized_value
 
     @property
     def matched_program_count(self) -> int:
@@ -189,12 +262,12 @@ class KeywordAnalysis:
 def analyze_keyword(
     keyword: str, programs: Sequence[ProgramFacts]
 ) -> KeywordAnalysis:
-    # 照合ルールは app.keyword.affiliate_matching に集約 (production と同一)。
-    # matched は legacy のまま。tiered は同じ照合に strong / weak を付けた報告用 (C2.5.4)。
+    # tiered は production (scoring / plan / queue) と同じ照合 + tier + fit (C2.5.7)。
+    # matched は legacy の any-term match (CSV の後方互換列のためだけ)。
     return KeywordAnalysis(
         keyword=keyword,
         matched=match_programs(keyword, list(programs)),
-        tiered=match_programs_tiered(keyword, list(programs)),
+        tiered=match_catalog(keyword, list(programs)),
     )
 
 
@@ -251,17 +324,30 @@ def _pad(text: str, width: int) -> str:
 
 
 def render_table(analyses: Sequence[KeywordAnalysis]) -> str:
-    headers = ["keyword", "programs", "providers", "commission data", "strong", "weak"]
+    headers = [
+        "keyword",
+        "coverage",
+        "aff_opp",
+        "eligible",
+        "strong",
+        "core",
+        "loose",
+        "unreviewed",
+        "legacy_any",
+    ]
     matrix: list[list[str]] = [headers]
     for analysis in analyses:
         matrix.append(
             [
                 analysis.keyword,
-                str(analysis.matched_program_count),
-                str(analysis.distinct_provider_count),
-                str(analysis.commission_data_count),
+                analysis.coverage_class,
+                f"{analysis.affiliate_opportunity:.2f}",
+                str(len(analysis.eligible)),
                 str(analysis.strong_program_count),
-                str(analysis.weak_program_count),
+                str(len(analysis.core_weak_program_names)),
+                str(len(analysis.loose_weak_program_names)),
+                str(len(analysis.unreviewed_weak_program_names)),
+                str(analysis.matched_program_count),
             ]
         )
     widths = [
@@ -285,30 +371,35 @@ def _format_commission(program: MatchedProgram) -> str:
     return f"{program.commission_type} {program.commission_value}{currency}"
 
 
+def _terms_text(tier: TieredMatch) -> str:
+    parts = [f"strong={','.join(tier.strong_terms) or '-'}"]
+    for fit in (FIT_CORE, FIT_LOOSE, FIT_UNREVIEWED):
+        parts.append(f"{fit}={','.join(tier.terms_with_fit(fit)) or '-'}")
+    return " ".join(parts)
+
+
 def _print_program_details(analyses: Sequence[KeywordAnalysis]) -> None:
-    print("\n=== matched programs (URL は表示しない) ===")
+    print("\n=== matched programs: brand tier x fit (URL は表示しない) ===")
     for analysis in analyses:
         print(
-            f"\n● {analysis.keyword}  "
-            f"({analysis.matched_program_count} programs, "
-            f"{analysis.distinct_provider_count} providers)"
+            f"\n● {analysis.keyword}  (coverage={analysis.coverage_class}, "
+            f"affiliate_opportunity={analysis.affiliate_opportunity:.2f}, "
+            f"eligible={len(analysis.eligible)}/{len(analysis.tiered)})"
         )
-        tier_by_id = {t.program_id: t for t in analysis.tiered}
-        for program in analysis.matched:
-            tier = tier_by_id.get(program.program_id)
-            tier_text = f" | tier={tier.tier} ({tier.reason})" if tier is not None else ""
+        for tier in analysis.tiered:
+            program = tier.program
+            alias_note = (
+                "" if tier.legacy_matched else " [alias-only strong, not in the legacy match]"
+            )
             print(
-                f"    [id {program.program_id}] {program.name} | "
+                f"    [id {program.program_id}] {program.name}{alias_note} | "
                 f"provider={program.provider} | category={program.category} | "
                 f"commission={_format_commission(program)} | "
-                f"terms={' , '.join(program.matched_terms)}{tier_text}"
+                f"tier={tier.tier} fit={tier.fit or '-'} | "
+                f"scoring_eligible={tier.scoring_eligible} "
+                f"primary_eligible={tier.primary_eligible} | "
+                f"terms {_terms_text(tier)} | {tier.reason}"
             )
-        for tier in analysis.tiered:
-            if not tier.legacy_matched:
-                print(
-                    f"    [alias-only strong, not in the legacy match] {tier.name} | "
-                    f"{tier.reason}"
-                )
 
 
 def _bucket_counts(values: Sequence[int]) -> tuple[int, int, int, int]:
@@ -327,22 +418,30 @@ def _print_summary(analyses: Sequence[KeywordAnalysis]) -> None:
     with_matches = sum(1 for c in counts if c > 0)
     commission_available = sum(1 for a in analyses if a.commission_data_count >= 1)
 
-    print("\n=== coverage ===")
-    print(f"  total_keywords          : {total}")
+    by_class = {
+        c: sum(1 for a in analyses if a.coverage_class == c)
+        for c in (COVERAGE_STRONG, COVERAGE_CORE_WEAK, COVERAGE_CONTEXT_ONLY, COVERAGE_NONE)
+    }
+    print("\n=== affiliate monetization (eligible = strong OR weak+core) ===")
+    print(f"  total_keywords                 : {total}")
+    monetizable = by_class[COVERAGE_STRONG] + by_class[COVERAGE_CORE_WEAK]
+    print(f"  keywords_monetizable           : {monetizable}")
+    print(f"  strong                         : {by_class[COVERAGE_STRONG]}")
+    print(f"  core_weak (no brand, core fit) : {by_class[COVERAGE_CORE_WEAK]}")
+    print(f"  context_only (loose/unreviewed): {by_class[COVERAGE_CONTEXT_ONLY]}")
+    print(f"  no_match                       : {by_class[COVERAGE_NONE]}")
+    print(
+        f"  keywords_with_nonzero_affiliate_opportunity: "
+        f"{sum(1 for a in analyses if a.affiliate_opportunity > 0)}"
+    )
+    alias_only = sum(1 for a in analyses if a.alias_only_strong_program_names)
+    print(f"  keywords_with_alias_only_strong (not in the legacy match): {alias_only}")
+
+    print("\n=== legacy any-term match (backward compatibility; NOT monetization) ===")
     print(f"  keywords_with_matches   : {with_matches}")
     print(f"  keywords_without_matches: {total - with_matches}")
     rate = (with_matches / total) if total else 0.0
     print(f"  match_coverage_rate     : {rate:.2%}")
-    with_strong = sum(1 for a in analyses if a.strong_program_count > 0)
-    weak_only = sum(
-        1 for a in analyses if a.strong_program_count == 0 and a.weak_program_count > 0
-    )
-    print("\n=== affiliate match tiers (report only; scoring is unchanged) ===")
-    print(f"  keywords_with_strong_match : {with_strong}")
-    print(f"  keywords_weak_only         : {weak_only}")
-    print(f"  keywords_no_strong_match   : {total - with_strong}")
-    alias_only = sum(1 for a in analyses if a.alias_only_strong_program_names)
-    print(f"  keywords_with_alias_only_strong (not in the legacy match): {alias_only}")
 
     def _dist(label: str, values: Sequence[int]) -> None:
         b0, b1, b2, b3 = _bucket_counts(values)
@@ -387,8 +486,24 @@ def csv_fieldnames(analyses: Sequence[KeywordAnalysis]) -> list[str]:
         "weak_program_names",
         "no_strong_affiliate_match",
         "alias_only_strong_program_names",
+        # C2.5.7 (追加・末尾): 収益化の意味はこちら (strong OR weak+core)
+        *FIT_CSV_COLUMNS,
     ]
     return fields
+
+
+# C2.5.7: affiliate fit policy の列。matched_* (legacy any-term) より優先して読む
+FIT_CSV_COLUMNS = (
+    "coverage_class",
+    "affiliate_opportunity",
+    "scoring_eligible_program_count",
+    "scoring_eligible_program_names",
+    "primary_eligible_program_names",
+    "core_weak_program_names",
+    "loose_weak_program_names",
+    "unreviewed_weak_program_names",
+    "match_details",
+)
 
 
 def _write_csv(path: Path, analyses: Sequence[KeywordAnalysis]) -> None:
@@ -425,6 +540,38 @@ def _write_csv(path: Path, analyses: Sequence[KeywordAnalysis]) -> None:
                 "alias_only_strong_program_names": " | ".join(
                     analysis.alias_only_strong_program_names
                 ),
+                "coverage_class": analysis.coverage_class,
+                "affiliate_opportunity": analysis.affiliate_opportunity,
+                "scoring_eligible_program_count": len(analysis.eligible),
+                "scoring_eligible_program_names": " | ".join(
+                    analysis.scoring_eligible_program_names
+                ),
+                "primary_eligible_program_names": " | ".join(
+                    analysis.primary_eligible_program_names
+                ),
+                "core_weak_program_names": " | ".join(analysis.core_weak_program_names),
+                "loose_weak_program_names": " | ".join(analysis.loose_weak_program_names),
+                "unreviewed_weak_program_names": " | ".join(
+                    analysis.unreviewed_weak_program_names
+                ),
+                "match_details": json.dumps(
+                    [
+                        {
+                            "program_id": t.program_id,
+                            "name": t.name,
+                            "brand_tier": t.tier,
+                            "fit": t.fit,
+                            "scoring_eligible": t.scoring_eligible,
+                            "primary_eligible": t.primary_eligible,
+                            "strong_terms": list(t.strong_terms),
+                            "core_terms": list(t.terms_with_fit(FIT_CORE)),
+                            "loose_terms": list(t.terms_with_fit(FIT_LOOSE)),
+                            "unreviewed_terms": list(t.terms_with_fit(FIT_UNREVIEWED)),
+                        }
+                        for t in analysis.tiered
+                    ],
+                    ensure_ascii=False,
+                ),
             }
             for currency in currencies:
                 row[f"best_fixed_{currency}"] = by_currency.get(currency, "")
@@ -451,6 +598,8 @@ def run_analysis(
             "tier config: own-name tokens not yet reviewed (add to affiliate_match_tiers.json): "
             + ", ".join(f"{name}={token}" for name, token in unreviewed)
         )
+    for warning in fit_gap_warnings(programs):
+        print(warning)
     print(f"keywords analyzed                   : {len(analyses)}\n")
     print(render_table(analyses))
 
@@ -467,12 +616,33 @@ def run_analysis(
     return EXIT_OK
 
 
+def fit_gap_warnings(programs: Sequence[ProgramFacts]) -> list[str]:
+    """fit config が網羅していない active program / term の警告 (fail-closed の説明つき)。"""
+
+    out: list[str] = []
+    for gap in fit_config_gaps(programs):
+        terms = ", ".join(gap.unclassified_terms) or "-"
+        if gap.program_missing:
+            out.append(
+                f"WARNING fit config: active program {gap.program!r} is not in "
+                "affiliate_match_fit.json; its generic terms resolve to 'unreviewed' "
+                f"(score 0, never primary) until reviewed: {terms}"
+            )
+        else:
+            out.append(
+                f"WARNING fit config: {gap.program!r} has generic terms not in "
+                "affiliate_match_fit.json; they resolve to 'unreviewed' "
+                f"(score 0, never primary) until reviewed: {terms}"
+            )
+    return out
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="analyze_affiliate_opportunities",
         description=(
             "keyword と active AffiliateProgram.match_terms を照合し、"
-            "affiliate_opportunity 採点前の生データを出力する (DB read-only)"
+            "brand tier x fit と affiliate_opportunity を出力する (DB read-only)"
         ),
     )
     parser.add_argument(

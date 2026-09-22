@@ -34,8 +34,9 @@ from app.exceptions import (
     EntityNotFoundError,
     PlanApprovalError,
 )
+from app.keyword.affiliate_fit import FIT_CORE, FIT_LOOSE, FIT_UNREVIEWED
 from app.keyword.affiliate_matching import ProgramFacts
-from app.keyword.affiliate_tiers import match_programs_tiered
+from app.keyword.affiliate_tiers import TIER_STRONG, TIER_WEAK, match_catalog
 from app.keyword.scoring import COMPONENT_NAMES
 from app.models import AffiliateProgram, Article, Keyword
 from app.models.enums import ArticleStatus
@@ -147,6 +148,21 @@ class ArticlePlanService:
             no_strong_affiliate_candidate=not any(
                 c.read.match_tier == "strong" for c in candidates
             ),
+            core_weak_candidate_count=sum(
+                1 for c in candidates if c.read.match_tier == TIER_WEAK and c.read.fit == FIT_CORE
+            ),
+            loose_weak_candidate_count=sum(
+                1 for c in candidates if c.read.match_tier == TIER_WEAK and c.read.fit == FIT_LOOSE
+            ),
+            unreviewed_weak_candidate_count=sum(
+                1
+                for c in candidates
+                if c.read.match_tier == TIER_WEAK and c.read.fit == FIT_UNREVIEWED
+            ),
+            primary_eligible_candidate_count=sum(
+                1 for c in candidates if c.read.primary_eligible
+            ),
+            no_primary_eligible_candidate=not any(c.read.primary_eligible for c in candidates),
             alias_only_strong_programs=list(alias_only_strong),
             cta_strategy=planning.cta_strategy(article_type),
             cannibalization=cannibalization,
@@ -265,6 +281,20 @@ class ArticlePlanService:
                 f"primary_affiliate_program_id {primary_id} is not an active "
                 "matched candidate for this keyword"
             )
+        # C2.5.7: 新規の承認では primary は strong、または weak かつ core (その category の本命)
+        # でなければならない。weak + loose / unreviewed は比較 / 文脈用の secondary にはできるが
+        # primary にはできない。(既存の承認・link・snapshot は遡って変更しない: 新規 approve のみ)
+        if primary_id is not None:
+            chosen = next(c for c in plan.affiliate_candidates if c.program_id == primary_id)
+            if not chosen.primary_eligible:
+                raise PlanApprovalError(
+                    f"primary_affiliate_program_id {primary_id} ({chosen.name}) is only a weak "
+                    f"({chosen.fit or 'unreviewed'} fit) match for this keyword; a primary "
+                    "affiliate must be a strong match (the program's own name or an explicit "
+                    "alias) or a weak match whose fit is core (the program genuinely belongs to "
+                    "the searched category). Choose an eligible candidate, list it as a "
+                    "secondary comparison program, or approve without a primary"
+                )
         if len(secondary_ids) != len(set(secondary_ids)):
             raise PlanApprovalError("secondary_affiliate_program_ids contains duplicates")
         if primary_id is not None and primary_id in secondary_ids:
@@ -301,14 +331,22 @@ class ArticlePlanService:
     ) -> tuple[list[_Candidate], list[int], list[str]]:
         programs = self._programs.list_active(limit=_ACTIVE_CATALOG_LIMIT)
         facts = [_to_facts(p) for p in programs]
-        # C2.5.4: candidates は legacy の match 集合のまま (tier は報告用の注釈だけ)。alias だけで
-        # strong になった program は candidates に入れない (承認の対象を広げない)。
-        tiered = match_programs_tiered(keyword_text, facts)
-        matched = [t.program for t in tiered if t.legacy_matched]
-        tier_by_id = {t.program_id: t for t in tiered if t.legacy_matched}
+        # C2.5.7: candidate は strong + weak (core / loose / unreviewed) の全て (scoring / queue /
+        # expansion と同じ照合)。順序: strong -> weak + core -> weak + loose / unreviewed。
+        # strong は commission に応じて primary / secondary、weak は role が comparison_candidate
+        # (category / 文脈用)。weak + core は role に関わらず primary_eligible。
+        tiered = match_catalog(keyword_text, facts)
+        matched = [t.program for t in tiered]
+        tier_by_id = {t.program_id: t for t in tiered}
         alias_only_strong = [t.name for t in tiered if not t.legacy_matched]
 
-        def order_key(m: object) -> tuple[int, float, str, int]:
+        def tier_rank_of(program_id: int) -> int:
+            t = tier_by_id[program_id]
+            if t.tier == TIER_STRONG:
+                return 0
+            return 1 if t.fit == FIT_CORE else 2
+
+        def order_key(m: object) -> tuple[int, int, float, str, int]:
             has_pct = (
                 (m.commission_type or "").strip().lower() == "percentage"
                 and m.commission_value is not None
@@ -317,17 +355,20 @@ class ArticlePlanService:
             has_any = m.commission_type is not None and m.commission_value is not None
             group = 0 if has_pct else (1 if has_any else 2)
             neg_value = -(m.commission_value or 0.0)
-            return (group, neg_value, m.name.casefold(), m.program_id)
+            return (tier_rank_of(m.program_id), group, neg_value, m.name.casefold(), m.program_id)
 
         ordered = sorted(matched, key=order_key)
         candidates: list[_Candidate] = []
         for m in ordered:
-            group = order_key(m)[0]
-            role = (
-                "primary_candidate"
-                if group == 0
-                else ("secondary_candidate" if group == 1 else "comparison_candidate")
-            )
+            tier_rank, group = order_key(m)[:2]
+            if tier_rank != 0:
+                role = "comparison_candidate"  # weak は category / 文脈用 (primary 可否は fit)
+            else:
+                role = (
+                    "primary_candidate"
+                    if group == 0
+                    else ("secondary_candidate" if group == 1 else "comparison_candidate")
+                )
             candidates.append(
                 _Candidate(
                     program_id=m.program_id,
@@ -349,6 +390,15 @@ class ArticlePlanService:
                         weak_terms=list(tier_by_id[m.program_id].weak_terms),
                         tier_reason=tier_by_id[m.program_id].reason,
                         tier_ambiguity=tier_by_id[m.program_id].ambiguity,
+                        fit=tier_by_id[m.program_id].fit,
+                        fit_reason=tier_by_id[m.program_id].fit_reason or None,
+                        core_terms=list(tier_by_id[m.program_id].terms_with_fit(FIT_CORE)),
+                        loose_terms=list(tier_by_id[m.program_id].terms_with_fit(FIT_LOOSE)),
+                        unreviewed_terms=list(
+                            tier_by_id[m.program_id].terms_with_fit(FIT_UNREVIEWED)
+                        ),
+                        scoring_eligible=tier_by_id[m.program_id].scoring_eligible,
+                        primary_eligible=tier_by_id[m.program_id].primary_eligible,
                     ),
                 )
             )

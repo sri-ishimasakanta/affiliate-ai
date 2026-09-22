@@ -30,6 +30,14 @@ own-name の一致だけでは strong にしない。次のいずれかのとき
 
 それ以外 (``make sense`` / ``make sure`` / 単独の ``make`` / 英語だけの ``make money``) は **weak**
 (``ambiguity`` に理由を残す)。単独語の扱いは config の ``without_context`` で明示する。
+
+brand tier と fit は独立した 2 軸 (C2.5.7)
+-----------------------------------------
+strong / weak は「brand を名指しているか」だけを表す。「その program が探されている category に
+本当に属するか」は別軸の fit (``affiliate_fit``: core | loose | unreviewed) で、weak の
+term ごとに付く。
+適格性 (scoring / 新規 primary) = strong、または weak かつ core。strong を category 適合の意味に
+overload しない。
 """
 
 from __future__ import annotations
@@ -37,10 +45,16 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache
 from pathlib import Path
 
+from app.keyword.affiliate_fit import (
+    FIT_CORE,
+    FitConfig,
+    aggregate_fit,
+    default_fit_config,
+)
 from app.keyword.affiliate_matching import (
     MatchedProgram,
     ProgramFacts,
@@ -214,6 +228,9 @@ class TermTier:
     tier: str  # strong | weak
     basis: str  # own_name | explicit_alias | generic_term | ambiguous_own_name
     note: str = ""
+    # C2.5.7: weak の term だけが持つ fit (core | loose | unreviewed)。strong は None (fit 非依存)
+    fit: str | None = None
+    fit_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -228,6 +245,27 @@ class TieredMatch:
     # legacy の match_programs でも match したか。False = alias だけで strong になった program
     # (legacy の「covered」集合は広げない)。
     legacy_matched: bool
+    # C2.5.7: brand tier (``tier``) とは独立した fit。weak の term 群から集約 (1 つでも core)。
+    # strong の match は generic term を同時に踏んだときだけ値を持つ (参考情報)。None = 該当なし
+    # (自身の名前 / alias だけで match)。適格性の判定に strong は fit を使わない。
+    fit: str | None = None
+    fit_reason: str = ""
+
+    @property
+    def brand_tier(self) -> str:
+        return self.tier
+
+    @property
+    def scoring_eligible(self) -> bool:
+        """affiliate_opportunity の対象か: strong、または weak かつ core。"""
+
+        return self.tier == TIER_STRONG or self.fit == FIT_CORE
+
+    @property
+    def primary_eligible(self) -> bool:
+        """新規の approval で primary にできるか (scoring 適格と同じ条件)。"""
+
+        return self.scoring_eligible
 
     @property
     def program_id(self) -> int:
@@ -252,6 +290,9 @@ class TieredMatch:
     @property
     def weak_terms(self) -> tuple[str, ...]:
         return tuple(t.term for t in self.term_tiers if t.tier == TIER_WEAK)
+
+    def terms_with_fit(self, fit: str) -> tuple[str, ...]:
+        return tuple(t.term for t in self.term_tiers if t.tier == TIER_WEAK and t.fit == fit)
 
 
 @dataclass(frozen=True)
@@ -316,6 +357,39 @@ def unreviewed_brand_tokens(
     return out
 
 
+@dataclass(frozen=True)
+class FitConfigGap:
+    """active program の generic term が fit config で分類されていない (= ``unreviewed``)。
+
+    ``program_missing``: program 名そのものが fit config に無い (名前の変更・新規追加など)。
+    どちらの場合も該当 term は fail-closed で ``unreviewed`` (score 0・primary 不可) になり、
+    core に化けることは無い。報告 (warning) 用で、照合を止めない。
+    """
+
+    program: str
+    program_missing: bool
+    unclassified_terms: tuple[str, ...]
+
+
+def fit_config_gaps(
+    programs: Iterable[ProgramFacts], *, fit_config: FitConfig | None = None
+) -> list[FitConfigGap]:
+    """fit config が active program / generic term を網羅しているかの点検 (C2.5.7)。
+
+    own-name の term (strong になり得る brand 綴り) は brand tier で扱うので対象外。
+    """
+
+    fits = fit_config or default_fit_config()
+    out: list[FitConfigGap] = []
+    for program in programs:
+        generic = [t for t in program.match_terms if not is_own_name_term(program.name, t)]
+        unclassified = tuple(t for t in generic if not fits.classifies(program.name, t))
+        missing = not fits.has_program(program.name)
+        if missing or unclassified:
+            out.append(FitConfigGap(program.name, missing, unclassified))
+    return out
+
+
 def _ambiguity_verdict(
     *,
     keyword: str,
@@ -352,6 +426,7 @@ def _classify_program(
     facts: ProgramFacts,
     legacy: MatchedProgram | None,
     config: TierConfig,
+    fit_config: FitConfig,
     ignore_japanese_spacing: bool,
 ) -> TieredMatch | None:
     term_tiers: list[TermTier] = []
@@ -396,6 +471,18 @@ def _classify_program(
     if not term_tiers:
         return None
 
+    # C2.5.7: weak の term にだけ fit を付ける (brand tier とは独立。strong の term は fit 非依存)
+    fitted: list[TermTier] = []
+    for t in term_tiers:
+        if t.tier == TIER_WEAK:
+            term_fit = fit_config.fit_for(facts.name, t.term)
+            t = replace(t, fit=term_fit.fit, fit_reason=term_fit.reason)
+        fitted.append(t)
+    term_tiers = fitted
+    weak_terms = [t for t in term_tiers if t.tier == TIER_WEAK]
+    fit = aggregate_fit(t.fit for t in weak_terms if t.fit is not None)
+    fit_reason = "; ".join(f"'{t.term}' {t.fit}" for t in weak_terms)
+
     strong = [t for t in term_tiers if t.tier == TIER_STRONG]
     tier = TIER_STRONG if strong else TIER_WEAK
     if strong:
@@ -430,7 +517,39 @@ def _classify_program(
         reason=reason,
         ambiguity=ambiguity,
         legacy_matched=legacy is not None,
+        fit=fit,
+        fit_reason=fit_reason,
     )
+
+
+# C2.5.6: scoring / article planning / content queue / keyword expansion が共有する照合方針。
+# Google Ads は日本語を分かち書きして返す (``議事 録``) ので、全 consumer が同じ空白の扱いで
+# 照合する (planner と scoring の coverage の食い違いを作らない)。英語の空白は広げない。
+CATALOG_MATCH_IGNORES_JAPANESE_SPACING = True
+
+
+def match_catalog(
+    keyword: str,
+    programs: Sequence[ProgramFacts],
+    *,
+    config: TierConfig | None = None,
+    fit_config: FitConfig | None = None,
+) -> list[TieredMatch]:
+    """全 consumer 共通の tier + fit 付き照合 (strong + weak、alias だけの strong も含む)。"""
+
+    return match_programs_tiered(
+        keyword,
+        programs,
+        config=config,
+        fit_config=fit_config,
+        ignore_japanese_spacing=CATALOG_MATCH_IGNORES_JAPANESE_SPACING,
+    )
+
+
+def scoring_programs(matches: Iterable[TieredMatch]) -> list[MatchedProgram]:
+    """affiliate_opportunity の対象: strong、または weak かつ core (loose / unreviewed は 0)。"""
+
+    return [m.program for m in matches if m.scoring_eligible]
 
 
 def match_programs_tiered(
@@ -438,6 +557,7 @@ def match_programs_tiered(
     programs: Sequence[ProgramFacts],
     *,
     config: TierConfig | None = None,
+    fit_config: FitConfig | None = None,
     ignore_japanese_spacing: bool = False,
 ) -> list[TieredMatch]:
     """:func:`match_programs` の結果に strong / weak の tier を付けて返す。
@@ -448,6 +568,7 @@ def match_programs_tiered(
     """
 
     cfg = config or default_tier_config()
+    fits = fit_config or default_fit_config()
     normalized_keyword = normalize_for_match(keyword)
     legacy_by_id = {
         m.program_id: m
@@ -460,6 +581,7 @@ def match_programs_tiered(
             facts=facts,
             legacy=legacy_by_id.get(facts.program_id),
             config=cfg,
+            fit_config=fits,
             ignore_japanese_spacing=ignore_japanese_spacing,
         )
         if tiered is not None:

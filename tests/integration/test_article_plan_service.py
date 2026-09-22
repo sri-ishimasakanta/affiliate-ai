@@ -129,12 +129,14 @@ def test_plan_target_keyword(session: Session) -> None:
     names = [c.name for c in dto.affiliate_candidates]
     assert names == ["Make", "HubSpot", "ClickUp"]
     assert "PausedTool" not in names and "Unrelated" not in names
-    # 順序: percentage DESC, その後 commission 無しは後ろ
+    # 順序: strong が先、その中で percentage DESC、その後 commission 無しは後ろ。
+    # generic term だけの match (weak) は role が全て comparison_candidate (C2.5.6)
     assert [c.recommended_role for c in dto.affiliate_candidates] == [
-        "primary_candidate",
-        "primary_candidate",
+        "comparison_candidate",
+        "comparison_candidate",
         "comparison_candidate",
     ]
+    assert all(c.match_tier == "weak" for c in dto.affiliate_candidates)
     assert dto.affiliate_candidates[0].commission_value == 35.0
     # cannibalization gate
     assert dto.cannibalization.originality == 27.27
@@ -318,70 +320,104 @@ def test_slug_collision_proposes_alternative(session: Session) -> None:
     assert dto.proposed_slug == "業務効率化-ツール-おすすめ-roundup-2"
     assert dto.slug_available is True
     assert any("slug_collision" in w for w in dto.warnings)
-
-
-# ================================================================ C2.5.4
-def test_candidates_carry_tiers_while_the_candidate_set_and_roles_are_unchanged(
-    session: Session,
-) -> None:
+# ================================================================ C2.5.4 / C2.5.6 / C2.5.7
+def test_candidates_keep_strong_and_weak_with_tier_aware_roles(session: Session) -> None:
     k, _ids = _complete_target(session)
     dto = ArticlePlanService(session).plan_for_keyword(k.id)
-    # 既存と同一 (candidate 集合 / 順序 / role は tier に依存しない)
     assert [c.name for c in dto.affiliate_candidates] == ["Make", "HubSpot", "ClickUp"]
-    assert [c.recommended_role for c in dto.affiliate_candidates] == [
-        "primary_candidate",
-        "primary_candidate",
-        "comparison_candidate",
-    ]
-    # 「業務効率化」だけの generic match は weak (それでも candidate のまま)
+    # 「業務効率化」だけの generic match は weak + loose: candidate のままだが文脈用のみ
     assert all(c.match_tier == "weak" for c in dto.affiliate_candidates)
+    assert all(c.fit == "loose" for c in dto.affiliate_candidates)
+    assert all(c.primary_eligible is False for c in dto.affiliate_candidates)
+    assert all(c.recommended_role == "comparison_candidate" for c in dto.affiliate_candidates)
     assert all(c.strong_terms == [] and c.weak_terms for c in dto.affiliate_candidates)
     assert all(
         c.tier_reason.startswith("weak: generic term(s) only") for c in dto.affiliate_candidates
     )
     assert (dto.strong_candidate_count, dto.weak_candidate_count) == (0, 3)
-    assert dto.no_strong_affiliate_candidate is True
+    assert (dto.core_weak_candidate_count, dto.loose_weak_candidate_count) == (0, 3)
+    assert dto.no_strong_affiliate_candidate is True and dto.no_primary_eligible_candidate is True
     assert dto.alias_only_strong_programs == []
-    # drift 判定も不変
     assert dto.live_program_ids == [c.program_id for c in dto.affiliate_candidates]
     assert dto.catalog_drift is False
 
 
-def test_brand_keyword_makes_its_candidate_strong(session: Session) -> None:
+def test_brand_keyword_makes_its_candidate_strong_and_orders_it_first(session: Session) -> None:
     _seed_catalog(session)
-    k = _keyword(session, "Make 使い方")
+    k = _keyword(session, "Make 業務効率化 ツール")
     dto = ArticlePlanService(session).plan_for_keyword(k.id)
-    make = next(c for c in dto.affiliate_candidates if c.name == "Make")
+    assert [c.name for c in dto.affiliate_candidates][0] == "Make"
+    make = dto.affiliate_candidates[0]
     assert make.match_tier == "strong" and make.strong_terms == ["Make"]
-    assert make.matched_terms == ["Make"]  # legacy の matched_terms は不変
+    assert make.recommended_role == "primary_candidate"  # strong は commission に応じた role
+    assert {c.match_tier for c in dto.affiliate_candidates[1:]} == {"weak"}
+    assert all(c.recommended_role == "comparison_candidate" for c in dto.affiliate_candidates[1:])
     assert dto.strong_candidate_count == 1 and dto.no_strong_affiliate_candidate is False
 
 
-def test_english_make_idioms_are_candidates_but_not_strong(session: Session) -> None:
+def test_english_make_idioms_are_weak_candidates_never_primary(session: Session) -> None:
     _seed_catalog(session)
     for text in ("make sure", "make"):
-        k = _keyword(session, text)
-        dto = ArticlePlanService(session).plan_for_keyword(k.id)
-        make = next(c for c in dto.affiliate_candidates if c.name == "Make")  # legacy: 候補のまま
+        dto = ArticlePlanService(session).plan_for_keyword(_keyword(session, text).id)
+        make = next(c for c in dto.affiliate_candidates if c.name == "Make")
         assert make.match_tier == "weak" and make.tier_ambiguity is not None, text
+        assert make.recommended_role == "comparison_candidate"
         assert dto.no_strong_affiliate_candidate is True
 
 
-def test_alias_only_strong_program_is_reported_but_never_becomes_a_candidate(
-    session: Session,
-) -> None:
+def test_alias_only_strong_program_is_a_strong_candidate(session: Session) -> None:
     _seed_catalog(session)
-    k = _keyword(session, "ハブスポット とは")
+    dto = ArticlePlanService(session).plan_for_keyword(_keyword(session, "ハブスポット とは").id)
+    assert [(c.name, c.match_tier) for c in dto.affiliate_candidates] == [("HubSpot", "strong")]
+    assert dto.affiliate_candidates[0].recommended_role == "primary_candidate"
+    assert dto.live_program_ids == [dto.affiliate_candidates[0].program_id]
+    assert dto.alias_only_strong_programs == ["HubSpot"]  # alias だけで strong だったことを明示
+    assert dto.no_strong_affiliate_candidate is False
+
+
+def test_split_japanese_keyword_gets_the_same_candidates_as_unsplit(session: Session) -> None:
+    _seed_catalog(session)
+    service = ArticlePlanService(session)
+    unsplit = service.plan_for_keyword(_keyword(session, "タスク管理 ツール").id)
+    split = service.plan_for_keyword(_keyword(session, "タスク 管理 ツール").id)
+    names = [c.name for c in split.affiliate_candidates]
+    assert names == [c.name for c in unsplit.affiliate_candidates]
+    assert [c.name for c in split.affiliate_candidates] == ["ClickUp"]
+
+
+def test_tiering_alone_never_creates_catalog_drift(session: Session) -> None:
+    """signal の matched_program_ids は candidate と同じ集合 (strong + weak): drift しない。"""
+
+    from app.services.keyword_signal_service import KeywordSignalService
+
+    _seed_catalog(session)
+    for text in ("業務効率化 ツール おすすめ", "Make 業務効率化 ツール", "ChatGPT 料金"):
+        k = _keyword(session, text)
+        KeywordSignalService(session).derive_affiliate_opportunity(k.id)
+        dto = ArticlePlanService(session).plan_for_keyword(k.id)
+        assert dto.catalog_snapshot_available is True and dto.catalog_drift is False, text
+        assert sorted(dto.snapshot_program_ids) == sorted(dto.live_program_ids), text
+
+
+def test_real_catalog_change_after_derivation_is_still_reported_as_drift(session: Session) -> None:
+    from app.services.keyword_signal_service import KeywordSignalService
+
+    ids = _seed_catalog(session)
+    k = _keyword(session, "Make 業務効率化 ツール")
+    KeywordSignalService(session).derive_affiliate_opportunity(k.id)
+    assert ArticlePlanService(session).plan_for_keyword(k.id).catalog_drift is False
+    make = session.get(AffiliateProgram, ids["Make"])
+    # 業務効率化 を外す (hygiene 相当): その term で match していた program が減る
+    make.match_terms = ["Make"]
+    click = session.get(AffiliateProgram, ids["ClickUp"])
+    click.match_terms = ["ClickUp"]
+    session.commit()
     dto = ArticlePlanService(session).plan_for_keyword(k.id)
-    assert dto.affiliate_candidates == []  # 承認の対象を広げない (alias-only は candidate ではない)
-    assert dto.live_program_ids == []
-    assert dto.alias_only_strong_programs == ["HubSpot"]
-    assert dto.no_strong_affiliate_candidate is True  # candidates に strong は無い
+    assert dto.catalog_drift is True and any(w.startswith("catalog_drift") for w in dto.warnings)
+    assert set(dto.snapshot_program_ids) > set(dto.live_program_ids)  # 減った分が正確に見える
 
 
-def test_plan_json_serialization_includes_tier_fields_and_no_tracking_urls(
-    session: Session,
-) -> None:
+def test_plan_json_serialization_has_tier_fields_and_no_tracking_urls(session: Session) -> None:
     k, _ids = _complete_target(session)
     payload = ArticlePlanService(session).plan_for_keyword(k.id).model_dump(mode="json")
     cand = payload["affiliate_candidates"][0]
@@ -389,4 +425,37 @@ def test_plan_json_serialization_includes_tier_fields_and_no_tracking_urls(
     assert tier_keys <= set(cand)
     count_keys = {"strong_candidate_count", "weak_candidate_count", "no_strong_affiliate_candidate"}
     assert count_keys <= set(payload)
+    assert "tracking" not in str(payload).lower()
+
+
+def test_candidates_order_strong_then_core_then_loose_and_report_fit(session: Session) -> None:
+    _seed_catalog(session)
+    # Make = brand (strong)、HubSpot = CRM (weak + core)、ClickUp = 業務効率化 (weak + loose)
+    k = _keyword(session, "Make crm 業務効率化 ツール")
+    dto = ArticlePlanService(session).plan_for_keyword(k.id)
+    got = [(c.name, c.match_tier, c.fit, c.primary_eligible) for c in dto.affiliate_candidates]
+    assert got == [
+        ("Make", "strong", "loose", True),  # strong は fit に依存しない (業務効率化 を同時に踏む)
+        ("HubSpot", "weak", "core", True),
+        ("ClickUp", "weak", "loose", False),
+    ]
+    by = {c.name: c for c in dto.affiliate_candidates}
+    assert by["HubSpot"].core_terms == ["CRM"] and by["HubSpot"].loose_terms == ["業務効率化"]
+    assert by["ClickUp"].core_terms == [] and by["ClickUp"].loose_terms == ["業務効率化"]
+    assert by["Make"].recommended_role == "primary_candidate"
+    assert by["HubSpot"].recommended_role == "comparison_candidate"
+    assert (dto.strong_candidate_count, dto.core_weak_candidate_count) == (1, 1)
+    assert dto.loose_weak_candidate_count == 1 and dto.primary_eligible_candidate_count == 2
+
+
+def test_plan_json_carries_the_fit_fields_and_no_tracking_urls(session: Session) -> None:
+    _seed_catalog(session)
+    k = _keyword(session, "crm ツール")
+    payload = ArticlePlanService(session).plan_for_keyword(k.id).model_dump(mode="json")
+    cand = payload["affiliate_candidates"][0]
+    assert {"fit", "fit_reason", "core_terms", "loose_terms", "unreviewed_terms"} <= set(cand)
+    assert {"scoring_eligible", "primary_eligible"} <= set(cand)
+    assert {"core_weak_candidate_count", "loose_weak_candidate_count"} <= set(payload)
+    assert {"unreviewed_weak_candidate_count", "primary_eligible_candidate_count"} <= set(payload)
+    assert "no_primary_eligible_candidate" in payload
     assert "tracking" not in str(payload).lower()

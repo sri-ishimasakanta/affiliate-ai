@@ -42,6 +42,11 @@ def _tier_text(affiliate) -> str:
     if affiliate.strong_program_count is None:
         return ""
     text = f" tier=strong:{affiliate.strong_program_count}/weak:{affiliate.weak_program_count}"
+    text += (
+        f" fit=core:{len(affiliate.core_weak_program_names)}"
+        f"/loose:{len(affiliate.loose_weak_program_names)}"
+        f"/unreviewed:{len(affiliate.unreviewed_weak_program_names)}"
+    )
     if affiliate.alias_only_strong_program_names:
         text += f" alias_only={','.join(affiliate.alias_only_strong_program_names)}"
     return text

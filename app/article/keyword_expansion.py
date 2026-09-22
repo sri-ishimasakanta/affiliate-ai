@@ -595,6 +595,17 @@ def _keep_tier_counts(decisions: Sequence[ExpansionDecision]) -> dict[str, int]:
             1 for a in tiered if not a.strong_program_count and a.weak_program_count
         ),
         "keep_no_strong_affiliate_match": sum(1 for a in tiered if a.no_strong_affiliate_match),
+        # C2.5.7: fit 別。strong 無しで core の weak あり / 文脈だけ (loose・unreviewed) / 適格なし
+        "keep_affiliate_core_fit_only": sum(
+            1 for a in tiered if not a.strong_program_count and a.core_weak_program_names
+        ),
+        "keep_affiliate_context_only": sum(
+            1
+            for a in tiered
+            if a.no_eligible_affiliate_match
+            and (a.loose_weak_program_names or a.unreviewed_weak_program_names)
+        ),
+        "keep_no_eligible_affiliate_match": sum(1 for a in tiered if a.no_eligible_affiliate_match),
     }
 
 

@@ -123,3 +123,17 @@ def test_main_no_keywords_is_bad_input(capsys) -> None:
 def test_main_input_file_not_found(capsys) -> None:
     assert main(["--input", "nope-12345.csv"]) == EXIT_BAD_INPUT
     assert "not found" in capsys.readouterr().err.lower()
+
+
+def test_run_analysis_warns_about_active_programs_missing_from_the_fit_config(
+    session: Session, capsys
+) -> None:
+    _seed(session)  # "Active Meeting AI" は fit config に無い
+    code = run_analysis(["AI 議事録 おすすめ"], session_factory=_session_factory(session))
+    assert code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "WARNING fit config: active program 'Active Meeting AI' is not in" in out
+    assert "resolve to 'unreviewed' (score 0, never primary)" in out
+    # 未掲載 program の generic match は context_only (core にならない)。停止もしない
+    assert "context_only (loose/unreviewed): 1" in out
+    assert "keywords_monetizable           : 0" in out

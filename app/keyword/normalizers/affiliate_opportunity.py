@@ -13,6 +13,11 @@ V1 formula
 - matched program == 0: ``affiliate_opportunity = 0.0`` / ``market_evidence_available = false``。
   0 match は「市場に案件が無い」ではなく **「現在の active catalog に直接 match する
   案件が無い」**。catalog completeness は保証しない。
+- **C2.5.7: 入力は「scoring 適格」な match だけ**: strong (program 自身の名前 / 明示 alias)、または
+  weak かつ core fit (generic term だが program が実際にその category の本命)。weak + loose /
+  unreviewed (広い goal・周辺 use-case・根拠不足) は score に寄与しない (0)。weak に重みは付けない
+  (calibration の根拠となる成果データが無い)。式・定数はそのまま (V1)。適格でない match も
+  signal の raw_data に残る。
 - missing commission は **0 点にせず**、利用できた weight だけで再正規化する。
 - fixed commission は JPY / USD を公平に比較する calibration がまだ無いため V1 score に
   使わない (**FX 換算はしない**。raw_data provenance には残す)。

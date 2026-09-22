@@ -324,10 +324,16 @@ keyword が現在のサイトテーマ (AI・生成AI・業務効率化・業務
   記事側の案件選択は未実装のまま)。
 - 詳細は [architecture.md](architecture.md) の「Affiliate Catalog (Phase 2B-6A)」。
 - 分析 CLI: `scripts/analyze_affiliate_opportunities.py` — keyword と **active**
-  AffiliateProgram の `match_terms` を照合し、matched program 数 / provider 分布 /
-  commission 情報 (fixed / percentage を混同せず currency 別) を表・CSV で出力。
-  **DB read-only、KeywordSignal を作らない、採点しない。** `tracking_url` /
-  `landing_page_url` は出力しない。
+  AffiliateProgram の `match_terms` を production と同じ `match_catalog` で照合し、program ごとの
+  brand tier / fit (core・loose・unreviewed) / `scoring_eligible` / `primary_eligible`、keyword ごとの
+  分類 (strong / core_weak / context_only / none) と eligible だけから計算した
+  `affiliate_opportunity` を表・CSV で出力 (C2.5.7)。CSV の `matched_*` 列は legacy の
+  「どれか 1 term でも match」で、後方互換のために残すが収益化の意味ではない。fit config に無い
+  active program / term は `WARNING fit config: ...` で報告する (fail-closed で unreviewed)。
+  **DB read-only、KeywordSignal を作らない。** `tracking_url` / `landing_page_url` は出力しない。
+- **affiliate fit policy (C2.5.7)**: scoring / 新規 primary の対象 = strong、または weak かつ core。
+  weak + loose / unreviewed は score 0・primary 不可 (文脈用)。`unreviewed` は根拠が出るまでの
+  fail-closed。詳細は [architecture.md](architecture.md) の「Affiliate fit policy (C2.5.7)」。
 - **match_terms の保守 (C2.5.5)**: catalog の正本は production DB で、version 管理された source は
   無い (CSV importer は insert 専用で既存行を更新しない)。既存 program の term を外すときは matcher
   に特例を足さず、`app/config/affiliate_catalog_hygiene.json` に **宣言** し
@@ -366,7 +372,8 @@ keyword に対する **供給側** の評価 (active Affiliate Catalog にどれ
     市場に案件が無い意味ではない。catalog completeness は保証しない。
 - Service: `KeywordSignalService.derive_affiliate_opportunity(keyword_id)`
   (catalog は read-only、Service が commit / rollback、immutable history 維持)。
-  `provider = affiliate_catalog` / `source_reference = affiliate-catalog:local:v1` /
+  `provider = affiliate_catalog` / `source_reference = affiliate-catalog:local:v2`
+  (C2.5.7: eligible = strong ∪ weak+core だけを採点。`v1` は旧来の全 match) /
   `period_start = period_end = None`。
 - **`raw_data` に `tracking_url` / `landing_page_url` / affiliate ID / credential /
   ASP account 情報は保存しない。**

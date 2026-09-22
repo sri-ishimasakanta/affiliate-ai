@@ -16,7 +16,7 @@ def _assert_error_shape(body: dict, code: str) -> None:
     assert body["error"]["message"]
 
 
-def _new_keyword(client: TestClient, keyword: str = "AI 議事録 おすすめ") -> int:
+def _new_keyword(client: TestClient, keyword: str = "Meeting 議事録 おすすめ") -> int:
     resp = client.post("/api/v1/keywords", json={"keyword": keyword})
     assert resp.status_code == 201
     return resp.json()["id"]
@@ -29,7 +29,7 @@ def _seed(session: Session) -> None:
         provider="direct",
         commission_type="percentage",
         commission_value=30,
-        match_terms=["議事録", "AI 議事録"],
+        match_terms=["Meeting", "議事録", "AI 議事録"],
         tracking_url="https://aff.example.test/r?token=SUPER_SECRET_TRACK_ID",
         status=AffiliateProgramStatus.ACTIVE,
     )
@@ -38,7 +38,7 @@ def _seed(session: Session) -> None:
         provider="Impact",
         commission_type="percentage",
         commission_value=10,
-        match_terms=["議事録"],
+        match_terms=["Meeting", "議事録"],
         status=AffiliateProgramStatus.ACTIVE,
     )
     session.commit()
@@ -61,15 +61,14 @@ def test_derive_returns_201_and_body(api_client: TestClient, session: Session) -
     assert raw["commission_score"] == 75.0
     assert raw["market_evidence_available"] is True
     assert raw["normalizer"] == {"name": "affiliate_opportunity", "version": "v1"}
-    assert body["source_reference"] == "affiliate-catalog:local:v1"
+    assert body["source_reference"] == "affiliate-catalog:local:v2"
+    assert raw["scoring_policy"] == "strong_or_core_v1" and raw["scored_program_count"] == 2
     # secret は raw_data に出ない
     assert "SUPER_SECRET_TRACK_ID" not in resp.text
     assert "tracking_url" not in resp.text
 
 
-def test_zero_match_returns_201_with_value_zero(
-    api_client: TestClient, session: Session
-) -> None:
+def test_zero_match_returns_201_with_value_zero(api_client: TestClient, session: Session) -> None:
     _seed(session)
     keyword_id = _new_keyword(api_client, "ChatGPT 料金")
 

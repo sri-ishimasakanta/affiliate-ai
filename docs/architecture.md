@@ -613,8 +613,8 @@ keyword に対して **現在の active Affiliate Catalog にどれだけ収益�
   import して matching semantics を共有** (CLI の private 関数を production から
   import しない)。
 - 導出: `KeywordSignalService.derive_affiliate_opportunity(keyword_id)`。
-  active AffiliateProgram を read-only 取得 → `match_programs` → 純粋 normalizer →
-  Signal 作成、Service が commit / 失敗時 rollback。**catalog は変更しない。**
+  active AffiliateProgram を read-only 取得 → `match_catalog` (tier + fit 付き照合) →
+  eligible な program だけ (下記「Affiliate fit policy」) → 純粋 normalizer → Signal 作成、Service が commit / 失敗時 rollback。**catalog は変更しない。**
   再実行で新 Signal を追記 (immutable history 維持)。時系列でないため
   `period_start` / `period_end` は None。
 
@@ -654,7 +654,8 @@ matched > 0:
 
 ### Signal provenance
 
-`provider = affiliate_catalog` / `source_reference = affiliate-catalog:local:v1` /
+`provider = affiliate_catalog` / `source_reference = affiliate-catalog:local:v2`
+(C2.5.7 の fit policy。それ以前の signal は `v1` = 全 match を採点) /
 `observed_at = 計算時 UTC` / `period_start = period_end = None`。
 
 `raw_data` (JSON。**`tracking_url` / `landing_page_url` / affiliate ID / credential /
@@ -667,10 +668,65 @@ ASP account 情報は絶対に含めない**):
 `active_providers` / `percentage_commissions[{program_id,name,value}]` /
 `fixed_commissions[{program_id,name,value,currency}]` (provenance のみ) /
 `catalog_size` / `active_catalog_size` / `normalizer_version` /
-`normalizer{name,version}`。
+`normalizer{name,version}`。v2 では加えて `scoring_policy` (`strong_or_core_v1`) /
+`match_semantics` / `scored_program_count` / `scored_program_ids` / `strong_*` / `weak_*` /
+`weak_core_*` / `weak_loose_*` / `weak_unreviewed_*` / `matches[{program_id, name, brand_tier, fit,
+scoring_eligible, primary_eligible, strong_terms, core_terms, loose_terms, unreviewed_terms,
+reason}]`。commission / provider の項目は eligible な program だけから作る。
+`matched_program_*` は全 match (drift 判定用)。
 
 API: `POST /api/v1/keywords/{id}/signals/affiliate-opportunity` (body なし → 201)。
 ローカル catalog のため 502 / 503 は追加しない。Keyword 無しの 404 のみ。
+
+### Affiliate fit policy (C2.5.7): brand tier × fit
+
+match した program は **2 つの独立した軸** で分類する。strong を「category に合っている」の意味に
+overload しない。
+
+- **brand tier** (`app/keyword/affiliate_tiers.py`、config `app/config/affiliate_match_tiers.json`):
+  `strong` = program 自身の名前の綴り、または明示 alias (`ハブスポット` / `make.com`)。
+  `weak` = brand / product 名の意図が無い (generic な category / feature / use-case の term だけ)。
+  一般語の brand (`make` / `monday` / `reclaim` / `fireflies` ...) は brand 形・日本語の文脈・alias が
+  無ければ weak。
+- **fit** (`app/keyword/affiliate_fit.py`、config `app/config/affiliate_match_fit.json`): weak の term
+  ごと (program × term) に付く。`core` = program がその category / 主要 use-case の本命
+  (HubSpot × `CRM`)、`loose` = 広い goal / 周辺 use-case / 弱い話題上の関連 (全 program × `業務効率化`)、
+  `unreviewed` = 根拠不足で未判断。同じ term でも program ごとに違う (`文字起こし` は Fireflies.ai /
+  Krisp では core、Descript では loose)。1 program が core と loose の term を同時に踏んだら core。
+
+| 分類 | scoring (`affiliate_opportunity`) | 新規承認の primary | 扱い |
+| --- | --- | --- | --- |
+| strong | **対象** | **可** | fit に依存しない |
+| weak + core | **対象** | **可** | brand 名が無くても category として収益化できる (`crm おすすめ` → HubSpot / Pipedrive) |
+| weak + loose | 0 (寄与しない) | **不可** | 文脈・報告用の metadata としてだけ残る |
+| weak + unreviewed | 0 (寄与しない) | **不可** | 文脈・報告用の metadata としてだけ残る |
+
+- **`unreviewed` は fail-closed (根拠が出るまで)**: 監査の根拠が足りない term、fit config に載って
+  いない term、fit config に載っていない program (program 名が変わった / 新しく active になった) の
+  generic term は全て `unreviewed` = score 0・primary 不可。**core と推定することは無い。** 照合は
+  止めない (crash しない)。`scripts/analyze_affiliate_opportunities.py` が
+  `WARNING fit config: ...` で該当 program / term を報告する (`fit_config_gaps`)。core に昇格させるには
+  根拠 (live の keyword・SERP / GSC) を添えて fit config を更新する。現在 `unreviewed` の 11 term
+  (Descript `動画編集 AI` / `ポッドキャスト 編集`、Semrush 2 program の 8 term、Grammarly `英文校正`) は
+  C2.5.2 監査が定義だけから core と判断し、live hit が無いもの。
+- fit config は **program 名で引く** (schema 変更なし)。`kind: brand` の term は brand tier で扱い fit を
+  持たない。一般語の brand term が weak になった場合だけ `fit_when_weak` を使う (bare `make` /
+  `monday` / `reclaim` = loose、bare `fireflies` = unreviewed)。
+- **scoring**: `affiliate_opportunity` は V1 formula・重み (total score への 0.20) を **変えず**、
+  eligible な program (strong ∪ weak+core) の集合だけに適用する。weak の倍率や重みは作らない。
+- **article plan**: candidate は全分類を残す (順序: strong → weak+core → weak+loose / unreviewed)。
+  weak は `recommended_role = comparison_candidate` だが、weak+core は `primary_eligible = true`。
+  新規の approve で weak+loose / weak+unreviewed を primary にすると `PlanApprovalError` (fit を明示し、
+  eligible な候補を選ぶ / secondary にする / primary なしで承認する、を案内)。secondary には可。
+  **既存の承認・article・link・draft snapshot は遡って変更しない。**
+- **content queue / fact research**: `suggested_subjects` = strong + weak+core (収益化の対象になり得る
+  program)。loose / unreviewed は `contextual_subjects` に別枠で残し、subject 集合を膨らませない。
+  eligible が 0 件なら note `no_eligible_affiliate_match` (報告のみ・順序に影響しない)。
+- **catalog drift**: signal の `raw_data.matched_program_ids` は tier / fit に関わらず全 match の集合
+  (= plan の live candidate)。tier / fit だけで drift は生じない。
+- catalog の term の削除は別の仕組み (C2.5.5 hygiene: `app/config/affiliate_catalog_hygiene.json`)。
+  fit は term を消さずに「数えない」だけなので、hygiene 未適用の catalog でも loose の inflation は
+  score / primary に入らない。
 
 ## Originality signal (Phase 2B-7)
 

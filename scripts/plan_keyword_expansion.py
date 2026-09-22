@@ -124,14 +124,10 @@ def _print_table(plan: ExpansionPlan) -> None:
         print(
             f"affiliate tiers (keeps, report only): strong={s['keep_affiliate_strong']} "
             f"weak_only={s['keep_affiliate_weak_only']} "
-            f"no_strong={s['keep_no_strong_affiliate_match']}"
-        )
-    if s.get("japanese_spacing_only_coverage"):
-        print(
-            f"note: {s['japanese_spacing_only_coverage']} idea(s) "
-            f"({s['keep_japanese_spacing_only_coverage']} keep) are covered only through "
-            "Japanese-spacing matching; scoring / article planning / the C2.2 queue use the "
-            "legacy matcher and would see no match (unified in a later phase)"
+            f"no_strong={s['keep_no_strong_affiliate_match']} "
+            f"core_fit_only={s['keep_affiliate_core_fit_only']} "
+            f"context_only={s['keep_affiliate_context_only']} "
+            f"no_eligible={s['keep_no_eligible_affiliate_match']}"
         )
     for kind in ("keep", "merge", "reject"):
         rows = [d for d in plan.decisions if d.decision == kind]
@@ -144,6 +140,9 @@ def _print_table(plan: ExpansionPlan) -> None:
                     aff += (
                         f" tier=strong:{d.affiliate.strong_program_count}"
                         f"/weak:{d.affiliate.weak_program_count}"
+                        f" fit=core:{len(d.affiliate.core_weak_program_names)}"
+                        f"/loose:{len(d.affiliate.loose_weak_program_names)}"
+                        f"/unreviewed:{len(d.affiliate.unreviewed_weak_program_names)}"
                     )
                 if d.affiliate.alias_only_strong_program_names:
                     aff += f" alias_only={','.join(d.affiliate.alias_only_strong_program_names)}"

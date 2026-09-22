@@ -23,7 +23,7 @@ from app.article.cluster_plan import (
     build_content_queue,
 )
 from app.keyword.affiliate_matching import ProgramFacts
-from app.keyword.affiliate_tiers import match_programs_tiered
+from app.keyword.affiliate_tiers import match_catalog
 from app.keyword.scoring import COMPONENT_NAMES
 from app.models import AffiliateProgram, Article, Keyword
 from app.models.enums import ArticleStatus
@@ -111,8 +111,8 @@ class ContentQueueService:
                     for name in COMPONENT_NAMES
                     if self._signals.get_latest(row.id, name) is None
                 )
-            # C2.5.4: legacy と同じ match 集合 (spacing なし) に tier を付ける (報告専用)。
-            matches = affiliate_matches_from_tiered(match_programs_tiered(row.keyword, catalog))
+            # C2.5.6: scoring / plan / expansion と同じ tier 付き照合 (strong + weak)。
+            matches = affiliate_matches_from_tiered(match_catalog(row.keyword, catalog))
             keywords.append(
                 KeywordInput(
                     id=row.id,

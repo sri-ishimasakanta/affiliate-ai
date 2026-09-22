@@ -10,6 +10,7 @@ import pytest
 
 from app.keyword.affiliate_matching import match_programs
 from scripts.analyze_affiliate_opportunities import (
+    FIT_CSV_COLUMNS,
     ProgramFacts,
     _bucket_counts,
     _print_program_details,
@@ -17,6 +18,7 @@ from scripts.analyze_affiliate_opportunities import (
     _write_csv,
     analyze_keyword,
     csv_fieldnames,
+    fit_gap_warnings,
     load_keywords,
     render_table,
 )
@@ -284,7 +286,9 @@ def test_csv_appends_tier_columns_and_keeps_the_existing_columns_in_order(tmp_pa
     analyses = [analyze_keyword(k, _tier_programs()) for k in ("Make 料金", "crm", "chatgpt")]
     fields = csv_fieldnames(analyses)
     assert fields[: len(_LEGACY_CSV_COLUMNS)] == _LEGACY_CSV_COLUMNS
-    assert fields[-len(_TIER_CSV_COLUMNS) :] == _TIER_CSV_COLUMNS
+    # C2.5.4 の tier 列の後ろに C2.5.7 の fit 列 (legacy / tier 列の位置は後方互換のため不変)
+    tail = _TIER_CSV_COLUMNS + list(FIT_CSV_COLUMNS)
+    assert fields[-len(tail) :] == tail
     out = tmp_path / "a.csv"
     _write_csv(out, analyses)
     rows = {r["keyword"]: r for r in csv.DictReader(out.open(encoding="utf-8", newline=""))}
@@ -300,26 +304,147 @@ def test_csv_appends_tier_columns_and_keeps_the_existing_columns_in_order(tmp_pa
     assert rows["chatgpt"]["no_strong_affiliate_match"] == "True"
 
 
-def test_table_and_summary_show_tiers(capsys) -> None:
+def test_table_and_summary_lead_with_the_fit_policy(capsys) -> None:
     analyses = [analyze_keyword(k, _tier_programs()) for k in ("Make 料金", "crm", "chatgpt")]
     table = render_table(analyses)
-    header = table.splitlines()[0]
-    assert header.split()[:5] == ["keyword", "programs", "providers", "commission", "data"]
-    assert header.endswith("strong  weak")
+    header = table.splitlines()[0].split()
+    assert header == [
+        "keyword",
+        "coverage",
+        "aff_opp",
+        "eligible",
+        "strong",
+        "core",
+        "loose",
+        "unreviewed",
+        "legacy_any",
+    ]
+    rows = {line.split()[0]: line.split() for line in table.splitlines()[2:]}
+    assert rows["crm"][1:2] == ["core_weak"] and rows["chatgpt"][1:2] == ["none"]
     _print_summary(analyses)
     out = capsys.readouterr().out
-    assert "keywords_with_matches   : 2" in out  # legacy の集計は不変
-    assert "keywords_with_strong_match : 1" in out
-    assert "keywords_weak_only         : 1" in out
-    assert "keywords_no_strong_match   : 2" in out
+    assert "eligible = strong OR weak+core" in out
+    assert "keywords_monetizable           : 2" in out
+    assert "strong                         : 1" in out
+    assert "core_weak (no brand, core fit) : 1" in out
+    assert "context_only (loose/unreviewed): 0" in out
+    assert "no_match                       : 1" in out
     assert "keywords_with_alias_only_strong (not in the legacy match): 0" in out
-    assert "scoring is unchanged" in out
+    # legacy の any-term 集計は残るが、収益化の意味ではないと明示される
+    assert "NOT monetization" in out
+    assert "keywords_with_matches   : 2" in out
 
 
-def test_program_details_show_tier_reason_and_alias_only_programs(capsys) -> None:
+def test_program_details_show_tier_fit_eligibility_and_alias_only_programs(capsys) -> None:
     _print_program_details([analyze_keyword("hubspot crm ハブスポット", _tier_programs())])
     out = capsys.readouterr().out
-    assert "tier=strong" in out and "tier=weak" in out
+    # strong は fit に依存せず適格 (同時に踏んだ generic term の fit は参考情報として出る)
+    assert "tier=strong fit=core | scoring_eligible=True primary_eligible=True" in out
+    assert "tier=weak fit=core | scoring_eligible=True primary_eligible=True" in out  # Pipedrive
     assert "[alias-only strong" not in out  # legacy でも match している program は通常行に出る
     _print_program_details([analyze_keyword("ハブスポット", _tier_programs())])
-    assert "[alias-only strong, not in the legacy match] HubSpot" in capsys.readouterr().out
+    assert "HubSpot [alias-only strong, not in the legacy match]" in capsys.readouterr().out
+    _print_program_details([analyze_keyword("業務効率化 ツール", _tier_programs())])
+    out = capsys.readouterr().out
+    assert "tier=weak fit=loose | scoring_eligible=False primary_eligible=False" in out
+    assert "loose=業務効率化" in out and "coverage=context_only" in out
+
+
+# ==========================================================================
+# C2.5.7: brand tier x fit (strong OR weak+core が収益化の対象)
+# ==========================================================================
+def _fit_programs() -> list[ProgramFacts]:
+    return [
+        _prog(1, name="HubSpot", provider="Impact", terms=("HubSpot", "CRM", "業務効率化"),
+              commission_type="percentage", commission_value=30),
+        _prog(2, name="Pipedrive", provider="PartnerStack", terms=("Pipedrive", "CRM"),
+              commission_type="percentage", commission_value=20),
+        _prog(3, name="Acme Notes", terms=("Acme", "ノート術")),  # fit config に無い program
+    ]
+
+
+def test_coverage_classes_and_eligibility_follow_the_fit_policy() -> None:
+    programs = _fit_programs()
+    strong = analyze_keyword("HubSpot 料金", programs)
+    assert strong.coverage_class == "strong" and strong.affiliate_opportunity > 0
+    core = analyze_keyword("crm 比較", programs)
+    assert core.coverage_class == "core_weak"
+    assert core.core_weak_program_names == ["HubSpot", "Pipedrive"]
+    assert core.scoring_eligible_program_names == ["HubSpot", "Pipedrive"]
+    assert core.primary_eligible_program_names == ["HubSpot", "Pipedrive"]
+    loose = analyze_keyword("業務効率化 ツール", programs)
+    assert loose.coverage_class == "context_only"
+    assert loose.loose_weak_program_names == ["HubSpot"] and loose.eligible == []
+    assert loose.affiliate_opportunity == 0.0
+    assert loose.matched_program_count == 1  # legacy any-term は match 扱いのまま (後方互換の列)
+    unrev = analyze_keyword("ノート術 まとめ", programs)
+    assert unrev.coverage_class == "context_only"
+    assert unrev.unreviewed_weak_program_names == ["Acme Notes"]
+    assert unrev.affiliate_opportunity == 0.0 and unrev.primary_eligible_program_names == []
+    assert analyze_keyword("chatgpt", programs).coverage_class == "none"
+
+
+def test_affiliate_opportunity_column_uses_the_production_formula_over_eligible_only() -> None:
+    from app.keyword.affiliate_tiers import match_catalog, scoring_programs
+    from app.keyword.normalizers.affiliate_opportunity import calculate_affiliate_opportunity
+
+    programs = _fit_programs()
+    for keyword in ("crm 比較", "crm 業務効率化", "HubSpot 料金", "業務効率化", "ノート術"):
+        expected = calculate_affiliate_opportunity(
+            scoring_programs(match_catalog(keyword, programs))
+        ).normalized_value
+        assert analyze_keyword(keyword, programs).affiliate_opportunity == expected, keyword
+    # loose の term を足しても値は変わらない (weak の重みは無い)
+    assert (
+        analyze_keyword("crm 業務効率化", programs).affiliate_opportunity
+        == analyze_keyword("crm", programs).affiliate_opportunity
+    )
+
+
+def test_analysis_shares_the_production_japanese_spacing_match() -> None:
+    programs = [_prog(1, name="HubSpot", terms=("HubSpot", "顧客管理"))]
+    split = analyze_keyword("顧客 管理 ツール", programs)
+    assert split.coverage_class == "core_weak"
+
+
+def test_csv_fit_columns(tmp_path: Path) -> None:
+    import json
+
+    keywords = ("crm 業務効率化", "ノート術", "chatgpt")
+    analyses = [analyze_keyword(k, _fit_programs()) for k in keywords]
+    out = tmp_path / "fit.csv"
+    _write_csv(out, analyses)
+    rows = {r["keyword"]: r for r in csv.DictReader(out.open(encoding="utf-8", newline=""))}
+    crm = rows["crm 業務効率化"]
+    assert crm["coverage_class"] == "core_weak"
+    assert crm["scoring_eligible_program_count"] == "2"
+    assert crm["primary_eligible_program_names"] == "HubSpot | Pipedrive"
+    assert crm["core_weak_program_names"] == "HubSpot | Pipedrive"
+    assert float(crm["affiliate_opportunity"]) > 0
+    details = {d["name"]: d for d in json.loads(crm["match_details"])}
+    assert details["HubSpot"]["core_terms"] == ["CRM"]
+    assert details["HubSpot"]["loose_terms"] == ["業務効率化"]
+    assert details["HubSpot"]["brand_tier"] == "weak" and details["HubSpot"]["fit"] == "core"
+    unrev = rows["ノート術"]
+    assert unrev["coverage_class"] == "context_only"
+    assert unrev["unreviewed_weak_program_names"] == "Acme Notes"
+    assert unrev["scoring_eligible_program_count"] == "0"
+    assert float(unrev["affiliate_opportunity"]) == 0.0
+    assert rows["chatgpt"]["coverage_class"] == "none" and rows["chatgpt"]["match_details"] == "[]"
+
+
+def test_fit_gap_warnings_for_unrepresented_programs_and_terms() -> None:
+    programs = [
+        _prog(1, name="HubSpot", terms=("HubSpot", "CRM", "新しい term")),  # term だけ未分類
+        _prog(2, name="Acme Notes", terms=("Acme", "ノート術")),  # program ごと未掲載
+        _prog(3, name="Pipedrive", terms=("Pipedrive", "CRM")),  # 網羅済み
+    ]
+    warnings = fit_gap_warnings(programs)
+    assert len(warnings) == 2
+    assert "'Acme Notes' is not in affiliate_match_fit.json" in warnings[1]
+    assert "ノート術" in warnings[1] and "score 0, never primary" in warnings[1]
+    assert "'HubSpot' has generic terms not in" in warnings[0] and "新しい term" in warnings[0]
+    assert "Acme" not in warnings[1].split(":")[-1]  # own-name term は brand tier 扱いで対象外
+    # 未掲載 program の generic term は core にならない (fail-closed)
+    result = analyze_keyword("ノート術 入門", programs)
+    assert result.unreviewed_weak_program_names == ["Acme Notes"] and result.eligible == []

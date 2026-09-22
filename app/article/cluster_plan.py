@@ -602,6 +602,11 @@ class AffiliateMatch:
     # legacy の match_programs でも match したか。False = alias だけで strong になった program
     # (legacy の covered 集合には入れない)。
     legacy: bool = True
+    # C2.5.7 (追加): brand tier とは独立した fit。core | loose | unreviewed、None = 該当なし
+    # (strong の brand だけ) / tier 未算出。eligible = strong、または weak かつ core
+    # (scoring / primary の対象)。
+    fit: str | None = None
+    eligible: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -642,6 +647,14 @@ class AffiliateCoverage:
       legacy の covered には入らない (``program_names`` に無い) ので、ここで明示的に識別できる
     - ``no_strong_affiliate_match``: strong が 0 件
     - tier 未算出の match (legacy の呼び出し) を含む場合は None、match が 0 件なら 0 / True
+
+    C2.5.7 の fit 項目 (追加): weak を fit で分ける。``eligible`` (= strong + weak かつ core) が
+    「収益化の対象になり得る」program。loose / unreviewed は文脈・報告用で、eligible に入らない。
+
+    - ``core_weak_program_names``: weak かつ core (brand 名は無いが、その category の本命)
+    - ``loose_weak_program_names`` / ``unreviewed_weak_program_names``: weak かつ loose / unreviewed
+    - ``eligible_program_names``: strong + core の weak (name 順)
+    - ``no_eligible_affiliate_match``: eligible が 0 件
     """
 
     level: str  # none | single | multiple
@@ -655,6 +668,12 @@ class AffiliateCoverage:
     weak_program_names: tuple[str, ...] = ()
     no_strong_affiliate_match: bool | None = None
     alias_only_strong_program_names: tuple[str, ...] = ()
+    # ---- C2.5.7 (追加): weak の fit 内訳。tier 未算出なら空 / None
+    core_weak_program_names: tuple[str, ...] = ()
+    loose_weak_program_names: tuple[str, ...] = ()
+    unreviewed_weak_program_names: tuple[str, ...] = ()
+    eligible_program_names: tuple[str, ...] = ()
+    no_eligible_affiliate_match: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -663,7 +682,16 @@ class FactResearch:
     requirement: str  # tool_facts | official_sources | unknown_type
     status: str  # present | missing
     existing_fact_count: int
+    # research の対象 program (収益化の対象になり得るもの): strong + weak かつ core (C2.5.7)。
+    # loose / unreviewed は含めない (収益化の subject 集合を膨らませない)。tier 未算出の呼び出し
+    # では legacy の covered program。
     suggested_subjects: tuple[str, ...]
+    # C2.5.6 / C2.5.7 (追加): suggested_subjects の内訳 (tier 未算出なら空)
+    strong_subjects: tuple[str, ...] = ()
+    core_subjects: tuple[str, ...] = ()  # weak かつ core
+    # 文脈・報告用 (weak かつ loose / unreviewed)。suggested_subjects には入れないが research に
+    # 残せるよう metadata として保持する
+    contextual_subjects: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -755,6 +783,18 @@ def affiliate_coverage(matches: Iterable[AffiliateMatch]) -> AffiliateCoverage:
     alias_only = (
         tuple(m.name for m in everything if m.tier == "strong" and not m.legacy) if tiered else ()
     )
+    core_weak = (
+        tuple(m.name for m in everything if m.tier == "weak" and m.fit == "core") if tiered else ()
+    )
+    loose_weak = (
+        tuple(m.name for m in everything if m.tier == "weak" and m.fit == "loose") if tiered else ()
+    )
+    unreviewed_weak = (
+        tuple(m.name for m in everything if m.tier == "weak" and m.fit not in ("core", "loose"))
+        if tiered
+        else ()
+    )
+    eligible = tuple(m.name for m in everything if m.eligible) if tiered else ()
     return AffiliateCoverage(
         level=level,
         program_count=count,
@@ -766,6 +806,11 @@ def affiliate_coverage(matches: Iterable[AffiliateMatch]) -> AffiliateCoverage:
         weak_program_names=weak,
         no_strong_affiliate_match=(not strong) if tiered else None,
         alias_only_strong_program_names=alias_only,
+        core_weak_program_names=core_weak,
+        loose_weak_program_names=loose_weak,
+        unreviewed_weak_program_names=unreviewed_weak,
+        eligible_program_names=eligible,
+        no_eligible_affiliate_match=(not eligible) if tiered else None,
     )
 
 
@@ -779,13 +824,21 @@ def affiliate_matches_from_tiered(tiered: Iterable[TieredMatch]) -> tuple[Affili
             provider=m.provider,
             tier=m.tier,
             legacy=m.legacy_matched,
+            fit=m.fit,
+            eligible=m.scoring_eligible,
         )
         for m in tiered
     )
 
 
 def fact_research(
-    article_type: ArticleType | None, *, existing_fact_count: int, subjects: tuple[str, ...]
+    article_type: ArticleType | None,
+    *,
+    existing_fact_count: int,
+    subjects: tuple[str, ...],
+    strong_subjects: tuple[str, ...] = (),
+    core_subjects: tuple[str, ...] = (),
+    contextual_subjects: tuple[str, ...] = (),
 ) -> FactResearch:
     if article_type in (ArticleType.RECOMMENDATION_ROUNDUP, ArticleType.COMPARISON_LISTICLE):
         requirement = "tool_facts"
@@ -799,6 +852,9 @@ def fact_research(
         status="present" if existing_fact_count > 0 else "missing",
         existing_fact_count=existing_fact_count,
         suggested_subjects=subjects,
+        strong_subjects=strong_subjects,
+        core_subjects=core_subjects,
+        contextual_subjects=contextual_subjects,
     )
 
 
@@ -982,10 +1038,26 @@ def build_content_queue(
     def freeze(work: _Work) -> QueueEntry:
         kw = work.kw
         coverage = affiliate_coverage(kw.affiliate_matches)
+        # research の対象 (収益化の対象になり得る program) は strong + weak かつ core。loose /
+        # unreviewed は文脈用として別に保持し、収益化の subject 集合を膨らませない (C2.5.7)。
+        # tier 未算出 (legacy の呼び出し) の入力では従来どおり legacy の covered program。
+        if coverage.strong_program_count is not None:
+            research_subjects = tuple(
+                sorted({*coverage.strong_program_names, *coverage.core_weak_program_names})
+            )
+        else:
+            research_subjects = coverage.program_names
         research = fact_research(
             work.article_type,
             existing_fact_count=facts_by_keyword.get(kw.id, 0),
-            subjects=coverage.program_names,
+            subjects=research_subjects,
+            strong_subjects=coverage.strong_program_names,
+            core_subjects=coverage.core_weak_program_names,
+            contextual_subjects=tuple(
+                sorted(
+                    {*coverage.loose_weak_program_names, *coverage.unreviewed_weak_program_names}
+                )
+            ),
         )
         template = template_readiness(work.article_type)
         prerequisites: list[str] = []
@@ -1008,6 +1080,9 @@ def build_content_queue(
                 notes.append("no_affiliate_match")
             if coverage.no_strong_affiliate_match:
                 notes.append("no_strong_affiliate_match")  # C2.5.4: 報告のみ (順序に影響しない)
+            if coverage.no_eligible_affiliate_match:
+                # C2.5.7: strong も core の weak も無い (loose / unreviewed は文脈のみ)。報告のみ
+                notes.append("no_eligible_affiliate_match")
         target = work.merge_target
         return QueueEntry(
             keyword_id=kw.id,

@@ -143,12 +143,22 @@ class AffiliateCandidateRead(BaseModel):
     recommended_role: Literal[
         "primary_candidate", "secondary_candidate", "comparison_candidate"
     ]
-    # C2.5.4 (報告専用・追加): role / 並び順 / 承認可否は tier に依存しない。
+    # C2.5.4 (追加): brand tier。strong = 自身の名前 / 明示 alias、weak = generic な term だけ。
     match_tier: Literal["strong", "weak"] | None = None
     strong_terms: list[str] = Field(default_factory=list)
     weak_terms: list[str] = Field(default_factory=list)
     tier_reason: str | None = None
     tier_ambiguity: str | None = None
+    # C2.5.7 (追加): brand tier とは独立した fit (core / loose / unreviewed。strong だけで match
+    # した場合は None)。primary_eligible = strong、または weak かつ core。新規承認の primary は
+    # primary_eligible な candidate だけ (loose / unreviewed は文脈・secondary 用に見えるだけ)。
+    fit: Literal["core", "loose", "unreviewed"] | None = None
+    fit_reason: str | None = None
+    core_terms: list[str] = Field(default_factory=list)
+    loose_terms: list[str] = Field(default_factory=list)
+    unreviewed_terms: list[str] = Field(default_factory=list)
+    scoring_eligible: bool | None = None
+    primary_eligible: bool | None = None
 
 
 class CannibalizationInfo(BaseModel):
@@ -190,10 +200,16 @@ class ArticlePlanDTO(BaseModel):
     catalog_snapshot_available: bool
     snapshot_program_ids: list[int]
     live_program_ids: list[int]
-    # C2.5.4 (報告専用・追加): candidates の tier 集計。承認・drift 判定には使わない。
+    # C2.5.4 (報告専用・追加): candidates の tier 集計。drift 判定には使わない。
     strong_candidate_count: int | None = None
     weak_candidate_count: int | None = None
     no_strong_affiliate_candidate: bool | None = None
+    # C2.5.7 (追加): weak の内訳 (fit) と、新規承認で primary にできる candidate の数
+    core_weak_candidate_count: int | None = None
+    loose_weak_candidate_count: int | None = None
+    unreviewed_weak_candidate_count: int | None = None
+    primary_eligible_candidate_count: int | None = None
+    no_primary_eligible_candidate: bool | None = None
     # alias だけで strong になった program (legacy の candidates には入らない)
     alias_only_strong_programs: list[str] = Field(default_factory=list)
 

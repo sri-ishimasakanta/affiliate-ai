@@ -17,7 +17,16 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.exceptions import EntityNotFoundError
-from app.keyword.affiliate_matching import MatchedProgram, ProgramFacts, match_programs
+from app.keyword.affiliate_fit import FIT_CORE, FIT_LOOSE, FIT_UNREVIEWED, default_fit_config
+from app.keyword.affiliate_matching import MatchedProgram, ProgramFacts
+from app.keyword.affiliate_tiers import (
+    CATALOG_MATCH_IGNORES_JAPANESE_SPACING,
+    TIER_STRONG,
+    TIER_WEAK,
+    TieredMatch,
+    match_catalog,
+    scoring_programs,
+)
 from app.keyword.normalizers.affiliate_opportunity import (
     COMMISSION_WEIGHT,
     PROGRAM_MATCH_WEIGHT,
@@ -66,7 +75,10 @@ _SITE_RELEVANCE_SOURCE_REFERENCE = "site-profile:ai-business-automation:v1"
 
 # affiliate_opportunity はローカル Affiliate Catalog 由来の供給側評価。
 _AFFILIATE_OPPORTUNITY_PROVIDER = "affiliate_catalog"
-_AFFILIATE_OPPORTUNITY_SOURCE_REFERENCE = "affiliate-catalog:local:v1"
+# v2 (C2.5.7): strong、または weak かつ core fit の match を score に使う。
+# それ以外は raw_data に残す (0 寄与)。
+_AFFILIATE_OPPORTUNITY_SOURCE_REFERENCE = "affiliate-catalog:local:v2"
+_AFFILIATE_SCORING_POLICY = "strong_or_core_v1"
 _ACTIVE_PROGRAM_LIMIT = 100_000
 
 # originality はサイト内部の既存 Keyword / Article corpus 由来。外部 provider ではない。
@@ -136,19 +148,48 @@ def _build_affiliate_opportunity_raw_data(
     *,
     catalog_size: int,
     active_catalog_size: int,
+    tiered: list[TieredMatch] | None = None,
 ) -> dict[str, object]:
     """affiliate_opportunity の計算根拠を JSON-safe な dict で返す。
+
+    ``matched`` は **score に使った program (strong、または weak かつ core fit)**。commission /
+    provider の項目はこの集合だけから作る。``tiered`` (全 match) は報告と catalog_drift 判定のために
+    残す: ``matched_program_ids`` / ``matched_program_names`` / ``matched_terms`` は tier / fit に
+    関わらず「現在の candidate 集合」で、ArticlePlan の live candidate と同じ集合になる (tier / fit
+    だけでは drift を作らない)。weak + loose / unreviewed は score に寄与しない
+    (0。重みは作らない)。
 
     **tracking_url / landing_page_url / affiliate ID / credential は含めない。**
     """
 
-    seen: set[str] = set()
-    matched_terms: list[str] = []
-    for program in matched:
-        for term in program.matched_terms:
-            if term not in seen:
-                seen.add(term)
-                matched_terms.append(term)
+    every = tiered if tiered is not None else []
+    strong_tiers = [t for t in every if t.tier == TIER_STRONG]
+    weak_tiers = [t for t in every if t.tier == TIER_WEAK]
+    weak_core = [t for t in weak_tiers if t.fit == FIT_CORE]
+    weak_loose = [t for t in weak_tiers if t.fit == FIT_LOOSE]
+    weak_unreviewed = [t for t in weak_tiers if t.fit not in (FIT_CORE, FIT_LOOSE)]
+
+    def _terms(tiers: list[TieredMatch]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for tier in tiers:
+            for term_tier in tier.term_tiers:
+                if term_tier.term not in seen:
+                    seen.add(term_tier.term)
+                    out.append(term_tier.term)
+        return sorted(out)
+
+    if tiered is None:  # tier 情報が無い呼び出し (互換): matched をそのまま「全 match」とみなす
+        seen_terms: set[str] = set()
+        legacy_terms: list[str] = []
+        for program in matched:
+            for term in program.matched_terms:
+                if term not in seen_terms:
+                    seen_terms.add(term)
+                    legacy_terms.append(term)
+        all_terms = sorted(legacy_terms)
+    else:
+        all_terms = _terms(every)
 
     percentage_commissions = [
         {"program_id": p.program_id, "name": p.name, "value": p.commission_value}
@@ -184,10 +225,58 @@ def _build_affiliate_opportunity_raw_data(
         "available_weight": result.available_weight,
         "evidence_coverage": result.evidence_coverage,
         "market_evidence_available": result.market_evidence_available,
-        "matched_program_count": result.matched_program_count,
-        "matched_program_ids": [p.program_id for p in matched],
-        "matched_program_names": [p.name for p in matched],
-        "matched_terms": sorted(matched_terms),
+        # ---- C2.5.7: strong-or-core policy。brand tier (strong / weak) と fit (core / loose /
+        # unreviewed) は独立。score 対象 = strong、または weak かつ core。それ以外は score 0 だが
+        # 全 metadata を raw_data に残す。
+        "scoring_policy": _AFFILIATE_SCORING_POLICY,
+        "match_semantics": {
+            "japanese_spacing": CATALOG_MATCH_IGNORES_JAPANESE_SPACING,
+            "strong": "own program name or explicit alias (eligible regardless of fit)",
+            "weak": "no brand/product-name intent: generic category/feature/use-case term",
+            "eligible": "strong, or weak with core fit",
+            "not_eligible": "weak with loose or unreviewed fit (retained, contributes 0)",
+            "fit_config_version": default_fit_config().version,
+        },
+        "scored_program_count": result.matched_program_count,
+        "scored_program_ids": [p.program_id for p in matched],
+        "strong_program_ids": [t.program_id for t in strong_tiers],
+        "strong_program_names": [t.name for t in strong_tiers],
+        "strong_terms": _terms(strong_tiers),
+        "weak_program_ids": [t.program_id for t in weak_tiers],
+        "weak_program_names": [t.name for t in weak_tiers],
+        "weak_terms": _terms(weak_tiers),
+        "weak_core_program_ids": [t.program_id for t in weak_core],
+        "weak_core_program_names": [t.name for t in weak_core],
+        "weak_loose_program_ids": [t.program_id for t in weak_loose],
+        "weak_loose_program_names": [t.name for t in weak_loose],
+        "weak_unreviewed_program_ids": [t.program_id for t in weak_unreviewed],
+        "weak_unreviewed_program_names": [t.name for t in weak_unreviewed],
+        "matches": [
+            {
+                "program_id": t.program_id,
+                "name": t.name,
+                "brand_tier": t.tier,
+                "fit": t.fit,
+                "scoring_eligible": t.scoring_eligible,
+                "primary_eligible": t.primary_eligible,
+                "strong_terms": list(t.strong_terms),
+                "core_terms": list(t.terms_with_fit(FIT_CORE)),
+                "loose_terms": list(t.terms_with_fit(FIT_LOOSE)),
+                "unreviewed_terms": list(t.terms_with_fit(FIT_UNREVIEWED)),
+                "reason": t.reason,
+            }
+            for t in every
+        ],
+        "alias_only_strong_program_ids": [t.program_id for t in every if not t.legacy_matched],
+        # 現在の candidate 集合 (strong + weak)。ArticlePlan の live candidate と同じ集合。
+        "matched_program_count": len(every) if tiered is not None else result.matched_program_count,
+        "matched_program_ids": (
+            [t.program_id for t in every] if tiered is not None else [p.program_id for p in matched]
+        ),
+        "matched_program_names": (
+            [t.name for t in every] if tiered is not None else [p.name for p in matched]
+        ),
+        "matched_terms": all_terms,
         "distinct_provider_count": result.distinct_provider_count,
         "active_providers": active_providers,
         "percentage_commissions": percentage_commissions,
@@ -381,14 +470,19 @@ class KeywordSignalService:
             )
             for row in active_rows
         ]
-        matched = match_programs(keyword.keyword, facts)
-        result = calculate_affiliate_opportunity(matched)
+        # C2.5.7: tier + fit 付き照合 (日本語の分かち書きは expansion / plan / queue と同じ扱い)。
+        # score に使うのは strong、または weak かつ core。それ以外は寄与 0 で raw_data に残す
+        # (weak の重みは作らない。式・重みは変えない)。
+        tiered = match_catalog(keyword.keyword, facts)
+        scored = scoring_programs(tiered)
+        result = calculate_affiliate_opportunity(scored)
 
         raw_data = _build_affiliate_opportunity_raw_data(
-            matched,
+            scored,
             result,
             catalog_size=self._programs.count(),
             active_catalog_size=len(facts),
+            tiered=tiered,
         )
         observed_at = datetime.now(UTC)
 

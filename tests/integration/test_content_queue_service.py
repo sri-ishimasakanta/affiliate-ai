@@ -378,7 +378,11 @@ def test_queue_reports_tiers_and_its_order_is_identical_to_a_run_without_tier_da
             want.affiliate.program_count,
             want.affiliate.program_names,
         )
-        assert got.fact_research == want.fact_research  # suggested_subjects も legacy のまま
+        # subjects (strong + weak の和) は tier 未算出の legacy 入力と同一。内訳は tier ありの方だけ
+        assert got.fact_research.suggested_subjects == want.fact_research.suggested_subjects
+        assert got.fact_research.requirement == want.fact_research.requirement
+        assert got.fact_research.status == want.fact_research.status
+        assert want.fact_research.strong_subjects == () and want.fact_research.core_subjects == ()
         assert got.prerequisites == want.prerequisites
 
     by = {e.keyword: e for e in (*queue.slots, *queue.merged, *queue.blocked)}
@@ -401,3 +405,99 @@ def test_queue_serialization_carries_the_tier_fields(
     assert entry["affiliate"]["strong_program_count"] == 1
     assert entry["affiliate"]["no_strong_affiliate_match"] is False
     assert entry["affiliate"]["level"] == "single"  # legacy のキーもそのまま
+
+
+# ================================================================ C2.5.6 / C2.5.7
+def _use_fit_config(monkeypatch, programs: dict[str, dict[str, str]]) -> None:
+    """test 専用の fit config (program 名 -> {term: core | loose | unreviewed}) に差し替える。"""
+
+    import app.keyword.affiliate_tiers as tiers
+    from app.keyword.affiliate_fit import parse_fit_config
+
+    config = parse_fit_config(
+        {
+            "version": 1,
+            "programs": [
+                {
+                    "program": name,
+                    "terms": [
+                        {"term": term, "fit": fit, "reason": "test"} for term, fit in terms.items()
+                    ],
+                }
+                for name, terms in programs.items()
+            ],
+        }
+    )
+    monkeypatch.setattr(tiers, "default_fit_config", lambda: config)
+
+
+def test_queue_keeps_strong_and_core_subjects_and_shares_the_japanese_spacing_match(
+    session: Session, seeded: dict[str, Keyword], monkeypatch
+) -> None:
+    _use_fit_config(
+        monkeypatch,
+        {
+            "Price Tool": {"料金": "loose"},
+            "Meeting Tool": {"議事録": "core"},
+            "Make": {"Make": "core"},
+        },
+    )
+    programs = AffiliateProgramRepository(session)
+    programs.create(name="Price Tool", provider="direct", match_terms=["料金"])
+    programs.create(name="Meeting Tool", provider="direct", match_terms=["議事録"])
+    session.commit()
+    service, config = _service(session)
+    built = service.build(config)
+    by = {e.keyword: e for e in (*built.slots, *built.merged)}
+    make = by["Make 料金"]  # strong (Make) + weak / loose (料金 だけで match する Price Tool)
+    assert make.affiliate.strong_program_names == ("Make",)
+    assert make.affiliate.weak_program_names == ("Price Tool",)
+    assert make.affiliate.loose_weak_program_names == ("Price Tool",)
+    # 収益化の subject は strong + core のみ。loose は文脈として別枠 (research には残せる)
+    assert make.fact_research.suggested_subjects == ("Make",)
+    assert make.fact_research.strong_subjects == ("Make",)
+    assert make.fact_research.contextual_subjects == ("Price Tool",)
+    assert "no_strong_affiliate_match" not in make.notes
+    # 分かち書き (Google Ads の表記) の keyword も unsplit と同じ coverage (queue も共通の照合)
+    KeywordRepository(session).create(keyword="議事 録 テスト")
+    session.commit()
+    keywords, _ = service.load_inputs()
+    split = next(k for k in keywords if k.keyword == "議事 録 テスト")
+    got = [(m.name, m.tier, m.fit, m.eligible) for m in split.affiliate_matches]
+    assert got == [("Meeting Tool", "weak", "core", True)]
+
+
+def test_weak_core_queue_entry_keeps_its_subject_and_a_meaningful_no_strong_note(
+    session: Session, seeded: dict[str, Keyword], monkeypatch
+) -> None:
+    _use_fit_config(monkeypatch, {"Zed Tool": {"RPA": "core"}})
+    AffiliateProgramRepository(session).create(
+        name="Zed Tool", provider="direct", match_terms=["RPA"]
+    )
+    session.commit()
+    service, config = _service(session)
+    rpa = next(e for e in service.build(config).slots if e.keyword == "RPA おすすめ")
+    assert rpa.affiliate.level == "single" and rpa.affiliate.program_names == ("Zed Tool",)
+    assert rpa.fact_research.suggested_subjects == ("Zed Tool",)
+    assert rpa.fact_research.core_subjects == ("Zed Tool",)
+    assert rpa.fact_research.strong_subjects == ()
+    assert "no_strong_affiliate_match" in rpa.notes and "no_affiliate_match" not in rpa.notes
+    assert "no_eligible_affiliate_match" not in rpa.notes  # core なので収益化の対象はある
+
+
+def test_weak_loose_and_unreviewed_queue_entries_do_not_inflate_the_subject_set(
+    session: Session, seeded: dict[str, Keyword], monkeypatch
+) -> None:
+    _use_fit_config(monkeypatch, {"Zed Tool": {"RPA": "loose"}})
+    programs = AffiliateProgramRepository(session)
+    programs.create(name="Zed Tool", provider="direct", match_terms=["RPA"])
+    programs.create(name="Ghost Tool", provider="direct", match_terms=["RPA"])  # config に無い
+    session.commit()
+    service, config = _service(session)
+    rpa = next(e for e in service.build(config).slots if e.keyword == "RPA おすすめ")
+    assert rpa.affiliate.level == "multiple"  # legacy の covered 意味は不変
+    assert rpa.fact_research.suggested_subjects == ()
+    assert rpa.fact_research.contextual_subjects == ("Ghost Tool", "Zed Tool")
+    assert rpa.affiliate.no_eligible_affiliate_match is True
+    assert "no_eligible_affiliate_match" in rpa.notes
+    assert "no_affiliate_match" not in rpa.notes

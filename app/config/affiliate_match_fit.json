@@ -1,0 +1,990 @@
+{
+  "version": 1,
+  "description": "Program/query FIT of every affiliate match term (C2.5.7). Independent of brand tier (own name / alias = strong). fit = core: the program is genuinely in the searched category / primary use case; loose: a broad goal, peripheral use case or weak topical association; unreviewed: not enough audit evidence (treated like loose: 0 score, never primary). A weak match is scoring- and primary-eligible only when a matched generic term is core. Terms missing from this file are unreviewed. kind=brand terms take their eligibility from the brand tier; fit_when_weak is used only when an ordinary-word brand term ends up weak (ambiguity guard). Source: C2.5.2 audit (provisional labels).",
+  "source": "C2.5.2 catalog match-quality audit",
+  "programs": [
+    {
+      "program": "Make",
+      "provider": "make",
+      "terms": [
+        {
+          "term": "Make",
+          "kind": "brand",
+          "reason": "product name (English-word collision; the 4 verb idioms are rejected since C2.5.1)",
+          "fit_when_weak": "loose",
+          "fit_reason": "ordinary English verb: a bare 'make' / 'make sure' is not category intent (idiom rejection since C2.5.1)"
+        },
+        {
+          "term": "業務自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 1,
+          "reason": "names the category (business-process automation) Make is sold in"
+        },
+        {
+          "term": "自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 14,
+          "reason": "bare 'automation'; matches any automation topic (RPA, marketing, factory...)"
+        },
+        {
+          "term": "ワークフロー",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic noun; approval/PM 'workflow' queries have no Make intent"
+        },
+        {
+          "term": "ノーコード",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "SERP is app-builder tools (planner already rejects 'ノーコード ツール')"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal, not a category; shared with 6 other programs"
+        },
+        {
+          "term": "SaaS連携",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "integration between SaaS apps is Make's core function"
+        }
+      ]
+    },
+    {
+      "program": "n8n Cloud",
+      "provider": "direct",
+      "terms": [
+        {
+          "term": "n8n",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "業務自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 1,
+          "reason": "category term for workflow-automation tools"
+        },
+        {
+          "term": "自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 14,
+          "reason": "bare 'automation'"
+        },
+        {
+          "term": "ワークフロー",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic noun"
+        },
+        {
+          "term": "AIエージェント",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "matches any AI-agent topic (ChatGPT/Copilot agents)"
+        },
+        {
+          "term": "AI 自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "broad; RPA/AI/marketing automation all match"
+        },
+        {
+          "term": "ノーコード",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "SERP is app-builder tools"
+        }
+      ]
+    },
+    {
+      "program": "Writesonic",
+      "provider": "FirstPromoter",
+      "terms": [
+        {
+          "term": "Writesonic",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "SEO AI",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic phrase shared with a Semrush program"
+        },
+        {
+          "term": "AIライティング",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name (AI writing tools)"
+        },
+        {
+          "term": "AI ライティング",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "spaced variant of the same category term"
+        },
+        {
+          "term": "生成AI",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 10,
+          "reason": "any generative-AI topic (ChatGPT rules, adoption, ...)"
+        },
+        {
+          "term": "文章生成AI",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "記事作成 AI",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "core use-case: AI article writing"
+        },
+        {
+          "term": "AI 記事作成",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "core use-case: AI article writing"
+        }
+      ]
+    },
+    {
+      "program": "Descript",
+      "provider": "PartnerStack",
+      "terms": [
+        {
+          "term": "Descript",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "文字起こし",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 19,
+          "reason": "generic feature; SERP is dedicated transcription tools (planner also rejects B2C transcription)"
+        },
+        {
+          "term": "AI 文字起こし",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "generic feature"
+        },
+        {
+          "term": "議事録",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 165,
+          "reason": "meeting minutes = business-meeting tools; not Descript's positioning"
+        },
+        {
+          "term": "音声文字起こし",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 2,
+          "reason": "generic feature"
+        },
+        {
+          "term": "動画編集 AI",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "Descript is a video/audio editor: category term [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "ポッドキャスト 編集",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "podcast editing is Descript's core use-case [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        }
+      ]
+    },
+    {
+      "program": "HubSpot",
+      "provider": "Impact",
+      "terms": [
+        {
+          "term": "HubSpot",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "CRM",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 131,
+          "reason": "category acronym; shared with 2 other programs"
+        },
+        {
+          "term": "マーケティング自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "営業効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "a goal, not a category"
+        },
+        {
+          "term": "営業 自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_live_hits",
+          "live_hits": 2,
+          "reason": "generic use-case (sales automation)"
+        },
+        {
+          "term": "顧客管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 16,
+          "reason": "category name (customer management)"
+        },
+        {
+          "term": "MAツール",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name (marketing-automation tools)"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal; shared with 6 other programs"
+        }
+      ]
+    },
+    {
+      "program": "Semrush AI Visibility Toolkit",
+      "provider": "Impact",
+      "terms": [
+        {
+          "term": "Semrush",
+          "kind": "brand",
+          "reason": "vendor name (also configured on the other Semrush program)"
+        },
+        {
+          "term": "AI Visibility",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "name of this toolkit's category (GEO / AI visibility) [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "SEO AI",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic phrase shared with Writesonic"
+        },
+        {
+          "term": "LLM SEO",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "category term (LLM/GEO SEO) [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "AI検索",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "mostly consumer 'AI search engine' queries, not SEO tooling"
+        },
+        {
+          "term": "AI 検索",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "spaced variant of AI検索"
+        },
+        {
+          "term": "生成AI SEO",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "category term [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "検索可視性",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "feature term (search visibility) [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        }
+      ]
+    },
+    {
+      "program": "Semrush SEO Toolkit",
+      "provider": "Impact",
+      "terms": [
+        {
+          "term": "Semrush",
+          "kind": "brand",
+          "reason": "vendor name"
+        },
+        {
+          "term": "SEO",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "very broad topic word (SEO 対策, SEO とは ...)"
+        },
+        {
+          "term": "SEOツール",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "category name [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "キーワード調査",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "core feature (keyword research) [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "競合分析",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic marketing analysis, not SEO-specific"
+        },
+        {
+          "term": "検索順位",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "core feature (rank tracking) [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "SEO 分析",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "core feature [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        }
+      ]
+    },
+    {
+      "program": "ClickUp",
+      "provider": "direct",
+      "terms": [
+        {
+          "term": "ClickUp",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal; shared with 6 other programs"
+        },
+        {
+          "term": "タスク管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 53,
+          "reason": "category name; shared with 2 other programs"
+        },
+        {
+          "term": "プロジェクト管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 26,
+          "reason": "category name; shared with monday.com"
+        },
+        {
+          "term": "生産性",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "a goal; shared with 3 programs"
+        },
+        {
+          "term": "チーム管理",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic (HR/leadership queries match)"
+        },
+        {
+          "term": "AI 業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_live_hits",
+          "live_hits": 2,
+          "reason": "a goal + AI"
+        }
+      ]
+    },
+    {
+      "program": "monday.com",
+      "provider": "direct",
+      "terms": [
+        {
+          "term": "monday.com",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "monday",
+          "kind": "brand",
+          "reason": "short product name (collides with the weekday; live check below)",
+          "fit_when_weak": "loose",
+          "fit_reason": "a weekday name: a bare 'monday' is not category intent"
+        },
+        {
+          "term": "プロジェクト管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 26,
+          "reason": "category name"
+        },
+        {
+          "term": "タスク管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 53,
+          "reason": "category name"
+        },
+        {
+          "term": "ワークフロー",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic noun"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal; shared with 6 other programs"
+        },
+        {
+          "term": "チーム管理",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic"
+        }
+      ]
+    },
+    {
+      "program": "Grammarly Pro upgrade",
+      "provider": "multi_network",
+      "terms": [
+        {
+          "term": "Grammarly",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "英文校正",
+          "fit": "unreviewed",
+          "audit_fit": "core",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "core function: English proofreading [audit judged core from the definition only: no live hit in the 808 ideas / 30-keyword pool and not confirmed in the C2.5.7 policy -> unreviewed]"
+        },
+        {
+          "term": "AI ライティング",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "Grammarly is an editor, not an AI writing generator"
+        },
+        {
+          "term": "AIライティング",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "same"
+        },
+        {
+          "term": "文章校正",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "Japanese proofreading: Grammarly does not support Japanese"
+        },
+        {
+          "term": "文章作成 AI",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "writing generators, not proofreading"
+        },
+        {
+          "term": "英語 AI",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "any English/AI topic"
+        }
+      ]
+    },
+    {
+      "program": "Fireflies.ai",
+      "provider": "direct",
+      "terms": [
+        {
+          "term": "Fireflies",
+          "kind": "brand",
+          "reason": "product name",
+          "fit_when_weak": "unreviewed",
+          "fit_reason": "bare 'fireflies' is ambiguous (insect / brand); kept weak by decision until SERP/GSC evidence exists"
+        },
+        {
+          "term": "Fireflies.ai",
+          "kind": "brand",
+          "reason": "domain/full-name form of the product"
+        },
+        {
+          "term": "AI 議事録",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 22,
+          "reason": "category name (AI meeting minutes); shared with Krisp"
+        },
+        {
+          "term": "議事録 AI",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 4,
+          "reason": "reordered form of the category term"
+        },
+        {
+          "term": "文字起こし",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 19,
+          "reason": "core function (meeting transcription)"
+        },
+        {
+          "term": "会議 要約",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "core function (meeting summary)"
+        },
+        {
+          "term": "AI 会議",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 2,
+          "reason": "category (AI meeting assistants)"
+        },
+        {
+          "term": "会議 自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic; scheduling/room-booking queries match"
+        }
+      ]
+    },
+    {
+      "program": "Pipedrive",
+      "provider": "PartnerStack",
+      "terms": [
+        {
+          "term": "Pipedrive",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "CRM",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 131,
+          "reason": "category acronym"
+        },
+        {
+          "term": "SFA",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 16,
+          "reason": "category acronym (sales-force automation)"
+        },
+        {
+          "term": "営業効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "a goal"
+        },
+        {
+          "term": "営業 自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_live_hits",
+          "live_hits": 2,
+          "reason": "generic use-case"
+        },
+        {
+          "term": "営業支援",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name (sales support / SFA)"
+        },
+        {
+          "term": "顧客管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 16,
+          "reason": "category name"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal; shared with 6 other programs"
+        }
+      ]
+    },
+    {
+      "program": "ActiveCampaign",
+      "provider": "PartnerStack",
+      "terms": [
+        {
+          "term": "ActiveCampaign",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "CRM",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 131,
+          "reason": "ActiveCampaign is marketing automation first; CRM is secondary"
+        },
+        {
+          "term": "マーケティング自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "メール自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "core function"
+        },
+        {
+          "term": "MAツール",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "顧客管理",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 16,
+          "reason": "secondary function"
+        },
+        {
+          "term": "営業 自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_live_hits",
+          "live_hits": 2,
+          "reason": "generic use-case"
+        }
+      ]
+    },
+    {
+      "program": "Krisp",
+      "provider": "Impact",
+      "terms": [
+        {
+          "term": "Krisp",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "AI 議事録",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 22,
+          "reason": "category name (AI meeting notes)"
+        },
+        {
+          "term": "AI 会議",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 2,
+          "reason": "category (AI meeting assistants)"
+        },
+        {
+          "term": "会議アシスタント",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "ノイズキャンセル",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "Krisp's original core feature"
+        },
+        {
+          "term": "文字起こし",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 19,
+          "reason": "core function (meeting transcription)"
+        },
+        {
+          "term": "会議 要約",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "core function"
+        }
+      ]
+    },
+    {
+      "program": "Reclaim.ai",
+      "provider": "PartnerStack",
+      "terms": [
+        {
+          "term": "Reclaim.ai",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "Reclaim",
+          "kind": "brand",
+          "reason": "short product name (English verb; live check below)",
+          "fit_when_weak": "loose",
+          "fit_reason": "an ordinary English verb: a bare 'reclaim' is not category intent"
+        },
+        {
+          "term": "AI スケジュール",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name (AI scheduling)"
+        },
+        {
+          "term": "スケジュール 自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "カレンダー 自動化",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 0,
+          "reason": "category name"
+        },
+        {
+          "term": "時間管理",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "self-help/time-management queries match"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal; shared with 6 other programs"
+        },
+        {
+          "term": "生産性",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "a goal"
+        }
+      ]
+    },
+    {
+      "program": "Todoist",
+      "provider": "direct",
+      "terms": [
+        {
+          "term": "Todoist",
+          "kind": "brand",
+          "reason": "product name"
+        },
+        {
+          "term": "ToDo",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_live_hits",
+          "live_hits": 2,
+          "reason": "generic word (to-do lists, TODO comments in code) [catalog also lists 'TODO': identical after normalization]"
+        },
+        {
+          "term": "タスク管理",
+          "fit": "core",
+          "audit_fit": "core",
+          "evidence": "spec_confirmed",
+          "live_hits": 53,
+          "reason": "category name"
+        },
+        {
+          "term": "生産性",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "a goal"
+        },
+        {
+          "term": "業務効率化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "spec_confirmed",
+          "live_hits": 7,
+          "reason": "a goal; shared with 6 other programs"
+        },
+        {
+          "term": "タスク 自動化",
+          "fit": "loose",
+          "audit_fit": "loose",
+          "evidence": "audit_reasoning_only",
+          "live_hits": 0,
+          "reason": "generic use-case"
+        }
+      ]
+    }
+  ]
+}
