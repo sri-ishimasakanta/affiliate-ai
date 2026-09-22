@@ -32,12 +32,14 @@ from app.change.internal_link import (
 from app.exceptions import ApplicationError
 from app.models import (
     CHANGE_ADD_INTERNAL_LINK,
+    CR_APPLY_FAILED,
     CR_APPROVED,
     CR_AWAITING_APPROVAL,
     CR_OPEN_STATUSES,
     CR_REJECTED,
     CR_STALE,
     Article,
+    ChangeApplication,
     ChangeRequest,
     ChangeRequestApproval,
     SeoImprovementCandidate,
@@ -321,6 +323,72 @@ class ChangeRequestService:
         self._session.commit()
         self._session.refresh(approval)
         return approval
+
+    def reopen_for_retry(
+        self,
+        request_id: int,
+        *,
+        proposal_hash: str,
+        reason: str | None = None,
+        now: datetime | None = None,
+    ) -> ChangeRequest:
+        """書き込み前に失敗した適用を、**同じ承認のまま** 再試行可能に戻す (C9.4)。
+
+        実装側の不具合で書く前に落ちただけなら、人にもう一度同じ提案を承認させる
+        意味は無い。ただし「黙って状態を戻す」ことはしない:
+
+        - 呼び出し側は ``proposal_hash`` を明示する (提案が変わっていれば拒否)
+        - 既存の承認が **いまの** 提案に対するものであることを確認する
+        - 陳腐化していれば拒否する (通常の stale / 再承認の規則がそのまま効く)
+        - WordPress へ書きに行った形跡がある試行は拒否する (照合が先)
+        - 失敗した ``ChangeApplication`` は消さない。再試行は新しい行を積む
+
+        承認レコードは新しく作らない。人の判断は 1 度きりで変わっていない。
+        """
+
+        request = self._require(request_id)
+        if request.status != CR_APPLY_FAILED:
+            raise ChangeRequestError(
+                f"request {request_id} is {request.status!r}; only 'apply_failed' can be retried"
+            )
+        if request.proposal_hash != proposal_hash:
+            raise ChangeRequestError(
+                "proposal hash mismatch: the proposal changed since it failed; "
+                "re-read it and approve the current proposal"
+            )
+        approval = self.latest_approval(request)
+        if approval is None or approval.approved_proposal_hash != request.proposal_hash:
+            raise ChangeRequestError(
+                "no approval matches the current proposal; a retry cannot invent one"
+            )
+
+        last = self._session.scalars(
+            select(ChangeApplication)
+            .where(ChangeApplication.change_request_id == request.id)
+            .order_by(ChangeApplication.id.desc())
+            .limit(1)
+        ).first()
+        if last is not None and last.content_update_run_id is not None:
+            raise ChangeRequestError(
+                f"application {last.id} already reached the WordPress update path "
+                f"(run {last.content_update_run_id}); reconcile that run before retrying"
+            )
+
+        report = self.evaluate_staleness(request)
+        if report.stale:
+            raise ChangeRequestError("; ".join(report.reasons))
+
+        if not change_request_transition_allowed(request.status, CR_APPROVED):
+            raise ChangeRequestError(f"'{request.status}' -> '{CR_APPROVED}' is not allowed")
+
+        request.status = CR_APPROVED
+        request.status_reason = reason or (
+            f"reopened for retry after application {last.id if last else '?'} "
+            "failed before any WordPress write"
+        )
+        self._session.commit()
+        self._session.refresh(request)
+        return request
 
     def mark_stale(self, request_id: int, *, reason: str) -> ChangeRequest:
         request = self._require(request_id)

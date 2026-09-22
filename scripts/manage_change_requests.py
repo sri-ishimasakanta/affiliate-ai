@@ -9,6 +9,9 @@
     # 承認 -- **読んだ提案の hash を明示する**
     uv run python scripts/manage_change_requests.py approve 1 --proposal-hash <hash>
 
+    # 書き込み前に失敗した適用を、同じ承認のまま再試行可能に戻す
+    uv run python scripts/manage_change_requests.py retry 1 --proposal-hash <hash>
+
     # 却下 -- 理由は必須
     uv run python scripts/manage_change_requests.py reject 1 --reason "リンク先が弱い"
 
@@ -54,6 +57,13 @@ def main(argv: list[str] | None = None) -> int:
     approve.add_argument("--proposal-hash", required=True, help="読んだ提案の hash")
     approve.add_argument("--decided-by", default="human")
     approve.add_argument("--reason", help="承認理由 (任意)")
+
+    retry = sub.add_parser(
+        "retry", help="書き込み前に失敗した適用を、同じ承認のまま再試行可能に戻す"
+    )
+    retry.add_argument("request_id", type=int)
+    retry.add_argument("--proposal-hash", required=True, help="いまの提案 hash")
+    retry.add_argument("--reason", help="再試行する理由 (任意)")
 
     reject = sub.add_parser("reject", help="提案を却下する")
     reject.add_argument("request_id", type=int)
@@ -133,6 +143,21 @@ def _dispatch(service: ChangeRequestService, args) -> dict:
             "stale_reasons": list(report.reasons),
             "candidate_currently_present": report.candidate_currently_present,
             "approved": bool(approval),
+        }
+
+    if args.command == "retry":
+        request = service.reopen_for_retry(
+            args.request_id, proposal_hash=args.proposal_hash, reason=args.reason
+        )
+        print(f"reopened request {request.id} for retry -> status {request.status}")
+        print(f"status_reason = {request.status_reason}")
+        print("承認は作り直していない。失敗した適用の履歴もそのまま残っている。")
+        print("適用は apply_approved_change.py --execute (別コマンド)。")
+        return {
+            "change_request_id": request.id,
+            "status": request.status,
+            "status_reason": request.status_reason,
+            "proposal_hash": request.proposal_hash,
         }
 
     if args.command == "approve":

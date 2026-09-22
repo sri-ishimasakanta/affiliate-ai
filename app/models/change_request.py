@@ -72,7 +72,9 @@ CR_TRANSITIONS: dict[str, frozenset[str]] = {
     CR_AWAITING_APPROVAL: frozenset({CR_APPROVED, CR_REJECTED, CR_STALE}),
     # 承認しても、適用されるまでは古くなりうる。
     CR_APPROVED: frozenset({CR_APPLIED, CR_APPLY_FAILED, CR_STALE, CR_REJECTED}),
-    CR_APPLY_FAILED: frozenset({CR_APPLIED, CR_RECONCILED, CR_STALE, CR_REJECTED}),
+    # 書き込み前に失敗した適用は、人が明示的に再開したときだけ approved へ戻せる
+    # (C9.4)。承認をやり直すのではなく、同じ承認のまま再試行するための遷移。
+    CR_APPLY_FAILED: frozenset({CR_APPLIED, CR_RECONCILED, CR_STALE, CR_REJECTED, CR_APPROVED}),
     CR_APPLIED: frozenset({CR_RECONCILED}),
     CR_STALE: frozenset({CR_REJECTED}),
     CR_REJECTED: frozenset(),

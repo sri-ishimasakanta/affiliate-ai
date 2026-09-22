@@ -33,6 +33,7 @@ from app.article.draft_promotion_canonical import compute_text_hash
 from app.article.editorial_revision_canonical import compute_revision_content_hash
 from app.article.fact_freshness import to_storage_utc
 from app.change.internal_link import added_link_count, non_link_text_unchanged
+from app.change.published_update_intent import build_published_update_intent
 from app.models import (
     CR_APPLIED,
     CR_APPLY_FAILED,
@@ -251,6 +252,30 @@ class ChangeApplicationService:
             proposal_hash = request.proposal_hash
             proposal_version = request.proposal_version
             approval_id = approval.id if approval else None
+            approved_hash = approval.approved_proposal_hash if approval else None
+            approved_by = approval.decided_by if approval else None
+            expected_hash = request.expected_source_body_hash
+            change_type = request.change_type
+            target_article_id = request.target_article_id
+            rationale = request.rationale
+
+        # -- 公開更新の意図を、承認の事実から書き起こす (C9.4) -----------------
+        # ここで失敗すれば改訂は作られない。既存の published_update_intent_ok
+        # ゲートは fail-closed のまま残る。
+        published_update_intent = build_published_update_intent(
+            execute=True,
+            change_request_id=request_id,
+            change_type=change_type,
+            article_id=article.id,
+            target_article_id=target_article_id,
+            proposal_hash=proposal_hash,
+            proposal_version=proposal_version,
+            approval_id=approval_id,
+            approved_proposal_hash=approved_hash,
+            approved_by=approved_by,
+            expected_source_body_hash=expected_hash,
+            current_source_body_hash=source_hash,
+        )
 
         # -- 書き込み前の live 状態を凍結する (ロールバックと照合の起点) -------
         base = (self._settings.wordpress_base_url or "").rstrip("/")
@@ -308,7 +333,8 @@ class ChangeApplicationService:
                         body_markdown=proposed_body,
                         meta_description=meta,
                     ),
-                    revision_reason=request.rationale,
+                    revision_reason=rationale,
+                    published_update_intent=published_update_intent,
                     idempotency_key=f"c9-request-{request_id}-v{proposal_version}",
                     editor_notes=[
                         f"approved change request {request_id} (proposal {proposal_hash[:16]})"

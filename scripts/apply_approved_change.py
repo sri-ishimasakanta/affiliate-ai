@@ -32,6 +32,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.change.published_update_intent import (  # noqa: E402
+    PublishedUpdateIntentError,
+)
 from app.config.database import SessionLocal  # noqa: E402
 from app.config.settings import get_settings  # noqa: E402
 from app.services.change_application_service import ChangeApplicationService  # noqa: E402
@@ -72,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             payload = outcome.as_dict()
             _print_outcome(outcome)
-    except ChangeRequestError as exc:
+    except (ChangeRequestError, PublishedUpdateIntentError) as exc:
         print(f"refused: {exc.reason}")
         return EXIT_REFUSED
 
