@@ -106,6 +106,12 @@ from app.models.search_console_import_run import (
 from app.models.search_console_page_daily import SearchConsolePageDaily
 from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.source import Source
+from app.models.wordpress_content_update_reconciliation import (
+    WP_CU_RECONCILED_SUCCEEDED,
+    WP_CU_RECONCILED_UNRESOLVED,
+    WP_CU_RECONCILIATION_VERDICTS,
+    WordPressContentUpdateReconciliation,
+)
 from app.models.wordpress_content_update_run import (
     WP_CONTENT_UPDATE_FAILED,
     WP_CONTENT_UPDATE_OUTCOME_UNKNOWN,
@@ -222,6 +228,9 @@ __all__ = [
     "WP_CONTENT_UPDATE_STATUSES",
     "WP_CONTENT_UPDATE_SUCCEEDED",
     "WP_CONTENT_UPDATE_TERMINAL_STATUSES",
+    "WP_CU_RECONCILIATION_VERDICTS",
+    "WP_CU_RECONCILED_SUCCEEDED",
+    "WP_CU_RECONCILED_UNRESOLVED",
     "WP_PUBRUN_ACTIVE_STATUSES",
     "WP_PUBRUN_PREPARED",
     "WP_PUBRUN_STATUSES",
@@ -230,6 +239,7 @@ __all__ = [
     "WP_RUN_PREPARED",
     "WP_RUN_STATUSES",
     "WP_RUN_TERMINAL_STATUSES",
+    "WordPressContentUpdateReconciliation",
     "WordPressContentUpdateRun",
     "WordPressDraftRun",
     "WordPressPublicationRun",

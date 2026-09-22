@@ -380,6 +380,19 @@ class WordPressContentUpdateRunError(ApplicationError):
         self.reason = reason
 
 
+class WordPressContentUpdateReconciliationError(ApplicationError):
+    """outcome_unknown な content-update run を事後照合できない。
+
+    対象 run が存在しない / ``outcome_unknown`` 以外 (succeeded・failed・running) /
+    指定された article・post を所有していない、など。既に確定した結果を後から
+    塗り替えないため、これらは全て拒否する。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress content update reconciliation error: {reason}")
+        self.reason = reason
+
+
 class WordPressContentUpdateTerminalPersistFailedError(ApplicationError):
     """D-D5D: content-update の write boundary (Transaction A commit 後) を越えた後、
     外部への POST 結果 (成功 / 曖昧 / read-back 失敗のいずれか) は確定しているが、その

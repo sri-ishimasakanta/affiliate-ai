@@ -28,7 +28,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.exceptions import WordPressContentUpdateRunError
-from app.models import WordPressContentUpdateRun
+from app.models import WordPressContentUpdateReconciliation, WordPressContentUpdateRun
+from app.models.wordpress_content_update_reconciliation import (
+    WP_CU_RECONCILED_SUCCEEDED,
+)
 from app.models.wordpress_content_update_run import (
     WP_CONTENT_UPDATE_FAILED,
     WP_CONTENT_UPDATE_OUTCOME_UNKNOWN,
@@ -210,14 +213,29 @@ class WordPressContentUpdateRunRepository:
         self, *, article_id: int, wordpress_post_id: str
     ) -> WordPressContentUpdateRun | None:
         """未解決 (running / outcome_unknown) な run -- 存在する限り新しい execute は
-        blocked される (D-D5A.1 §16-17: 自動 retry は禁止、Human 解決が必要)。"""
+        blocked される (D-D5A.1 §16-17: 自動 retry は禁止、Human 解決が必要)。
 
+        ただし ``reconciled_succeeded`` の reconciliation 記録を持つ run は、live な
+        観測によって既に解決済みなので blocking から除外する。run の status 自体は
+        ``outcome_unknown`` のまま保持され、書き換えは行わない。
+        """
+
+        resolved = (
+            select(WordPressContentUpdateReconciliation.id)
+            .where(
+                WordPressContentUpdateReconciliation.wordpress_content_update_run_id
+                == WordPressContentUpdateRun.id,
+                WordPressContentUpdateReconciliation.verdict == WP_CU_RECONCILED_SUCCEEDED,
+            )
+            .exists()
+        )
         stmt = (
             select(WordPressContentUpdateRun)
             .where(
                 WordPressContentUpdateRun.article_id == article_id,
                 WordPressContentUpdateRun.wordpress_post_id == wordpress_post_id,
                 WordPressContentUpdateRun.status.in_(_BLOCKING_STATUSES),
+                ~resolved,
             )
             .order_by(*_LATEST_ORDER)
             .limit(1)

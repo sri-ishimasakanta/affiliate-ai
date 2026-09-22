@@ -24,6 +24,7 @@ from app.models import (
     SearchConsolePageDaily,
     SearchConsoleQueryDaily,
     Source,
+    WordPressContentUpdateReconciliation,
     WordPressContentUpdateRun,
     WordPressDraftRun,
     WordPressPublicationRun,
@@ -74,6 +75,9 @@ IMMUTABLE_HISTORY_MODELS = (
     # commission import の auditable な実行記録 (running -> succeeded/failed)。
     # append-only。updated_at なし。
     AffiliateCommissionImportRun,
+    # outcome_unknown な content update run を事後照合した結果 (append-only)。
+    # run 行を書き換えず独立した事実として残す。updated_at なし。
+    WordPressContentUpdateReconciliation,
 )
 
 
@@ -109,6 +113,7 @@ def test_all_tables_registered() -> None:
         "article_link_substitution_mappings",
         "article_publication_artifacts",
         "wordpress_content_update_runs",
+        "wordpress_content_update_reconciliations",
         "affiliate_commission_import_runs",
         "affiliate_commission_facts",
     }
