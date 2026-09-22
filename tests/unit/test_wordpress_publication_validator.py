@@ -274,3 +274,28 @@ def test_a_table_is_only_required_for_comparison_and_pricing_types() -> None:
               expected_h2_count=6, expected_h3_count=0, expected_tool_names=[],
               table_required=True)
     assert "rendered_table_count_one" in _ids(ng, "fail")
+
+
+def test_h3_count_is_free_when_the_outline_does_not_prescribe_it() -> None:
+    """解説記事など、outline が H3 の形を指定しない type では小見出し数を問わない。"""
+    body = (
+        "本記事は広告（アフィリエイト）を含みます。\n\n"
+        "## とは\n" + "解説。" * 300 + "\n\n"
+        "### 小見出しA\n説明。\n\n### 小見出しB\n説明。\n\n"
+        "## 要点\n論点。\n\n## 進め方\n手順。\n\n## FAQ\nQ&A。\n\n## まとめ\n結論。\n"
+    )
+    r = render_wordpress_html(body)
+    assert (r.h2_count, r.h3_count) == (5, 2)
+
+    ok = _run(body=body, article_body=body,
+              promotion=_Promo(body_hash=compute_text_hash(body)),
+              expected_h2_count=5, expected_h3_count=None,
+              expected_tool_names=[], table_required=False)
+    assert "rendered_structure_h2_h3" not in _ids(ok, "fail")
+
+    # H2 の数は None でも照合される
+    ng = _run(body=body, article_body=body,
+              promotion=_Promo(body_hash=compute_text_hash(body)),
+              expected_h2_count=7, expected_h3_count=None,
+              expected_tool_names=[], table_required=False)
+    assert "rendered_structure_h2_h3" in _ids(ng, "fail")

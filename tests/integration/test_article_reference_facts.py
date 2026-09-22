@@ -189,3 +189,30 @@ def test_article_delete_cascades_reference_facts(session: Session) -> None:
     session.delete(session.get(Article, aid))
     session.commit()
     assert session.scalar(select(func.count()).select_from(ArticleReferenceFact)) == 0
+
+
+def test_reference_sources_become_linkable_domains(session: Session) -> None:
+    """参照文献の出典ドメインは、その記事が本文からリンクしてよい先になる。
+
+    含めないと、ガイドライン等を根拠にする記事が出典へリンクした時点で
+    external_links_official_domains が fail する。
+    """
+    from urllib.parse import urlparse
+
+    from app.services.wordpress_preview_service import WordPressPreviewService
+
+    aid = _article(session)
+    sid = _source(session, aid)
+    ArticleReferenceFactService(session).create(
+        aid, source_id=sid, reference_key="publication",
+        statement="第1.2版が令和8年3月31日に公表されている。")
+
+    payload = DraftInputSnapshotBuilder(session).build(aid, now=NOW).payload
+    pkg = build_prompt_package(
+        snapshot_payload=payload, snapshot_id=1, snapshot_content_hash="x" * 64,
+        overrides=EditorialOverridesV1(primary=None, comparison_set_size=0), now=NOW)
+
+    _names, domains = WordPressPreviewService._package_meta(
+        type("P", (), {"source_run": type("R", (), {"prompt_package": pkg})()})()
+    )
+    assert urlparse(_URL).netloc in domains

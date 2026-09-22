@@ -59,7 +59,7 @@ def validate_wordpress_publication_preview(
     rendered_table_count: int,
     rendered_external_links: list[str],
     expected_h2_count: int,
-    expected_h3_count: int,
+    expected_h3_count: int | None,
     table_required: bool,
     requires_pr_disclosure: bool,
     expected_tool_names: list[str],
@@ -174,17 +174,16 @@ def validate_wordpress_publication_preview(
             f"rendered <h1>={rendered_h1_count}",
         )
     )
+    # expected_h3_count が None = outline が H3 の形を指定していない type。
+    # その場合、小見出しの数は編集判断に委ねる (H2 だけを照合する)。
+    h3_ok = expected_h3_count is None or rendered_h3_count == expected_h3_count
     checks.append(
         _check(
             "rendered_structure_h2_h3",
-            "pass"
-            if (
-                rendered_h2_count == expected_h2_count
-                and rendered_h3_count == expected_h3_count
-            )
-            else "fail",
+            "pass" if (rendered_h2_count == expected_h2_count and h3_ok) else "fail",
             f"rendered h2={rendered_h2_count} h3={rendered_h3_count} "
-            f"(期待 {expected_h2_count}/{expected_h3_count})",
+            f"(期待 {expected_h2_count}/"
+            f"{'指定なし' if expected_h3_count is None else expected_h3_count})",
         )
     )
     # 比較表 / 料金表を骨子に持つ article type だけが表を必須にする。

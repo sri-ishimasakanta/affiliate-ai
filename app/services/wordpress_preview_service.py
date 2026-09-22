@@ -288,6 +288,10 @@ class WordPressPreviewService:
             return _FALLBACK_H2_COUNT, _FALLBACK_H3_COUNT
         h2 = sum(1 for row in outline if row.get("level") == "H2")
         h3_rows = sum(1 for row in outline if row.get("level") == "H3")
+        if h3_rows == 0:
+            # outline が H3 の形を指定していない type (解説記事など)。
+            # 小見出しの数は編集判断に委ねる (None = 数を問わない)。
+            return h2, None
         return h2, h3_rows * subject_count
 
     @staticmethod
@@ -306,4 +310,10 @@ class WordPressPreviewService:
                 src = f.get("source") or {}
                 if src.get("source_url"):
                     domains.add(urlparse(src["source_url"]).netloc)
+        # C4.6: 記事レベルの参照文献の出典も、その記事が引用してよいドメイン。
+        # 含めないと、ガイドライン等を根拠にする記事が出典へリンクできない。
+        for row in pkg.get("reference_evidence", []):
+            url = (row.get("source") or {}).get("source_url")
+            if url:
+                domains.add(urlparse(url).netloc)
         return names, domains
