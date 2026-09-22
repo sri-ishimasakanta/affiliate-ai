@@ -528,3 +528,48 @@ def test_generation_run_records_the_template_it_actually_used(session: Session) 
     )
 
     assert run.prompt_template_version == "article_pricing_v1"
+
+
+def test_snapshot_tools_follow_content_subjects_not_affiliate_links(
+    session: Session,
+) -> None:
+    """supporting 記事の editorial subject も tools グリッドに載る。
+
+    tools を affiliate link から組むと、link を持たない supporting 記事は
+    subject の fact を 1 件も prompt に載せられず、根拠のない本文を書かせてしまう。
+    """
+    _catalog(session)
+    read = _approve(
+        session, "RPA 比較", slug="rpa-tools-grid", monetization_mode="supporting",
+        article_type=ArticleType.COMPARISON_LISTICLE,
+        content_subject_keys=["uipath", "winactor", "power-automate"],
+    )
+    payload = _snapshot(session, read.id).payload
+
+    assert [t["subject_ref"] for t in payload["tools"]] == [
+        "UiPath", "WinActor", "Power Automate",
+    ]
+    assert all(t["affiliate_program_id"] is None for t in payload["tools"])
+    assert all(t["is_primary"] is False for t in payload["tools"])
+    # 対象ごとに fact セルのグリッドが用意される (値は未調査でもキーは揃う)
+    assert all(t["cells"] for t in payload["tools"])
+
+
+def test_snapshot_tools_keep_affiliate_identity_for_linked_subjects(
+    session: Session,
+) -> None:
+    """affiliate 裏付けのある subject は program id と is_primary を保つ。"""
+    ids = _catalog(session)
+    read = _approve(
+        session, "AI 議事録 おすすめ", slug="ai-gijiroku-grid",
+        monetization_mode="affiliate", primary_affiliate_program_id=ids["Krisp"],
+        article_type=ArticleType.RECOMMENDATION_ROUNDUP,
+        content_subject_keys=["notion-ai"],
+    )
+    payload = _snapshot(session, read.id).payload
+
+    by_ref = {t["subject_ref"]: t for t in payload["tools"]}
+    assert by_ref["Krisp"]["affiliate_program_id"] == ids["Krisp"]
+    assert by_ref["Krisp"]["is_primary"] is True
+    assert by_ref["Notion AI"]["affiliate_program_id"] is None
+    assert by_ref["Notion AI"]["is_primary"] is False

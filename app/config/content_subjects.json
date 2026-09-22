@@ -7,7 +7,9 @@
       "display_name": "UiPath",
       "canonical_name": "UiPath",
       "source": "editorial",
-      "topics": ["rpa"],
+      "topics": [
+        "rpa"
+      ],
       "note": "RPA の主要ベンダー。affiliate catalog には無い"
     },
     {
@@ -15,7 +17,9 @@
       "display_name": "Automation Anywhere",
       "canonical_name": "Automation Anywhere",
       "source": "editorial",
-      "topics": ["rpa"],
+      "topics": [
+        "rpa"
+      ],
       "note": "RPA の主要ベンダー。affiliate catalog には無い"
     },
     {
@@ -23,7 +27,9 @@
       "display_name": "WinActor",
       "canonical_name": "WinActor",
       "source": "editorial",
-      "topics": ["rpa"],
+      "topics": [
+        "rpa"
+      ],
       "note": "NTT 系の国産 RPA。日本市場で認知が高い"
     },
     {
@@ -31,7 +37,9 @@
       "display_name": "BizRobo!",
       "canonical_name": "BizRobo!",
       "source": "editorial",
-      "topics": ["rpa"],
+      "topics": [
+        "rpa"
+      ],
       "note": "国産 RPA"
     },
     {
@@ -39,7 +47,10 @@
       "display_name": "Power Automate",
       "canonical_name": "Microsoft Power Automate",
       "source": "editorial",
-      "topics": ["rpa", "automation"],
+      "topics": [
+        "rpa",
+        "automation"
+      ],
       "note": "Microsoft の自動化製品。affiliate catalog には無い"
     },
     {
@@ -47,7 +58,9 @@
       "display_name": "RoboTANGO",
       "canonical_name": "RoboTANGO",
       "source": "editorial",
-      "topics": ["rpa"],
+      "topics": [
+        "rpa"
+      ],
       "note": "中小企業向けの国産 RPA"
     },
     {
@@ -55,7 +68,9 @@
       "display_name": "ChatGPT",
       "canonical_name": "OpenAI ChatGPT",
       "source": "editorial",
-      "topics": ["generative_ai"],
+      "topics": [
+        "generative_ai"
+      ],
       "note": "生成AI の代表。affiliate catalog には無い"
     },
     {
@@ -63,7 +78,9 @@
       "display_name": "Claude",
       "canonical_name": "Anthropic Claude",
       "source": "editorial",
-      "topics": ["generative_ai"],
+      "topics": [
+        "generative_ai"
+      ],
       "note": "生成AI の主要製品"
     },
     {
@@ -71,7 +88,9 @@
       "display_name": "Gemini",
       "canonical_name": "Google Gemini",
       "source": "editorial",
-      "topics": ["generative_ai"],
+      "topics": [
+        "generative_ai"
+      ],
       "note": "生成AI の主要製品"
     },
     {
@@ -79,7 +98,9 @@
       "display_name": "Microsoft Copilot",
       "canonical_name": "Microsoft Copilot",
       "source": "editorial",
-      "topics": ["generative_ai"],
+      "topics": [
+        "generative_ai"
+      ],
       "note": "法人向け生成AI。C2.6 の discovery で 40,500/月"
     },
     {
@@ -87,12 +108,37 @@
       "display_name": "Notion AI",
       "canonical_name": "Notion AI",
       "source": "editorial",
-      "topics": ["generative_ai"],
+      "topics": [
+        "generative_ai"
+      ],
       "note": "生成AI 機能を持つ業務ツール"
+    },
+    {
+      "key": "notion",
+      "display_name": "Notion",
+      "canonical_name": "Notion",
+      "source": "editorial",
+      "topics": [
+        "task_management"
+      ],
+      "note": "ドキュメントとデータベースを扱うワークスペース。affiliate catalog に案件が無いため編集上の対象として扱う。"
     }
   ],
   "topic_suggestions": {
-    "rpa": ["uipath", "automation-anywhere", "winactor", "bizrobo", "power-automate", "robopat"],
-    "generative_ai": ["chatgpt", "claude", "gemini", "microsoft-copilot", "notion-ai"]
+    "rpa": [
+      "uipath",
+      "automation-anywhere",
+      "winactor",
+      "bizrobo",
+      "power-automate",
+      "robopat"
+    ],
+    "generative_ai": [
+      "chatgpt",
+      "claude",
+      "gemini",
+      "microsoft-copilot",
+      "notion-ai"
+    ]
   }
 }

@@ -164,6 +164,12 @@ class DraftInputSnapshotBuilder:
         }
 
         # --- tools grid + referenced source union ---
+        # C3 以降、比較対象は affiliate link ではなく ContentSubject が決める。
+        # supporting 記事は link を持たないため、link を回すと editorial subject の
+        # fact が prompt に載らず、根拠のない本文を書かせてしまう。
+        subject_resolution = ContentSubjectService(self._session).resolve(article.id)
+        link_by_program = {link.affiliate_program_id: link for link in links}
+
         referenced_source_ids: set[int] = set()
         tools: list[dict] = []
         counts = {
@@ -172,13 +178,19 @@ class DraftInputSnapshotBuilder:
             "not_applicable": 0,
             "not_researched": 0,
         }
-        for link in links:
-            program = programs_by_id.get(link.affiliate_program_id)
-            if program is None:
-                raise DraftInputNotReadyError(
-                    f"linked affiliate_program {link.affiliate_program_id} not found"
-                )
-            subject = program.name
+        for resolved in subject_resolution.subjects:
+            program_id = resolved.affiliate_program_id
+            link = link_by_program.get(program_id) if program_id is not None else None
+            if program_id is not None and program_id not in programs_by_id:
+                # subject が承認時に固定した案件。link を外していても subject 行は残る。
+                program = self._programs.get_by_id(program_id)
+                if program is None:
+                    raise DraftInputNotReadyError(
+                        f"content subject references affiliate_program {program_id}, "
+                        "which no longer exists"
+                    )
+                programs_by_id[program.id] = program
+            subject = resolved.display_name
             cells: list[dict] = []
             usable: list[str] = []
             do_not_claim: list[str] = []
@@ -204,9 +216,9 @@ class DraftInputSnapshotBuilder:
             tr = readiness_by_subject.get(subject)
             tools.append(
                 {
-                    "affiliate_program_id": program.id,
+                    "affiliate_program_id": program_id,
                     "subject_ref": subject,
-                    "is_primary": bool(link.is_primary),
+                    "is_primary": bool(link.is_primary) if link is not None else False,
                     "cells": cells,
                     "usable_claims": usable,
                     "do_not_claim": do_not_claim,
@@ -257,7 +269,6 @@ class DraftInputSnapshotBuilder:
 
         # C3: 比較対象は編集上の subject (affiliate link とは独立)。明示された選択だけを
         # canonical payload に入れる。legacy (link fallback) の記事は従来の形のまま。
-        subject_resolution = ContentSubjectService(self._session).resolve(article.id)
 
         readiness_payload = self._readiness_payload(fact_pack)
 
