@@ -170,8 +170,8 @@ def test_unrelated_change_keeps_hash_and_allows_freeze(session: Session) -> None
 @pytest.mark.parametrize(
     "mutate,gate",
     [
-        (lambda s, sc: setattr(s.get(Article, sc.article_id), "status", "drafting"),
-         "article_not_planned"),
+        (lambda s, sc: setattr(s.get(Article, sc.article_id), "status", "review"),
+         "article_not_freezable_status"),
         (lambda s, sc: setattr(s.get(Article, sc.article_id), "body", "x"),
          "article_body_present"),
         (lambda s, sc: setattr(s.get(Article, sc.article_id), "meta_description", "x"),
@@ -367,3 +367,22 @@ def test_article_delete_cascades_snapshot(session: Session) -> None:
     session.delete(art)
     session.commit()
     assert _count(session) == 0
+
+
+def test_drafting_articles_can_still_be_frozen(session: Session) -> None:
+    """証拠を更新したあとに取り直せるよう、drafting でも freeze できる (C4.2)。
+
+    generation を 1 回走らせると article は drafting になり、drafting -> planned の遷移は
+    無い。planned 限定だと再 freeze が永久にできなくなるため、本文が未確定のあいだは許可する。
+    """
+
+    sc = build_scenario(session, n_tools=3)
+    session.get(Article, sc.article_id).status = "drafting"
+    session.commit()
+
+    preview = _svc(session).preview(sc.article_id, now=sc.now)
+
+    assert "article_not_freezable_status" not in preview.gate_status.failed_gates
+    assert preview.gate_status.can_freeze is True
+    frozen = _svc(session).freeze(sc.article_id, preview.content_hash, now=sc.now)
+    assert frozen.snapshot.content_hash == preview.content_hash

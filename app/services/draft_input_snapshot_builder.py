@@ -70,6 +70,10 @@ _FACT_POLICY_VERSION = "v1"
 _CLAIM_TAXONOMY_VERSION = "fact_keys_v1"
 _PRIMARY_AUTHORITY = "human_confirmed_article_affiliate_program.is_primary"
 _PLANNING_ROLE_NONE = "not_a_current_candidate"
+#: snapshot を freeze できる article status (本文未確定のあいだ)
+_FREEZABLE_ARTICLE_STATUSES = frozenset(
+    {ArticleStatus.PLANNED.value, ArticleStatus.DRAFTING.value}
+)
 
 
 @dataclass(frozen=True)
@@ -589,8 +593,13 @@ class DraftInputSnapshotBuilder:
         mode: str = monetization.MODE_AFFILIATE,
     ) -> dict:
         failed: list[str] = []
-        if str(article.status) != ArticleStatus.PLANNED.value:
-            failed.append("article_not_planned")
+        # planned だけでなく drafting でも freeze できる。generation を 1 回走らせると
+        # article は drafting になり、drafting -> planned の遷移は存在しないため、
+        # planned 限定だと「証拠を更新して取り直す」という通常の編集作業が二度とできない。
+        # 本文が確定した記事 (body / meta / published_url / wordpress_post_id あり) は
+        # 下の gate が引き続き止めるので、履歴の保護は変わらない。
+        if str(article.status) not in _FREEZABLE_ARTICLE_STATUSES:
+            failed.append("article_not_freezable_status")
         if article.body is not None:
             failed.append("article_body_present")
         if article.meta_description is not None:
