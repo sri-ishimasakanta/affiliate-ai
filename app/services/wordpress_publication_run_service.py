@@ -37,13 +37,18 @@ from app.exceptions import (
     WordPressPublicationExternalSuccessLocalPersistFailedError,
     WordPressPublicationPreflightError,
     WordPressPublicationReadbackFailedError,
+    WordPressPublicationRunCancellationError,
     WordPressPublicationRunConflictError,
     WordPressPublicationRunExecutionError,
     WordPressPublicationRunPreparationError,
 )
 from app.models.enums import ArticleStatus
 from app.models.wordpress_draft_run import WP_RUN_SUCCEEDED
-from app.models.wordpress_publication_run import WP_PUBRUN_PREPARED, WP_PUBRUN_RUNNING
+from app.models.wordpress_publication_run import (
+    WP_PUBRUN_CANCELLED,
+    WP_PUBRUN_PREPARED,
+    WP_PUBRUN_RUNNING,
+)
 from app.repositories.article_editorial_revision_repository import (
     ArticleEditorialRevisionRepository,
 )
@@ -224,6 +229,58 @@ class WordPressPublicationRunService:
         return self._response(run, already=False)
 
     # -- reads --------------------------------------------------------
+    # -- cancel a prepared run that provably never reached WordPress ----
+    def cancel_prepared_run(
+        self,
+        article_id: int,
+        run_id: int,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ):
+        """WordPress へ到達しなかったと **証明できる** prepared run を閉じる。
+
+        ``prepared -> running`` は外部 POST の直前に単独で commit されるため、
+        ``started_at`` が NULL の prepared run は POST を試みていない
+        (§21 の running-state recovery rule の裏返し)。running / succeeded /
+        failed の run はここでは扱わない —— WordPress に到達した可能性があるものを
+        記録だけで閉じないため。WordPress へは一切通信しない。
+        """
+
+        now = now or datetime.now(UTC)
+        reason = (reason or "").strip()
+        if not reason:
+            raise WordPressPublicationRunCancellationError(
+                "a cancellation reason is required"
+            )
+
+        run = self._repo.get_by_id(run_id)
+        if run is None or run.article_id != article_id:
+            raise EntityNotFoundError(_PUBRUN, run_id)
+
+        if run.status == WP_PUBRUN_CANCELLED:
+            return run  # idempotent
+
+        if run.status != WP_PUBRUN_PREPARED:
+            raise WordPressPublicationRunCancellationError(
+                f"run {run.id}: status={run.status!r} is not cancellable; only a "
+                "prepared run that never started can be cancelled"
+            )
+        if run.started_at is not None or run.finished_at is not None:
+            raise WordPressPublicationRunCancellationError(
+                f"run {run.id}: started_at/finished_at is set, so it may have "
+                "reached WordPress; reconcile it against the live post instead"
+            )
+
+        try:
+            self._repo.mark_cancelled(run, reason=reason, finished_at=to_storage_utc(now))
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        self._session.refresh(run)
+        return run
+
     def list_for_article(self, article_id: int):
         if self._articles.get_by_id(article_id) is None:
             raise EntityNotFoundError(_ARTICLE, article_id)

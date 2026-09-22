@@ -285,6 +285,18 @@ class WordPressPublicationRunPreparationError(ApplicationError):
         self.reason = reason
 
 
+class WordPressPublicationRunCancellationError(ApplicationError):
+    """prepared のまま残った publication run を閉じられない。
+
+    succeeded / failed / running の run、あるいは ``started_at`` が設定済みで
+    WordPress へ到達した可能性がある run は、記録だけで閉じてはならない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"wordpress publication run cancellation error: {reason}")
+        self.reason = reason
+
+
 class WordPressPublicationRunConflictError(ApplicationError):
     """同じ idempotency key が別の publication identity で既に使われている、または同一の
     Human 承認済み publication identity に対して active / succeeded な run が既に存在する。

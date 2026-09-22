@@ -419,3 +419,84 @@ def test_prepare_freezes_the_current_canonical_hash_not_the_draft_runs(
     prepared = session.get(WordPressPublicationRun, out.run_id)
     assert prepared.canonical_body_hash == compute_text_hash(art.body)
     assert prepared.canonical_body_hash != run.canonical_body_hash
+
+
+# ==================== C4.8: cancel a never-started prepared run ==============
+def test_cancel_prepared_run_closes_a_run_that_never_started(
+    session: Session, wp_env
+) -> None:
+    from app.models.wordpress_publication_run import WP_PUBRUN_CANCELLED
+
+    art, run = _ready(session)
+    out = _prepare(session, art, run)
+    prepared = session.get(WordPressPublicationRun, out.run_id)
+    assert prepared.status == "prepared" and prepared.started_at is None
+
+    closed = _svc(session).cancel_prepared_run(
+        art.id, out.run_id, reason="superseded after a drift-guard fix")
+    assert closed.status == WP_PUBRUN_CANCELLED
+    assert closed.error_message == "superseded after a drift-guard fix"
+    assert closed.finished_at is not None
+    # 履歴は残る (行は消さない)
+    assert session.get(WordPressPublicationRun, out.run_id) is not None
+
+
+def test_cancel_prepared_run_is_idempotent(session: Session, wp_env) -> None:
+    art, run = _ready(session)
+    out = _prepare(session, art, run)
+    first = _svc(session).cancel_prepared_run(art.id, out.run_id, reason="r")
+    again = _svc(session).cancel_prepared_run(art.id, out.run_id, reason="r")
+    assert again.id == first.id and again.status == first.status
+
+
+def test_cancel_prepared_run_refuses_a_succeeded_run(session: Session, wp_env) -> None:
+    from app.exceptions import WordPressPublicationRunCancellationError
+    from app.models.wordpress_publication_run import WP_PUBRUN_SUCCEEDED
+
+    art, run = _ready(session)
+    out = _prepare(session, art, run)
+    prepared = session.get(WordPressPublicationRun, out.run_id)
+    prepared.status = WP_PUBRUN_SUCCEEDED
+    session.commit()
+
+    with pytest.raises(WordPressPublicationRunCancellationError):
+        _svc(session).cancel_prepared_run(art.id, out.run_id, reason="r")
+    assert session.get(WordPressPublicationRun, out.run_id).status == WP_PUBRUN_SUCCEEDED
+
+
+def test_cancel_prepared_run_refuses_a_run_that_may_have_reached_wordpress(
+    session: Session, wp_env
+) -> None:
+    """started_at が立っている run は POST を試みた可能性がある -- 記録だけで閉じない。"""
+    from app.exceptions import WordPressPublicationRunCancellationError
+
+    art, run = _ready(session)
+    out = _prepare(session, art, run)
+    prepared = session.get(WordPressPublicationRun, out.run_id)
+    prepared.started_at = datetime.now(UTC)
+    session.commit()
+
+    with pytest.raises(WordPressPublicationRunCancellationError) as e:
+        _svc(session).cancel_prepared_run(art.id, out.run_id, reason="r")
+    assert "may have reached WordPress" in str(e.value)
+
+
+def test_cancel_prepared_run_requires_a_reason(session: Session, wp_env) -> None:
+    from app.exceptions import WordPressPublicationRunCancellationError
+
+    art, run = _ready(session)
+    out = _prepare(session, art, run)
+    with pytest.raises(WordPressPublicationRunCancellationError):
+        _svc(session).cancel_prepared_run(art.id, out.run_id, reason="   ")
+
+
+def test_cancel_prepared_run_rejects_another_articles_run(
+    session: Session, wp_env
+) -> None:
+    from app.exceptions import EntityNotFoundError
+
+    art, run = _ready(session)
+    other, _ = _ready(session, suffix="-other")
+    out = _prepare(session, art, run)
+    with pytest.raises(EntityNotFoundError):
+        _svc(session).cancel_prepared_run(other.id, out.run_id, reason="r")

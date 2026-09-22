@@ -18,6 +18,7 @@ from app.exceptions import WordPressPublicationRunExecutionError
 from app.models import WordPressPublicationRun
 from app.models.wordpress_publication_run import (
     WP_PUBRUN_ACTIVE_STATUSES,
+    WP_PUBRUN_CANCELLED,
     WP_PUBRUN_FAILED,
     WP_PUBRUN_PREPARED,
     WP_PUBRUN_RUNNING,
@@ -130,6 +131,16 @@ class WordPressPublicationRunRepository:
         self._require_transition(run, WP_PUBRUN_FAILED)
         run.status = WP_PUBRUN_FAILED
         run.error_message = error_message
+        run.finished_at = finished_at
+        self._session.flush()
+        return run
+
+    def mark_cancelled(
+        self, run: WordPressPublicationRun, *, reason: str, finished_at: datetime
+    ) -> WordPressPublicationRun:
+        self._require_transition(run, WP_PUBRUN_CANCELLED)
+        run.status = WP_PUBRUN_CANCELLED
+        run.error_message = reason
         run.finished_at = finished_at
         self._session.flush()
         return run
