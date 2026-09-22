@@ -468,3 +468,63 @@ def test_fact_pack_uses_the_explicit_article_type_not_the_inference(
     assert readiness.comparison_subject_count == 0
     assert readiness.drafting_allowed is True
     assert readiness.blocking_reasons == []
+
+
+def test_generation_run_records_the_template_it_actually_used(session: Session) -> None:
+    """C4.1 で見つかった不具合の回帰テスト。
+
+    run 行の prompt_template_version が roundup 固定だと、pricing / comparison の記事で
+    「どの template で生成したか」が追えなくなる。
+    """
+
+    from datetime import datetime as _dt
+
+    from app.article.draft_prompt_canonical import (
+        compute_prompt_input_hash,
+        compute_rendered_prompt_hash,
+    )
+    from app.services.draft_generation_run_service import DraftGenerationRunService
+
+    ids = _catalog(session)
+    read = _approve(
+        session, "HubSpot 料金", slug="hs-run-template", monetization_mode="affiliate",
+        primary_affiliate_program_id=ids["HubSpot"], article_type=ArticleType.PRICING,
+    )
+    snapshot = DraftInputSnapshotBuilder(session).build(read.id, now=NOW)
+    overrides = EditorialOverridesV1(primary="HubSpot", comparison_set_size=1)
+    package = build_prompt_package(
+        snapshot_payload=snapshot.payload, snapshot_id=1,
+        snapshot_content_hash=snapshot.content_hash, overrides=overrides, now=NOW,
+    )
+    rendered = render_prompt(package)
+    assert package["template_version"] == "article_pricing_v1"
+
+    from app.repositories.draft_input_snapshot_repository import (
+        DraftInputSnapshotRepository,
+    )
+
+    row = DraftInputSnapshotRepository(session).append(
+        article_id=read.id, snapshot_version=snapshot.snapshot_version,
+        builder_version=snapshot.builder_version,
+        plan_snapshot_origin=snapshot.plan_snapshot_origin,
+        primary_affiliate_program_id=snapshot.primary_affiliate_program_id,
+        comparison_program_ids=snapshot.comparison_program_ids,
+        drafting_allowed_at_freeze=snapshot.drafting_allowed_at_freeze,
+        payload=snapshot.payload, content_hash=snapshot.content_hash,
+        frozen_at=_dt(2026, 9, 22, tzinfo=UTC),
+    )
+    session.commit()
+    package = build_prompt_package(
+        snapshot_payload=row.payload, snapshot_id=row.id,
+        snapshot_content_hash=row.content_hash, overrides=overrides, now=NOW,
+    )
+    rendered = render_prompt(package)
+
+    run, _ = DraftGenerationRunService(session).prepare(
+        read.id, snapshot_id=row.id,
+        expected_prompt_hash=compute_prompt_input_hash(package),
+        expected_rendered_prompt_hash=compute_rendered_prompt_hash(rendered),
+        execution_mode="manual", editorial_overrides=overrides, now=NOW,
+    )
+
+    assert run.prompt_template_version == "article_pricing_v1"

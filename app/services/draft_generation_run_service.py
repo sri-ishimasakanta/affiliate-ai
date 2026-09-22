@@ -178,7 +178,11 @@ class DraftGenerationRunService:
                 execution_mode=execution_mode,
                 provider=provider,
                 model=model,
-                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                # C3: 記事タイプごとに template が違うので、実際に使った版を記録する
+                # (PROMPT_TEMPLATE_VERSION は roundup 用の既定値でしかない)。
+                prompt_template_version=str(
+                    package.get("template_version") or PROMPT_TEMPLATE_VERSION
+                ),
                 prompt_builder_version=PROMPT_BUILDER_VERSION,
                 prompt_package=package,
                 prompt_input_hash=prompt_input_hash,
