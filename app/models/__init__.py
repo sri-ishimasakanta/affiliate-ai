@@ -108,6 +108,23 @@ from app.models.keyword import Keyword
 from app.models.keyword_score import KeywordScore
 from app.models.keyword_score_signal import KeywordScoreSignal
 from app.models.keyword_signal import KeywordSignal
+from app.models.operations_run import (
+    OPS_FAILED,
+    OPS_PARTIAL,
+    OPS_PREPARED,
+    OPS_RUNNING,
+    OPS_SKIPPED,
+    OPS_STATUSES,
+    OPS_SUCCEEDED,
+    OPS_TERMINAL_STATUSES,
+    PROFILE_DAILY,
+    PROFILE_WEEKLY,
+    PROFILES,
+    OperationsAlert,
+    OperationsLock,
+    OperationsRun,
+    OperationsStepRun,
+)
 from app.models.revenue_optimization_candidate import RevenueOptimizationCandidate
 from app.models.revenue_optimization_run import RevenueOptimizationRun
 from app.models.search_console_import_run import (
@@ -154,6 +171,21 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "PROFILES",
+    "PROFILE_WEEKLY",
+    "PROFILE_DAILY",
+    "OPS_TERMINAL_STATUSES",
+    "OPS_SUCCEEDED",
+    "OPS_STATUSES",
+    "OPS_SKIPPED",
+    "OPS_RUNNING",
+    "OPS_PREPARED",
+    "OPS_PARTIAL",
+    "OPS_FAILED",
+    "OperationsStepRun",
+    "OperationsRun",
+    "OperationsLock",
+    "OperationsAlert",
     "RevenueOptimizationCandidate",
     "RevenueOptimizationRun",
     "SeoImprovementCandidate",

@@ -1,0 +1,74 @@
+{
+  "policy_version": "c8.1",
+  "notes": [
+    "Operational defaults for the recurring measurement pipeline. These are our own",
+    "operating choices (windows, lags, staleness tolerances), NOT guarantees from",
+    "Google or any provider about when data will arrive.",
+    "Conservative on purpose: it is better to stay quiet than to page a human about",
+    "a provider's normal reporting delay.",
+    "This pipeline never writes article content and never calls /go/<token>."
+  ],
+  "timezone": "Asia/Tokyo",
+  "imports": {
+    "search_console": {
+      "days": 30,
+      "lag_days": 1,
+      "expected_lag_days": 3,
+      "stale_after_days": 7
+    },
+    "ga4": {
+      "days": 30,
+      "lag_days": 1,
+      "expected_lag_days": 2,
+      "stale_after_days": 5,
+      "initial_grace_days": 7
+    },
+    "affiliate_clicks": {
+      "page_limit": 1000,
+      "stale_after_days": null
+    },
+    "make_commissions": {
+      "days": 30,
+      "stale_after_days": null
+    }
+  },
+  "candidates": {
+    "window_days": 30,
+    "persist_on_daily": true,
+    "persist_on_weekly": true
+  },
+  "indexability": {
+    "inspect_on_daily": false,
+    "inspect_on_weekly": true
+  },
+  "alerts": {
+    "cooldown_hours": 24,
+    "notify_min_severity": "warning",
+    "notify_candidate_min_priority": "medium",
+    "persisted_candidate_threshold": 3,
+    "max_consecutive_failures": 3
+  },
+  "severity": {
+    "IMPORT_FAILURE": "error",
+    "DATA_STALE": "warning",
+    "ARTICLE_HTTP_HEALTH": "error",
+    "INDEXABILITY_REGRESSION": "warning",
+    "MONETIZATION_STRUCTURE_REGRESSION": "error",
+    "CANDIDATE_CHANGE": "info",
+    "AUTOMATION_HEALTH": "error"
+  },
+  "locking": {
+    "stale_lock_after_minutes": 120
+  },
+  "retries": {
+    "enabled": false,
+    "max_attempts": 1
+  },
+  "scheduler": {
+    "recommendation": "windows_task_scheduler",
+    "daily_at": "06:30",
+    "weekly_at": "07:30",
+    "weekly_day": "SUN",
+    "log_directory": "D:\\Logs\\affiliate-ai"
+  }
+}

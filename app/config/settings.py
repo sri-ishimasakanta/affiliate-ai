@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # GA4 property の数値 id ("properties/" 接頭辞は不要)。未設定なら取り込みを行わない。
     ga4_property_id: str | None = None
 
+    # --- 運用通知 (C8) ---
+    # 設定されているときだけ Webhook 通知が有効になる。値は DB にもログにも出さない。
+    operations_webhook_url: str | None = None
+
     # Affiliate redirect runtime (WordPress MU-plugin, Phase 3C-5F-D)。
     # base URL は wordpress_base_url を再利用する。共有 HMAC 鍵は projection を
     # **push (execute)** するときだけ必須。plan / dry-run では不要。default は置かない。

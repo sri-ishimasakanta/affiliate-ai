@@ -22,6 +22,10 @@ from app.models import (
     KeywordScore,
     KeywordScoreSignal,
     KeywordSignal,
+    OperationsAlert,
+    OperationsLock,
+    OperationsRun,
+    OperationsStepRun,
     RevenueOptimizationCandidate,
     RevenueOptimizationRun,
     SearchConsoleImportRun,
@@ -95,6 +99,10 @@ IMMUTABLE_HISTORY_MODELS = (
     # 収益最適化候補の評価 1 回分とその候補 (append-only)。updated_at なし。
     RevenueOptimizationRun,
     RevenueOptimizationCandidate,
+    # 定期運用の実行記録・ステップ・アラート (append-only)。updated_at なし。
+    OperationsRun,
+    OperationsStepRun,
+    OperationsAlert,
 )
 
 
@@ -123,6 +131,10 @@ def test_all_tables_registered() -> None:
         "search_console_import_runs",
         "seo_improvement_runs",
         "revenue_optimization_runs",
+        "operations_runs",
+        "operations_step_runs",
+        "operations_alerts",
+        "operations_locks",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",
@@ -173,3 +185,17 @@ def test_immutable_history_models_have_created_at_only() -> None:
         columns = set(model.__table__.columns.keys())
         assert "created_at" in columns, model.__name__
         assert "updated_at" not in columns, model.__name__
+
+
+def test_operations_lock_is_deliberately_mutable() -> None:
+    """排他ロックだけは append-only ではない。
+
+    取得/解放でひとつの行を書き換える性質のため、``created_at`` も ``updated_at``
+    も持たない。代わりに ``acquired_at`` / ``heartbeat_at`` / ``released_at`` で
+    「いつ誰が持っているか」を表す。
+    """
+
+    columns = set(OperationsLock.__table__.columns.keys())
+    assert "created_at" not in columns
+    assert "updated_at" not in columns
+    assert {"acquired_at", "heartbeat_at", "released_at", "owner_run_id"} <= columns

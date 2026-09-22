@@ -424,6 +424,15 @@ class RevenueOptimizationCandidateService:
                 "maturity_counts": report.maturity_counts,
                 "windows_overlap": report.windows_overlap,
                 "program_commissions": report.program_commissions,
+                # C8 の構造退行監視が「前回どうだったか」を読むための健全な状態。
+                # 候補は「欠けている」ことしか記録しないため、正常値もここに残す。
+                "monetization_state": {
+                    str(e.article_id): {
+                        "active_target_count": e.active_target_count,
+                        "active_mapping_count": e.active_mapping_count,
+                    }
+                    for e in report.articles
+                },
             },
             notes="; ".join(report.notes) or None,
             idempotency_key=idempotency_key,
