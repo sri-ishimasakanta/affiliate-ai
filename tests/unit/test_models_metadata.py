@@ -14,6 +14,8 @@ from app.models import (
     ArticleMetric,
     ArticlePublicationArtifact,
     Base,
+    ChangeApplication,
+    ChangeRequestApproval,
     DraftGenerationRun,
     DraftInputSnapshot,
     Ga4ImportRun,
@@ -103,6 +105,10 @@ IMMUTABLE_HISTORY_MODELS = (
     OperationsRun,
     OperationsStepRun,
     OperationsAlert,
+    # 人の承認判断と適用の試行 (append-only)。決定も失敗も上書きしない。
+    # ChangeRequest 自身は status が進むため mutable (updated_at を持つ)。
+    ChangeRequestApproval,
+    ChangeApplication,
 )
 
 
@@ -135,6 +141,9 @@ def test_all_tables_registered() -> None:
         "operations_step_runs",
         "operations_alerts",
         "operations_locks",
+        "change_requests",
+        "change_request_approvals",
+        "change_applications",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

@@ -62,6 +62,25 @@ from app.models.article_metric import ArticleMetric
 from app.models.article_publication_artifact import ArticlePublicationArtifact
 from app.models.article_reference_fact import ArticleReferenceFact
 from app.models.base import Base, TimestampMixin
+from app.models.change_request import (
+    CHANGE_ADD_INTERNAL_LINK,
+    CHANGE_TYPES,
+    CR_APPLIED,
+    CR_APPLY_FAILED,
+    CR_APPROVED,
+    CR_AWAITING_APPROVAL,
+    CR_OPEN_STATUSES,
+    CR_PROPOSED,
+    CR_RECONCILED,
+    CR_REJECTED,
+    CR_STALE,
+    CR_STATUSES,
+    CR_TERMINAL_STATUSES,
+    ChangeApplication,
+    ChangeRequest,
+    ChangeRequestApproval,
+    change_request_transition_allowed,
+)
 from app.models.draft_generation_run import (
     EXECUTION_MODES,
     MODE_API,
@@ -171,6 +190,23 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "change_request_transition_allowed",
+    "CR_TERMINAL_STATUSES",
+    "CR_STATUSES",
+    "CR_STALE",
+    "CR_REJECTED",
+    "CR_RECONCILED",
+    "CR_PROPOSED",
+    "CR_OPEN_STATUSES",
+    "CR_AWAITING_APPROVAL",
+    "CR_APPROVED",
+    "CR_APPLY_FAILED",
+    "CR_APPLIED",
+    "CHANGE_TYPES",
+    "CHANGE_ADD_INTERNAL_LINK",
+    "ChangeRequestApproval",
+    "ChangeRequest",
+    "ChangeApplication",
     "PROFILES",
     "PROFILE_WEEKLY",
     "PROFILE_DAILY",
