@@ -126,6 +126,8 @@ class WordPressContentUpdateExecutionService:
         article_id: int,
         artifact_id: int,
         artifact_hash: str,
+        expected_wordpress_status: str = "publish",
+        expected_pre_update_raw_content_hash: str | None = None,
         idempotency_key: str | None = None,
     ) -> ContentUpdateExecutionResult:
         client = self._wordpress_client or WordPressClient(get_settings())
@@ -135,7 +137,11 @@ class WordPressContentUpdateExecutionService:
             self._session, wordpress_client=client
         )
         classification = preflight.classify(
-            article_id=article_id, artifact_id=artifact_id, artifact_hash=artifact_hash
+            article_id=article_id,
+            artifact_id=artifact_id,
+            artifact_hash=artifact_hash,
+            expected_wordpress_status=expected_wordpress_status,
+            expected_pre_update_raw_content_hash=expected_pre_update_raw_content_hash,
         )
 
         if classification.classification != CLASSIFICATION_UPDATE_REQUIRED:

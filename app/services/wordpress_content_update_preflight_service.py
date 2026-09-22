@@ -57,6 +57,7 @@ from app.services.article_publication_artifact_inspection_service import (
 )
 from app.wordpress.client import WordPressClient
 from app.wordpress.content_update_request import build_wordpress_content_update_request
+from app.wordpress.publication_artifact import is_hex64
 from app.wordpress.target import canonicalize_wordpress_base_url
 
 # -- 最終分類 (live GET 後のみ到達できる) -------------------------------------
@@ -78,6 +79,9 @@ REASON_APPROVAL_HASH_MISMATCH = "APPROVAL_HASH_MISMATCH"
 REASON_ARTIFACT_INVALID = "ARTIFACT_INVALID"
 REASON_CURRENT_CANONICAL_DRIFT = "CURRENT_CANONICAL_DRIFT"
 REASON_WORDPRESS_PUBLICATION_NOT_FOUND = "WORDPRESS_PUBLICATION_NOT_FOUND"
+REASON_WORDPRESS_DRAFT_NOT_FOUND = "WORDPRESS_DRAFT_NOT_FOUND"
+REASON_DRAFT_BASELINE_NOT_APPROVED = "DRAFT_BASELINE_NOT_APPROVED"
+REASON_UNSUPPORTED_WORDPRESS_STATUS = "UNSUPPORTED_WORDPRESS_STATUS"
 REASON_WORDPRESS_POST_ID_MISMATCH = "WORDPRESS_POST_ID_MISMATCH"
 REASON_NO_WORDPRESS_RAW_BASELINE = "NO_WORDPRESS_RAW_BASELINE"
 REASON_NO_SUBMITTED_CONTENT_BASELINE = "NO_SUBMITTED_CONTENT_BASELINE"
@@ -90,6 +94,9 @@ REASON_WORDPRESS_PREFLIGHT_POST_ID_MISMATCH = "WORDPRESS_PREFLIGHT_POST_ID_MISMA
 REASON_WORDPRESS_STATUS_MISMATCH = "WORDPRESS_STATUS_MISMATCH"
 
 _EXPECTED_LIVE_STATUS = "publish"
+# C4.8: draft の content を managed path で更新するためのモード。
+_EXPECTED_DRAFT_STATUS = "draft"
+_SUPPORTED_WORDPRESS_STATUSES = frozenset({_EXPECTED_LIVE_STATUS, _EXPECTED_DRAFT_STATUS})
 
 
 @dataclass(frozen=True)
@@ -159,10 +166,20 @@ class WordPressContentUpdatePreflightService:
 
     # -- local-only planning (0 network calls) ---------------------------
     def plan(
-        self, *, article_id: int, artifact_id: int, artifact_hash: str
+        self,
+        *,
+        article_id: int,
+        artifact_id: int,
+        artifact_hash: str,
+        expected_wordpress_status: str = _EXPECTED_LIVE_STATUS,
+        expected_pre_update_raw_content_hash: str | None = None,
     ) -> ContentUpdateClassificationResult:
         ctx, blocked_result = self._resolve_local_context(
-            article_id=article_id, artifact_id=artifact_id, artifact_hash=artifact_hash
+            article_id=article_id,
+            artifact_id=artifact_id,
+            artifact_hash=artifact_hash,
+            expected_wordpress_status=expected_wordpress_status,
+            expected_pre_update_raw_content_hash=expected_pre_update_raw_content_hash,
         )
         if blocked_result is not None:
             return blocked_result
@@ -185,10 +202,20 @@ class WordPressContentUpdatePreflightService:
 
     # -- live classification (at most 1 WordPress GET) -------------------
     def classify(
-        self, *, article_id: int, artifact_id: int, artifact_hash: str
+        self,
+        *,
+        article_id: int,
+        artifact_id: int,
+        artifact_hash: str,
+        expected_wordpress_status: str = _EXPECTED_LIVE_STATUS,
+        expected_pre_update_raw_content_hash: str | None = None,
     ) -> ContentUpdateClassificationResult:
         ctx, blocked_result = self._resolve_local_context(
-            article_id=article_id, artifact_id=artifact_id, artifact_hash=artifact_hash
+            article_id=article_id,
+            artifact_id=artifact_id,
+            artifact_hash=artifact_hash,
+            expected_wordpress_status=expected_wordpress_status,
+            expected_pre_update_raw_content_hash=expected_pre_update_raw_content_hash,
         )
         if blocked_result is not None:
             return blocked_result
@@ -237,7 +264,7 @@ class WordPressContentUpdatePreflightService:
                 reason_code=REASON_WORDPRESS_PREFLIGHT_FAILED,
             )
 
-        if wp_status != _EXPECTED_LIVE_STATUS:
+        if wp_status != expected_wordpress_status:
             return self._result(
                 ctx,
                 observed_raw=None,
@@ -283,7 +310,13 @@ class WordPressContentUpdatePreflightService:
     # -- local gates (§4-9); 0 network calls; returns (ctx, None) on success --
     # or (None, blocked_result) on the first failing gate.
     def _resolve_local_context(
-        self, *, article_id: int, artifact_id: int, artifact_hash: str
+        self,
+        *,
+        article_id: int,
+        artifact_id: int,
+        artifact_hash: str,
+        expected_wordpress_status: str = _EXPECTED_LIVE_STATUS,
+        expected_pre_update_raw_content_hash: str | None = None,
     ) -> tuple[_LocalContext | None, ContentUpdateClassificationResult | None]:
         def blocked(reason_code: str, **overrides) -> ContentUpdateClassificationResult:
             base = dict(
@@ -308,6 +341,10 @@ class WordPressContentUpdatePreflightService:
             )
             base.update(overrides)
             return ContentUpdateClassificationResult(**base)
+
+        # -- C4.8: 対象 status モードの検証 (publish / draft のみ) --------
+        if expected_wordpress_status not in _SUPPORTED_WORDPRESS_STATUSES:
+            return None, blocked(REASON_UNSUPPORTED_WORDPRESS_STATUS)
 
         # -- §4: article exists ------------------------------------------
         article = self._articles.get_by_id(article_id)
@@ -357,17 +394,41 @@ class WordPressContentUpdatePreflightService:
         succeeded_pubrun = _latest_with_status(
             self._publication_runs.list_by_article(article_id), WP_PUBRUN_SUCCEEDED
         )
-        if succeeded_pubrun is None:
-            return None, blocked(
-                REASON_WORDPRESS_PUBLICATION_NOT_FOUND,
-                article_title=article.title,
-                approved=True,
-                current_canonical_status=inspection.current_canonical_status,
-                substitution_count=artifact.substitution_count,
+        if expected_wordpress_status == _EXPECTED_DRAFT_STATUS:
+            # draft モード: まだ公開されていない post の content を更新する。
+            # 公開実績がある記事は draft ではないので、この経路を使わせない。
+            if succeeded_pubrun is not None:
+                return None, blocked(
+                    REASON_WORDPRESS_STATUS_MISMATCH,
+                    article_title=article.title,
+                    approved=True,
+                    current_canonical_status=inspection.current_canonical_status,
+                    substitution_count=artifact.substitution_count,
+                )
+            evidence_run = _latest_with_status(
+                self._draft_runs.list_by_article(article_id), WP_RUN_SUCCEEDED
             )
+            if evidence_run is None:
+                return None, blocked(
+                    REASON_WORDPRESS_DRAFT_NOT_FOUND,
+                    article_title=article.title,
+                    approved=True,
+                    current_canonical_status=inspection.current_canonical_status,
+                    substitution_count=artifact.substitution_count,
+                )
+        else:
+            if succeeded_pubrun is None:
+                return None, blocked(
+                    REASON_WORDPRESS_PUBLICATION_NOT_FOUND,
+                    article_title=article.title,
+                    approved=True,
+                    current_canonical_status=inspection.current_canonical_status,
+                    substitution_count=artifact.substitution_count,
+                )
+            evidence_run = succeeded_pubrun
         if (
             article.wordpress_post_id is None
-            or str(article.wordpress_post_id) != succeeded_pubrun.wordpress_post_id
+            or str(article.wordpress_post_id) != evidence_run.wordpress_post_id
         ):
             return None, blocked(
                 REASON_WORDPRESS_POST_ID_MISMATCH,
@@ -376,7 +437,7 @@ class WordPressContentUpdatePreflightService:
                 current_canonical_status=inspection.current_canonical_status,
                 substitution_count=artifact.substitution_count,
             )
-        wp_post_id = succeeded_pubrun.wordpress_post_id
+        wp_post_id = evidence_run.wordpress_post_id
 
         # -- §6: blocking prior WordPressContentUpdateRun --------------------
         blocking_run = self._content_update_runs.find_blocking_run_for_post(
@@ -401,11 +462,24 @@ class WordPressContentUpdatePreflightService:
         latest_succeeded_cur = self._content_update_runs.latest_succeeded_for_post(
             article_id=article_id, wordpress_post_id=wp_post_id
         )
-        expected_raw = (
-            latest_succeeded_cur.response_content_raw_hash
-            if latest_succeeded_cur is not None
-            else succeeded_pubrun.wordpress_raw_content_hash
-        )
+        if latest_succeeded_cur is not None:
+            expected_raw = latest_succeeded_cur.response_content_raw_hash
+        elif expected_wordpress_status == _EXPECTED_DRAFT_STATUS:
+            # draft には publication run 由来の raw baseline が無い。初回の draft 更新は
+            # 呼び出し側が「いま見ている draft の raw hash」を承認値として渡す
+            # (publication prepare と同じ「caller-approved observed value」の形)。
+            if not is_hex64(expected_pre_update_raw_content_hash or ""):
+                return None, blocked(
+                    REASON_DRAFT_BASELINE_NOT_APPROVED,
+                    article_title=article.title,
+                    wordpress_post_id=wp_post_id,
+                    approved=True,
+                    current_canonical_status=inspection.current_canonical_status,
+                    substitution_count=artifact.substitution_count,
+                )
+            expected_raw = expected_pre_update_raw_content_hash
+        else:
+            expected_raw = succeeded_pubrun.wordpress_raw_content_hash
         if not expected_raw:
             return None, blocked(
                 REASON_NO_WORDPRESS_RAW_BASELINE,

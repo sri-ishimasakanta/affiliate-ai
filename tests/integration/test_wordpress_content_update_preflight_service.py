@@ -48,10 +48,13 @@ from app.services.wordpress_content_update_preflight_service import (
     REASON_ARTIFACT_NOT_APPROVED,
     REASON_ARTIFACT_NOT_FOUND,
     REASON_CURRENT_CANONICAL_DRIFT,
+    REASON_DRAFT_BASELINE_NOT_APPROVED,
     REASON_NO_SUBMITTED_CONTENT_BASELINE,
     REASON_NO_WORDPRESS_RAW_BASELINE,
     REASON_PRIOR_RUN_AMBIGUOUS,
     REASON_PRIOR_RUN_RUNNING,
+    REASON_UNSUPPORTED_WORDPRESS_STATUS,
+    REASON_WORDPRESS_DRAFT_NOT_FOUND,
     REASON_WORDPRESS_POST_ID_MISMATCH,
     REASON_WORDPRESS_PREFLIGHT_FAILED,
     REASON_WORDPRESS_PREFLIGHT_POST_ID_MISMATCH,
@@ -809,3 +812,137 @@ def test_result_never_contains_tracked_html_or_manifest(session: Session, wp_env
             assert "Authorization" not in value
             assert "wp-user-secret" not in value
             assert "aaaa bbbb cccc dddd" not in value
+
+
+# ==================== C4.8: draft content update ==============================
+def _draft_only_scenario(session: Session, *, slug: str):
+    """公開実績が無く、succeeded な draft run だけを持つ記事。"""
+    art, artifact = _seed_article_and_artifact(session, slug=slug)
+    draft = _add_draft_run(session, art, rendered_content_hash="0" * 64)
+    return art, artifact, draft
+
+
+def test_draft_mode_updates_an_unpublished_draft(session: Session, wp_env) -> None:
+    """公開されていない draft の content を managed path で更新できる。"""
+    art, artifact, _draft = _draft_only_scenario(session, slug="draft-mode-ok")
+    raw = "current-draft-raw"
+    client = _FakeWordPressClient(response=_wp_response(
+        post_id=art.wordpress_post_id, status="draft", raw=raw))
+    svc = WordPressContentUpdatePreflightService(session, wordpress_client=client)
+
+    result = svc.classify(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash=compute_text_hash(raw),
+    )
+    assert result.classification == CLASSIFICATION_UPDATE_REQUIRED
+    assert result.would_execute is True
+    assert result.wordpress_status == "draft"
+
+
+def test_draft_mode_requires_an_approved_baseline(session: Session, wp_env) -> None:
+    """初回の draft 更新は、呼び出し側が現在の raw hash を承認して渡す。"""
+    art, artifact, _draft = _draft_only_scenario(session, slug="draft-mode-baseline")
+    svc = WordPressContentUpdatePreflightService(session)
+
+    result = svc.plan(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+    )
+    assert result.reason_code == REASON_DRAFT_BASELINE_NOT_APPROVED
+    assert result.would_execute is False
+
+
+def test_draft_mode_refuses_an_already_published_article(
+    session: Session, wp_env
+) -> None:
+    """公開済みの記事を draft モードで更新させない。"""
+    art, artifact, _d, _p = _golden_scenario(session, slug="draft-mode-published")
+    svc = WordPressContentUpdatePreflightService(session)
+
+    result = svc.plan(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash="a" * 64,
+    )
+    assert result.reason_code == REASON_WORDPRESS_STATUS_MISMATCH
+    assert result.would_execute is False
+
+
+def test_draft_mode_refuses_when_no_draft_run_exists(session: Session, wp_env) -> None:
+    art, artifact = _seed_article_and_artifact(session, slug="draft-mode-no-run")
+    svc = WordPressContentUpdatePreflightService(session)
+
+    result = svc.plan(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash="a" * 64,
+    )
+    assert result.reason_code == REASON_WORDPRESS_DRAFT_NOT_FOUND
+
+
+def test_draft_mode_detects_external_drift(session: Session, wp_env) -> None:
+    """WordPress 側が別物になっていたら更新しない。"""
+    art, artifact, _draft = _draft_only_scenario(session, slug="draft-mode-drift")
+    client = _FakeWordPressClient(response=_wp_response(
+        post_id=art.wordpress_post_id, status="draft", raw="someone-else-edited"))
+    svc = WordPressContentUpdatePreflightService(session, wordpress_client=client)
+
+    result = svc.classify(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash=compute_text_hash("what-we-expected"),
+    )
+    assert result.classification == CLASSIFICATION_WORDPRESS_CURRENT_CONTENT_DRIFT
+    assert result.would_execute is False
+
+
+def test_draft_mode_refuses_a_post_that_is_actually_published(
+    session: Session, wp_env
+) -> None:
+    """live status が draft でなければ更新しない (publish へ切り替えない)。"""
+    art, artifact, _draft = _draft_only_scenario(session, slug="draft-mode-live-pub")
+    raw = "current-raw"
+    client = _FakeWordPressClient(response=_wp_response(
+        post_id=art.wordpress_post_id, status="publish", raw=raw))
+    svc = WordPressContentUpdatePreflightService(session, wordpress_client=client)
+
+    result = svc.classify(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="draft",
+        expected_pre_update_raw_content_hash=compute_text_hash(raw),
+    )
+    assert result.reason_code == REASON_WORDPRESS_STATUS_MISMATCH
+    assert result.would_execute is False
+
+
+def test_unsupported_status_mode_is_refused(session: Session, wp_env) -> None:
+    art, artifact, _draft = _draft_only_scenario(session, slug="draft-mode-bad")
+    svc = WordPressContentUpdatePreflightService(session)
+    result = svc.plan(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash,
+        expected_wordpress_status="future",
+    )
+    assert result.reason_code == REASON_UNSUPPORTED_WORDPRESS_STATUS
+
+
+def test_publish_mode_is_unchanged_by_the_draft_capability(
+    session: Session, wp_env
+) -> None:
+    """既定モードの挙動は一切変わらない。"""
+    art, artifact, _d, _p = _golden_scenario(session, slug="publish-mode-intact")
+    client = _FakeWordPressClient(response=_wp_response(
+        post_id=art.wordpress_post_id, status="publish",
+        raw="wordpress-stored-raw-content"))
+    svc = WordPressContentUpdatePreflightService(session, wordpress_client=client)
+    result = svc.classify(
+        article_id=art.id, artifact_id=artifact.id,
+        artifact_hash=artifact.artifact_hash)
+    assert result.classification == CLASSIFICATION_CONTENT_NOOP
