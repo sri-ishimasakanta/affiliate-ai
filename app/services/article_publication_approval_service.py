@@ -21,6 +21,9 @@ from app.article.schemas import ArticleRead
 from app.exceptions import ArticlePublicationApprovalError, EntityNotFoundError
 from app.models.enums import ArticleStatus
 from app.models.wordpress_draft_run import WP_RUN_SUCCEEDED
+from app.repositories.article_editorial_revision_repository import (
+    ArticleEditorialRevisionRepository,
+)
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.wordpress_draft_run_repository import (
     WordPressDraftRunRepository,
@@ -36,6 +39,7 @@ class ArticlePublicationApprovalService:
         self._session = session
         self._articles = ArticleRepository(session)
         self._runs = WordPressDraftRunRepository(session)
+        self._revisions = ArticleEditorialRevisionRepository(session)
 
     def approve(
         self,
@@ -53,6 +57,7 @@ class ArticlePublicationApprovalService:
         self._assert_gates(
             article=article,
             run=run,
+            latest_revision=self._revisions.get_latest(article_id),
             expected_wordpress_post_id=expected_wordpress_post_id,
             expected_target_request_identity_hash=expected_target_request_identity_hash,
         )
@@ -82,6 +87,7 @@ class ArticlePublicationApprovalService:
         *,
         article,
         run,
+        latest_revision,
         expected_wordpress_post_id: int,
         expected_target_request_identity_hash: str,
     ) -> None:
@@ -121,16 +127,21 @@ class ArticlePublicationApprovalService:
                 fails.append(
                     "target_request_identity_hash does not match the caller-approved value"
                 )
-            body_hash = compute_text_hash(article.body or "")
-            if body_hash != run.canonical_body_hash:
-                fails.append(
-                    "current Article body hash has drifted from the approved run"
-                )
-            meta_hash = compute_text_hash(article.meta_description or "")
-            if meta_hash != run.canonical_meta_hash:
-                fails.append(
-                    "current Article meta hash has drifted from the approved run"
-                )
+            # 現在の canonical 本文の正本は、編集改訂があれば最新の revision、
+            # 無ければ draft run が送った内容。run の hash と比べると、正規の
+            # 改訂経路を通った記事が承認できなくなる。
+            if latest_revision is not None:
+                expected_body = latest_revision.body_hash
+                expected_meta = latest_revision.meta_hash
+                origin = f"revision #{latest_revision.id}"
+            else:
+                expected_body = run.canonical_body_hash
+                expected_meta = run.canonical_meta_hash
+                origin = "the approved run"
+            if compute_text_hash(article.body or "") != expected_body:
+                fails.append(f"current Article body hash has drifted from {origin}")
+            if compute_text_hash(article.meta_description or "") != expected_meta:
+                fails.append(f"current Article meta hash has drifted from {origin}")
 
         if fails:
             raise ArticlePublicationApprovalError("; ".join(fails))

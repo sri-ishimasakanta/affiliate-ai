@@ -309,3 +309,41 @@ def test_api_approve_happy_path(api_client, session: Session) -> None:
     assert data["status"] == "approved"
     assert data["wordpress_id"] == _WP_POST_ID
     assert data["published_url"] is None
+
+
+def test_approve_accepts_an_article_revised_through_the_editorial_path(
+    session: Session,
+) -> None:
+    """改訂後も承認できる。
+
+    draft run が凍結した hash と比べると、正規の編集改訂経路を通った記事は
+    承認に到達できなくなる。
+    """
+    from app.article.draft_promotion_canonical import compute_text_hash
+    from app.article.editorial_revision_canonical import compute_revision_content_hash
+    from app.services.article_editorial_revision_service import (
+        ArticleEditorialRevisionService,
+    )
+
+    art, run = _approved_ready(session)
+    new_body = (art.body or "") + "\n\n関連記事: [関連](https://example.test/x/)\n"
+    ArticleEditorialRevisionService(session).revise(
+        art.id,
+        body_markdown=new_body,
+        meta_description=art.meta_description,
+        expected_current_body_hash=compute_text_hash(art.body or ""),
+        expected_current_meta_hash=compute_text_hash(art.meta_description or ""),
+        expected_revision_content_hash=compute_revision_content_hash(
+            article_id=art.id, body_markdown=new_body,
+            meta_description=art.meta_description),
+        revision_reason="内部リンクを追加",
+    )
+    art = article_of(session, art.id)
+    assert compute_text_hash(art.body) != run.canonical_body_hash
+
+    out = _svc(session).approve(
+        art.id,
+        expected_wordpress_post_id=art.wordpress_post_id,
+        expected_target_request_identity_hash=run.target_request_identity_hash,
+    )
+    assert out.status == ArticleStatus.APPROVED.value
