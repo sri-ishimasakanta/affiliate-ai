@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # secret 本体は Settings にも DB にも入れない。
     search_console_credentials_file: str | None = None
 
+    # --- GA4 (Google Analytics Data API) ---
+    # GA4 property の数値 id ("properties/" 接頭辞は不要)。未設定なら取り込みを行わない。
+    ga4_property_id: str | None = None
+
     # Affiliate redirect runtime (WordPress MU-plugin, Phase 3C-5F-D)。
     # base URL は wordpress_base_url を再利用する。共有 HMAC 鍵は projection を
     # **push (execute)** するときだけ必須。plan / dry-run では不要。default は置かない。

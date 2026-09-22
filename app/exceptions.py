@@ -411,6 +411,18 @@ class WordPressContentUpdateTerminalPersistFailedError(ApplicationError):
         self.wordpress_post_id = wordpress_post_id
 
 
+class Ga4ImportStateError(ApplicationError):
+    """Ga4ImportRun への不正な操作 / 取り込み設定の不備。
+
+    property 未設定 / 期間が不正 / 実行できない status の run、など。credential 値は
+    メッセージに含めない。
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"ga4 import state error: {reason}")
+        self.reason = reason
+
+
 class SearchConsoleImportStateError(ApplicationError):
     """SearchConsoleImportRun の prepare / execute を許さない state にある
     (guard 失敗、既に running/terminal な run への再実行要求、無効な期間など)。

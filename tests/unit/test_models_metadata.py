@@ -16,6 +16,8 @@ from app.models import (
     Base,
     DraftGenerationRun,
     DraftInputSnapshot,
+    Ga4ImportRun,
+    Ga4PageDaily,
     Keyword,
     KeywordScore,
     KeywordScoreSignal,
@@ -41,6 +43,8 @@ TIMESTAMPED_MODELS = (
     DraftGenerationRun,
     # current fact row (UPSERT-on-reimport) -- 変更のたび updated_at が進む。
     AffiliateCommissionFact,
+    # GA4 の日次指標 (UPSERT-on-reimport) -- 再取り込みで updated_at が進む。
+    Ga4PageDaily,
 )
 
 IMMUTABLE_HISTORY_MODELS = (
@@ -78,6 +82,9 @@ IMMUTABLE_HISTORY_MODELS = (
     # outcome_unknown な content update run を事後照合した結果 (append-only)。
     # run 行を書き換えず独立した事実として残す。updated_at なし。
     WordPressContentUpdateReconciliation,
+    # GA4 取り込みの auditable な実行記録 (prepared -> running -> succeeded/failed)。
+    # append-only。updated_at なし。
+    Ga4ImportRun,
 )
 
 
@@ -104,6 +111,8 @@ def test_all_tables_registered() -> None:
         "wordpress_draft_runs",
         "wordpress_publication_runs",
         "search_console_import_runs",
+        "ga4_import_runs",
+        "ga4_page_daily",
         "search_console_page_daily",
         "search_console_query_daily",
         "affiliate_link_targets",
