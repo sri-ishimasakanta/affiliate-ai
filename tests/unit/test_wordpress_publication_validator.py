@@ -59,6 +59,8 @@ def _run(**over):
         rendered_external_links=r.external_links,
         expected_h2_count=7,
         expected_h3_count=7,
+        table_required=True,
+        requires_pr_disclosure=True,
         expected_tool_names=_TOOLS,
         allowed_external_domains=_DOMAINS,
         affiliate_substitution_count=0,
@@ -228,3 +230,46 @@ def test_rendered_structure_expectation_is_supplied_by_caller() -> None:
         expected_h2_count=7, expected_h3_count=7, expected_tool_names=[],
     )
     assert "rendered_structure_h2_h3" in _ids(failing, "fail")
+
+
+def test_supporting_articles_do_not_need_a_pr_disclosure_at_publication() -> None:
+    """draft output validator と同じ規則を公開前 validator にも適用する。"""
+    body = _BODY.replace("本記事は広告（アフィリエイト）を含みます。\n\n", "")
+    passing = _run(body=body, article_body=body,
+                   promotion=_Promo(body_hash=compute_text_hash(body)),
+                   requires_pr_disclosure=False)
+    assert "pr_disclosure_present" not in _ids(passing, "fail")
+
+    failing = _run(body=body, article_body=body,
+                   promotion=_Promo(body_hash=compute_text_hash(body)),
+                   requires_pr_disclosure=True)
+    assert "pr_disclosure_present" in _ids(failing, "fail")
+
+
+def test_supporting_article_carrying_a_pr_disclosure_fails() -> None:
+    rep = _run(requires_pr_disclosure=False)
+    assert "pr_disclosure_present" in _ids(rep, "fail")
+
+
+def test_a_table_is_only_required_for_comparison_and_pricing_types() -> None:
+    """解説記事・手順記事は表が無くても公開できる。"""
+    body = (
+        "本記事は広告（アフィリエイト）を含みます。\n\n"
+        "## とは\n" + "解説。" * 300 + "\n\n"
+        "## 要点\n論点。\n\n## 進め方\n手順。\n\n## 注意点\n注意。\n\n"
+        "## FAQ\nQ&A。\n\n## まとめ\n結論。\n"
+    )
+    r = render_wordpress_html(body)
+    assert r.table_count == 0
+
+    ok = _run(body=body, article_body=body,
+              promotion=_Promo(body_hash=compute_text_hash(body)),
+              expected_h2_count=6, expected_h3_count=0, expected_tool_names=[],
+              table_required=False)
+    assert "rendered_table_count_one" not in _ids(ok, "fail")
+
+    ng = _run(body=body, article_body=body,
+              promotion=_Promo(body_hash=compute_text_hash(body)),
+              expected_h2_count=6, expected_h3_count=0, expected_tool_names=[],
+              table_required=True)
+    assert "rendered_table_count_one" in _ids(ng, "fail")

@@ -59,6 +59,8 @@ def validate_wordpress_publication_preview(
     rendered_external_links: list[str],
     expected_h2_count: int,
     expected_h3_count: int,
+    table_required: bool,
+    requires_pr_disclosure: bool,
     expected_tool_names: list[str],
     allowed_external_domains: set[str],
     affiliate_substitution_count: int,
@@ -176,23 +178,42 @@ def validate_wordpress_publication_preview(
             f"(期待 {expected_h2_count}/{expected_h3_count})",
         )
     )
+    # 比較表 / 料金表を骨子に持つ article type だけが表を必須にする。
+    # 解説記事や手順記事は表が無いのが普通で、一律に必須化すると公開できない。
+    if table_required:
+        table_ok = rendered_table_count == 1
+        table_detail = f"rendered <table>={rendered_table_count} (期待 1)"
+    else:
+        table_ok = rendered_table_count <= 1
+        table_detail = f"rendered <table>={rendered_table_count} (0 か 1)"
     checks.append(
-        _check(
-            "rendered_table_count_one",
-            "pass" if rendered_table_count == 1 else "fail",
-            f"rendered <table>={rendered_table_count} (期待 1)",
-        )
+        _check("rendered_table_count_one", "pass" if table_ok else "fail", table_detail)
     )
 
     # -- disclosure / meta ------------------------------------------
+    # PR 表記の要否は monetization mode で決まる (draft output validator と同じ規則)。
+    # supporting 記事は収益リンクを持たないため、必須化すると実態のない広告表記を
+    # 書かせることになる。
     head = article_body[:_PR_HEAD]
-    checks.append(
-        _check(
-            "pr_disclosure_present",
-            "pass" if any(m in head for m in _PR_MARKERS) else "fail",
-            "冒頭に PR/広告表記あり" if any(m in head for m in _PR_MARKERS) else "なし",
+    pr_found = any(m in head for m in _PR_MARKERS)
+    if requires_pr_disclosure:
+        checks.append(
+            _check(
+                "pr_disclosure_present",
+                "pass" if pr_found else "fail",
+                "冒頭に PR/広告表記あり" if pr_found else "なし",
+            )
         )
-    )
+    else:
+        checks.append(
+            _check(
+                "pr_disclosure_present",
+                "fail" if pr_found else "pass",
+                "supporting 記事に PR/広告表記がある (収益リンクが無いため実態と合わない)"
+                if pr_found
+                else "supporting 記事のため PR 表記は不要",
+            )
+        )
     ml = len(article_meta_description)
     checks.append(
         _check(

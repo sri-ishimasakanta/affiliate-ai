@@ -11,9 +11,14 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.article import article_type_resolution, monetization
 from app.article.draft_promotion_canonical import compute_text_hash
+from app.article.planning import ArticleType
 from app.config.settings import get_settings
 from app.exceptions import EntityNotFoundError, RenderedCandidateChangedError
+from app.repositories.article_affiliate_program_repository import (
+    ArticleAffiliateProgramRepository,
+)
 from app.repositories.article_draft_promotion_repository import (
     ArticleDraftPromotionRepository,
 )
@@ -39,6 +44,15 @@ _FALLBACK_DOMAINS = {
     "www.make.com", "www.hubspot.com", "clickup.com", "monday.com",
     "www.pipedrive.com", "reclaim.ai", "todoist.com",
 }
+
+# 骨子に比較表 / 料金表を持つ article type。これ以外は表が無くてもよい。
+_TABLE_REQUIRED_TYPES = frozenset(
+    {
+        ArticleType.RECOMMENDATION_ROUNDUP.value,
+        ArticleType.COMPARISON_LISTICLE.value,
+        ArticleType.PRICING.value,
+    }
+)
 
 # outline が取れない場合の fallback (7 候補 roundup = article #1 の形)。
 _FALLBACK_H2_COUNT = 7
@@ -67,6 +81,15 @@ class WordPressPreviewService:
         own_host = urlparse(get_settings().wordpress_base_url or "").netloc
         if own_host:
             allowed_domains = allowed_domains | {own_host}
+
+        effective_type = article_type_resolution.resolve_article_type(
+            article.article_type,
+            article.keyword.keyword if article.keyword is not None else "",
+        ).article_type
+        effective_mode = monetization.resolve_effective_mode(
+            article.monetization_mode,
+            ArticleAffiliateProgramRepository(self._session).list_by_article(article_id),
+        ).mode
         expected_h2, expected_h3 = self._expected_heading_counts(
             promotion, subject_count=len(expected_tools)
         )
@@ -108,6 +131,8 @@ class WordPressPreviewService:
             rendered_external_links=rendered.external_links,
             expected_h2_count=expected_h2,
             expected_h3_count=expected_h3,
+            table_required=effective_type in _TABLE_REQUIRED_TYPES,
+            requires_pr_disclosure=effective_mode == monetization.MODE_AFFILIATE,
             expected_tool_names=expected_tools,
             allowed_external_domains=allowed_domains,
             affiliate_substitution_count=len(affiliate_substitutions),
