@@ -25,6 +25,8 @@ from app.models import (
     SearchConsoleImportRun,
     SearchConsolePageDaily,
     SearchConsoleQueryDaily,
+    SeoImprovementCandidate,
+    SeoImprovementRun,
     Source,
     WordPressContentUpdateReconciliation,
     WordPressContentUpdateRun,
@@ -85,6 +87,9 @@ IMMUTABLE_HISTORY_MODELS = (
     # GA4 取り込みの auditable な実行記録 (prepared -> running -> succeeded/failed)。
     # append-only。updated_at なし。
     Ga4ImportRun,
+    # SEO 改善候補の評価 1 回分とその候補 (append-only)。updated_at なし。
+    SeoImprovementRun,
+    SeoImprovementCandidate,
 )
 
 
@@ -111,6 +116,8 @@ def test_all_tables_registered() -> None:
         "wordpress_draft_runs",
         "wordpress_publication_runs",
         "search_console_import_runs",
+        "seo_improvement_runs",
+        "seo_improvement_candidates",
         "ga4_import_runs",
         "ga4_page_daily",
         "search_console_page_daily",

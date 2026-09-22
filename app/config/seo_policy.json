@@ -1,0 +1,145 @@
+{
+  "policy_version": "c6.1",
+  "notes": [
+    "These are OPERATIONAL HEURISTICS for deciding when we have enough evidence to",
+    "look at an article by hand. They are NOT claims about how Google ranks pages.",
+    "Every gate is a named threshold so it can be argued with and revised once real",
+    "data accumulates; nothing here is a weighted or hidden score.",
+    "Defaults are deliberately conservative: it is better to stay silent than to",
+    "manufacture a recommendation from a sample that cannot support it."
+  ],
+  "evaluation": {
+    "minimum_article_age_days": 14,
+    "search_data_lag_days": 3,
+    "inspection_max_age_days": 7
+  },
+  "indexing": {
+    "followup_after_days": 14
+  },
+  "ctr": {
+    "minimum_impressions": 200,
+    "weak_ctr_below": 0.01,
+    "only_when_position_at_or_better_than": 20.0,
+    "high_priority_impressions": 1000
+  },
+  "ranking": {
+    "minimum_impressions": 100,
+    "opportunity_position_from": 5.0,
+    "opportunity_position_to": 30.0
+  },
+  "query_expansion": {
+    "minimum_query_impressions": 50,
+    "minimum_query_position": 30.0,
+    "max_queries_per_article": 5
+  },
+  "cannibalization": {
+    "minimum_shared_query_impressions": 30,
+    "minimum_pages_per_query": 2
+  },
+  "engagement": {
+    "minimum_organic_sessions": 100,
+    "weak_engagement_rate_below": 0.4,
+    "weak_average_engagement_seconds_below": 30.0
+  },
+  "freshness": {
+    "default_days": 180,
+    "by_article_type": {
+      "pricing": 60,
+      "comparison_listicle": 120,
+      "recommendation_roundup": 120
+    }
+  },
+  "internal_links": {
+    "max_candidates_per_article": 2,
+    "notes": [
+      "Structural relations only. These are NOT performance-derived: they say the",
+      "portfolio was designed with this relationship, not that Google rewarded it.",
+      "deferred_pairs are the specific relationships C4.9 postponed; they are listed",
+      "here so the engine can report which are now satisfied and which still stand."
+    ],
+    "deferred_pairs": [
+      {
+        "source": 16,
+        "target": 17,
+        "reason": "RPA roundup <-> RPA comparison"
+      },
+      {
+        "source": 17,
+        "target": 16,
+        "reason": "RPA comparison <-> RPA roundup"
+      },
+      {
+        "source": 18,
+        "target": 16,
+        "reason": "RPA implementation -> RPA roundup"
+      },
+      {
+        "source": 18,
+        "target": 17,
+        "reason": "RPA implementation -> RPA comparison"
+      },
+      {
+        "source": 19,
+        "target": 21,
+        "reason": "generative AI tools -> guidelines"
+      },
+      {
+        "source": 19,
+        "target": 22,
+        "reason": "generative AI tools -> governance"
+      },
+      {
+        "source": 21,
+        "target": 22,
+        "reason": "guidelines <-> governance"
+      },
+      {
+        "source": 22,
+        "target": 21,
+        "reason": "governance <-> guidelines"
+      },
+      {
+        "source": 20,
+        "target": 23,
+        "reason": "ChatGPT Enterprise <-> business plans"
+      },
+      {
+        "source": 23,
+        "target": 20,
+        "reason": "business plans <-> ChatGPT Enterprise"
+      },
+      {
+        "source": 24,
+        "target": 19,
+        "reason": "AI agents landing -> generative AI tools"
+      },
+      {
+        "source": 2,
+        "target": 7,
+        "reason": "meeting-notes roundup -> pillar"
+      }
+    ]
+  },
+  "priority": {
+    "INDEXING_FOLLOWUP": "high",
+    "CANNIBALIZATION_REVIEW": "high",
+    "CTR_IMPROVEMENT": "medium",
+    "RANKING_IMPROVEMENT": "medium",
+    "ENGAGEMENT_REVIEW": "medium",
+    "CONTENT_FRESHNESS_REVIEW": "medium",
+    "QUERY_EXPANSION": "low",
+    "INTERNAL_LINK_OPPORTUNITY": "low"
+  },
+  "priority_escalations": [
+    {
+      "candidate_type": "CTR_IMPROVEMENT",
+      "to": "high",
+      "when": "impressions >= ctr.high_priority_impressions"
+    },
+    {
+      "candidate_type": "CONTENT_FRESHNESS_REVIEW",
+      "to": "high",
+      "when": "article_type == 'pricing'"
+    }
+  ]
+}

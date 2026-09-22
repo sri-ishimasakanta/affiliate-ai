@@ -20,6 +20,7 @@ Search Analytics (performance) と URL Inspection (index state) は別物であ�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 
@@ -30,6 +31,39 @@ from app.search_console.google_client import _HttpxAuthRequest
 _PROVIDER = "search_console"
 _INSPECT_URL = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
 _TIMEOUT_SECONDS = 60.0
+
+
+#: path が percent-encoding された「予約文字ではないバイト列」だけを含むか判定するため、
+#: decode 後に現れてはいけない文字。これらが現れる場合は decode すると URL の
+#: 構造そのものが変わるので、元の表記のまま送る。
+_STRUCTURAL_CHARACTERS = ("?", "#", "%")
+
+
+def canonical_inspection_url(url: str) -> str:
+    """URL Inspection API に渡す表記に正規化する。
+
+    **なぜ必要か** (C6 で実測): Google は日本語 slug のページを **decode 済みの
+    表記** で認識している。同じページを percent-encoded のまま inspect すると
+    ``URL が Google に認識されていません`` (NEUTRAL) が返り、decode した表記で
+    inspect すると ``送信して登録されました`` (PASS) が返る -- Search Console UI の
+    表示とも後者が一致する。encoded のまま問い合わせると、インデックス済みの
+    ページを未認識と誤判定してしまう。
+
+    ただし ``%2F`` のように **予約文字** を表す escape は decode すると path の
+    構造が変わるため、そのまま残す。decode 後に ``/`` の数が変わる、あるいは
+    ``?`` ``#`` ``%`` が現れる場合は、元の表記を返す (安全側に倒す)。
+    ASCII だけの URL では decode は何も変えないので、この正規化は無害である。
+    """
+
+    if not url or "%" not in url:
+        return url
+    parts = urlsplit(url)
+    decoded_path = unquote(parts.path)
+    if decoded_path.count("/") != parts.path.count("/"):
+        return url
+    if any(ch in decoded_path for ch in _STRUCTURAL_CHARACTERS):
+        return url
+    return urlunsplit((parts.scheme, parts.netloc, decoded_path, parts.query, parts.fragment))
 
 
 @dataclass(frozen=True)
@@ -75,10 +109,17 @@ class UrlInspectionClient:
         return token
 
     def inspect(self, url: str, *, language_code: str = "ja") -> UrlInspectionResult:
-        """1 URL を inspect する。例外は投げず、失敗は結果に載せる。"""
+        """1 URL を inspect する。例外は投げず、失敗は結果に載せる。
 
+        送信前に :func:`canonical_inspection_url` で表記を正規化する
+        (percent-encoded な日本語 slug が未認識と誤判定されるのを防ぐ)。
+        結果の ``inspection_url`` には **呼び出し側が渡した URL** をそのまま返し、
+        記事との突き合わせが崩れないようにする。
+        """
+
+        inspection_url = canonical_inspection_url(url)
         payload = {
-            "inspectionUrl": url,
+            "inspectionUrl": inspection_url,
             "siteUrl": self.property_uri,
             "languageCode": language_code,
         }

@@ -117,6 +117,8 @@ from app.models.search_console_import_run import (
 )
 from app.models.search_console_page_daily import SearchConsolePageDaily
 from app.models.search_console_query_daily import SearchConsoleQueryDaily
+from app.models.seo_improvement_candidate import SeoImprovementCandidate
+from app.models.seo_improvement_run import SeoImprovementRun
 from app.models.source import Source
 from app.models.wordpress_content_update_reconciliation import (
     WP_CU_RECONCILED_SUCCEEDED,
@@ -150,6 +152,8 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "SeoImprovementCandidate",
+    "SeoImprovementRun",
     "Ga4ImportRun",
     "Ga4PageDaily",
     "ga4_import_transition_allowed",
