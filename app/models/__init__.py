@@ -40,6 +40,12 @@ from app.models.affiliate_target_projection_push_run import (
 )
 from app.models.article import Article
 from app.models.article_affiliate_program import ArticleAffiliateProgram
+from app.models.article_content_subject import (
+    SUBJECT_SOURCE_AFFILIATE,
+    SUBJECT_SOURCE_EDITORIAL,
+    SUBJECT_SOURCES,
+    ArticleContentSubject,
+)
 from app.models.article_draft_promotion import ArticleDraftPromotion
 from app.models.article_fact import ArticleFact
 from app.models.article_link_substitution_mapping import (
@@ -150,6 +156,9 @@ __all__ = [
     "SC_IMPORT_STATUSES",
     "SC_IMPORT_TERMINAL_STATUSES",
     "SNAPSHOT_VERSION",
+    "SUBJECT_SOURCES",
+    "SUBJECT_SOURCE_AFFILIATE",
+    "SUBJECT_SOURCE_EDITORIAL",
     "ACI_FAILED",
     "ACI_RUNNING",
     "ACI_STATUSES",
@@ -182,6 +191,7 @@ __all__ = [
     "AffiliateTargetProjectionPushRun",
     "Article",
     "ArticleAffiliateProgram",
+    "ArticleContentSubject",
     "ArticleDraftPromotion",
     "ArticleFact",
     "ArticleLinkSubstitutionMapping",

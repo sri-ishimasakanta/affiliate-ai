@@ -378,6 +378,20 @@ keyword が現在のサイトテーマ (AI・生成AI・業務効率化・業務
   C3 / C4 の入力にする。**production の article 行はまだ作らない**。
   大きな Google Ads の生成物 (ideas JSON) は git に入れない。
 
+- **記事タイプ / template / 編集 subject (C3)**: 記事タイプは **編集上の決定** で、
+  `articles.article_type` (nullable) に明示保存する。NULL は C3 以前の legacy 行で、読み取り時に
+  keyword から推論する (`app/article/article_type_resolution.py`)。推論は **推奨** として残り、
+  承認 request の `article_type` で人が確定できる (料金 / 無料 / ブランド名など推論できない
+  keyword があるため、推論だけが確定手段ではない)。`ArticleType` に `pricing` と
+  `informational` を追加し、全 6 タイプに **タイプ固有の** prompt template を用意した
+  (`app/article/draft_prompt_templates.py`)。事実・料金・FACT DATA の規律は全タイプ共通のまま。
+  monetization mode は記事タイプと直交で、supporting の system rules は
+  「primary なし」の断り書きではなく *推薦を目的にしない記事* の文面になる。
+  比較対象は affiliate link から切り離し、`article_content_subjects` 行 (承認時に固定) で持つ。
+  行が無い記事は link からの legacy fallback。affiliate 案件が無い対象は版管理された
+  `app/config/content_subjects.json` から選ぶ (affiliate 関係を捏造しない)。
+  選定済み 24 記事の構造的 readiness は `app/article/portfolio_readiness.py` が判定する。
+
 ### Phase 2B-6B (affiliate_opportunity V1)
 
 keyword に対する **供給側** の評価 (active Affiliate Catalog にどれだけ収益化案件が

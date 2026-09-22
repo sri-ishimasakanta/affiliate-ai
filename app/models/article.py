@@ -12,6 +12,7 @@ from app.models.enums import ArticleStatus
 if TYPE_CHECKING:
     from app.models.affiliate_program import AffiliateProgram
     from app.models.article_affiliate_program import ArticleAffiliateProgram
+    from app.models.article_content_subject import ArticleContentSubject
     from app.models.article_draft_promotion import ArticleDraftPromotion
     from app.models.article_fact import ArticleFact
     from app.models.article_metric import ArticleMetric
@@ -76,6 +77,11 @@ class Article(Base, TimestampMixin):
     # (primary の link があれば affiliate、無ければ supporting)。既存行は backfill しない。
     monetization_mode: Mapped[str | None] = mapped_column(String(20))
 
+    # C3: 人が確定した記事タイプ (ArticleType の値)。**編集上の決定**であって keyword の
+    # 推論結果ではない。NULL = 明示されていない legacy 行で、読み取り時に keyword から
+    # 推論する (app.article.article_type_resolution)。既存行は backfill しない。
+    article_type: Mapped[str | None] = mapped_column(String(40))
+
     keyword: Mapped[Keyword | None] = relationship(
         back_populates="articles",
     )
@@ -92,6 +98,12 @@ class Article(Base, TimestampMixin):
     )
 
     affiliate_program_links: Mapped[list[ArticleAffiliateProgram]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # C3: 比較 / 調査する編集上の対象 (affiliate link とは独立)。Article 削除で全削除。
+    content_subjects: Mapped[list[ArticleContentSubject]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
     )

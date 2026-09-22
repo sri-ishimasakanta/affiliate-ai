@@ -19,7 +19,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.article.cluster_plan import template_readiness
 from app.article.draft_input_canonical import canonical_datetime
+from app.article.planning import ArticleType
 from app.exceptions import DraftGenerationNotReadyError
 from app.models.draft_generation_run import (
     PROMPT_BUILDER_VERSION,
@@ -256,7 +258,7 @@ def build_prompt_package(
     package: dict = {
         "prompt_package_version": PROMPT_PACKAGE_VERSION,
         "prompt_builder_version": PROMPT_BUILDER_VERSION,
-        "template_version": PROMPT_TEMPLATE_VERSION,
+        "template_version": _template_version_for(p),
         "snapshot_id": snapshot_id,
         "snapshot_content_hash": snapshot_content_hash,
         "article": {
@@ -310,6 +312,31 @@ def build_prompt_package(
 
     assert_no_forbidden_keys(package)
     return package
+
+
+def _template_version_for(payload: dict) -> str:
+    """C3: snapshot が明示する記事タイプの template を使う。
+
+    記事タイプの無い legacy snapshot は従来どおり ``article_roundup_v1``
+    (既存 snapshot から作る prompt を 1 文字も変えない)。
+    """
+
+    declared = payload.get("article")
+    stored = declared.get("article_type") if isinstance(declared, dict) else None
+    if not stored:
+        return PROMPT_TEMPLATE_VERSION
+    try:
+        article_type = ArticleType(stored)
+    except ValueError as exc:
+        raise DraftGenerationNotReadyError(
+            f"snapshot declares an unknown article_type {stored!r}"
+        ) from exc
+    readiness = template_readiness(article_type)
+    if not readiness.ready or readiness.template_version is None:
+        raise DraftGenerationNotReadyError(
+            f"no prompt template exists for article_type={article_type.value}"
+        )
+    return readiness.template_version
 
 
 def _assert_primary_matches_mode(payload: dict, overrides: EditorialOverridesV1) -> None:

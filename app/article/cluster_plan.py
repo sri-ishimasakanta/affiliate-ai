@@ -53,6 +53,12 @@ NEAR_OVERLAP_THRESHOLD = 0.6
 #: (``app.article.draft_prompt_render._TEMPLATES``) との drift は test で検出する。
 TEMPLATE_SCOPE: Mapping[str, tuple[ArticleType, ...]] = {
     "article_roundup_v1": (ArticleType.RECOMMENDATION_ROUNDUP,),
+    # C3: portfolio が必要とする残りの記事タイプ (draft_prompt_templates.TEMPLATES と 1:1)
+    "article_category_v1": (ArticleType.CATEGORY_LANDING,),
+    "article_comparison_v1": (ArticleType.COMPARISON_LISTICLE,),
+    "article_howto_v1": (ArticleType.HOW_TO,),
+    "article_informational_v1": (ArticleType.INFORMATIONAL,),
+    "article_pricing_v1": (ArticleType.PRICING,),
 }
 
 _TOP_KEYS = frozenset({"version", "clusters", "deferred_clusters", "vocabulary"})

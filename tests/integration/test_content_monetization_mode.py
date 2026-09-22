@@ -174,8 +174,8 @@ def test_plan_recommends_supporting_without_treating_it_as_a_blocker(session: Se
     assert "not a blocker" in plan.monetization_recommendation_reason
     assert plan.affiliate_ready is False
     assert plan.supporting_ready is True  # how_to は比較対象を要求しない
-    # how_to の prompt template はまだ無い: affiliate とは無関係の既存 blocker として別に報告する
-    assert plan.production_blockers == ["no_prompt_template:how_to"]
+    # C3: how_to の prompt template ができたので、これは blocker ではなくなった
+    assert plan.production_blockers == []
     assert "incomplete_plan" in plan.acknowledgements_required  # blocker ではない
 
 
@@ -188,12 +188,19 @@ def test_plan_reports_non_affiliate_blockers_separately(session: Session) -> Non
     assert roundup.supporting_ready is False
     assert roundup.supporting_blockers == ["comparison_subjects_unavailable"]
     assert roundup.production_blockers == []  # roundup には prompt template がある
-    # 記事タイプ未確定 / template 無し は mode に関わらない blocker
-    untyped = ArticlePlanService(session).plan_for_keyword(_keyword(session, "crm 料金").id)
+    # C3: 推論できない keyword は「承認時に明示せよ」という案内であって、記事タイプの
+    # 未確定そのものはもう production blocker ではない
+    untyped = ArticlePlanService(session).plan_for_keyword(_keyword(session, "crm ツール").id)
     assert untyped.affiliate_ready is True
-    assert untyped.production_blockers == ["article_type_undetermined"]
+    assert untyped.recommended_article_type is None
+    assert untyped.production_blockers == ["article_type_not_inferred:select_explicitly"]
+    # C3: how_to / pricing の template ができたので template blocker は出ない
     howto = ArticlePlanService(session).plan_for_keyword(_keyword(session, "crm 導入").id)
-    assert howto.production_blockers == ["no_prompt_template:how_to"]
+    assert howto.recommended_article_type is ArticleType.HOW_TO
+    assert howto.production_blockers == []
+    pricing = ArticlePlanService(session).plan_for_keyword(_keyword(session, "crm 料金").id)
+    assert pricing.recommended_article_type is ArticleType.PRICING
+    assert pricing.production_blockers == []
 
 
 # ================================================================ approval: affiliate mode
@@ -349,7 +356,7 @@ def test_supporting_roundup_still_needs_a_researched_comparison_subject(session:
     article_id, _ = _approved(session, "業務効率化 おすすめ", monetization_mode="supporting")
     r = FactPackService(session).build(article_id, now=NOW).readiness
     assert r.drafting_allowed is False and r.comparison_subjects_required is True
-    assert any("needs at least one researched comparison subject" in b for b in r.blocking_reasons)
+    assert any("least one selected content subject" in b for b in r.blocking_reasons)
     assert not any("affiliate link" in b for b in r.blocking_reasons)
 
 
@@ -658,7 +665,10 @@ def test_explicit_affiliate_without_a_primary_is_not_ready_and_freeze_blocked(
     pack = FactPackService(session).build(article_id, now=NOW).readiness
     assert pack.monetization_mode == "affiliate" and pack.monetization_mode_source == "explicit"
     assert pack.drafting_allowed is False
-    assert any("affiliate link" in reason for reason in pack.blocking_reasons)
+    # C3: 比較対象は承認時に固定済みなので link を外しても消えない。
+    # 「affiliate の primary が無い」は freeze gate の担当になった。
+    assert pack.comparison_subject_source == "persisted"
+    assert pack.comparison_subject_count == 1
 
     result = DraftInputSnapshotBuilder(session).build(article_id, now=NOW)
     assert result.can_freeze is False

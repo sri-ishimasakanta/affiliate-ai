@@ -14,6 +14,7 @@ trust boundary (§9): 4 ブロック構成。
 from __future__ import annotations
 
 from app.article.draft_input_canonical import canonical_json
+from app.article.draft_prompt_templates import TEMPLATES as _TYPE_TEMPLATES
 from app.exceptions import DraftGenerationNotReadyError
 
 _FACT_DATA_BEGIN = "<<<BEGIN_FACT_DATA>>>"
@@ -90,11 +91,16 @@ _OUTPUT_TASK_ARTICLE_ROUNDUP_V1 = "\n".join(
     ]
 )
 
-_TEMPLATES: dict[str, dict[str, str]] = {
+#: template_version -> {"system_rules": str | callable(package)->str, "output_task": str}。
+#: ``article_roundup_v1`` は C2 から live な template で、1 文字も変えない
+#: (既存 snapshot / rendered prompt の再現性を守る)。C3 で追加した記事タイプ別 template は
+#: :mod:`app.article.draft_prompt_templates` にある。
+_TEMPLATES: dict[str, dict[str, object]] = {
     "article_roundup_v1": {
         "system_rules": _SYSTEM_RULES_ARTICLE_ROUNDUP_V1,
         "output_task": _OUTPUT_TASK_ARTICLE_ROUNDUP_V1,
     },
+    **_TYPE_TEMPLATES,
 }
 
 
@@ -168,9 +174,14 @@ def render_prompt(package: dict) -> str:
             f"unknown template_version {package['template_version']!r}"
         )
 
+    rules = tmpl["system_rules"]
+    # C3: 記事タイプ別 template は package から system rules を組み立てる
+    # (monetization mode で compliance ブロックが変わる)。同じ package なら同じ文字列。
+    system_rules = rules(package) if callable(rules) else rules
+
     parts = [
         "=== SYSTEM RULES (TRUSTED) ===",
-        tmpl["system_rules"],
+        system_rules,
         "",
         "=== HUMAN EDITORIAL OVERRIDES (TRUSTED) ===",
         _render_overrides(package),
@@ -181,6 +192,6 @@ def render_prompt(package: dict) -> str:
         _FACT_DATA_END,
         "",
         "=== OUTPUT TASK (TRUSTED) ===",
-        tmpl["output_task"],
+        str(tmpl["output_task"]),
     ]
     return "\n".join(parts) + "\n"

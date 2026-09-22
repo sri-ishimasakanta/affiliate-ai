@@ -61,6 +61,8 @@ from app.repositories.article_repository import ArticleRepository
 from app.repositories.keyword_repository import KeywordRepository
 from app.repositories.source_repository import SourceRepository
 from app.services.article_plan_service import ArticlePlanService
+from app.services.content_subject_service import SOURCE_PERSISTED as SUBJECT_SOURCE_PERSISTED
+from app.services.content_subject_service import ContentSubjectService
 from app.services.fact_pack_service import FactPackService
 
 _FACT_KEYS: tuple[str, ...] = tuple(str(k) for k in FactKey)
@@ -249,16 +251,15 @@ class DraftInputSnapshotBuilder:
             "authority": _PRIMARY_AUTHORITY,
         }
 
+        # C3: 比較対象は編集上の subject (affiliate link とは独立)。明示された選択だけを
+        # canonical payload に入れる。legacy (link fallback) の記事は従来の形のまま。
+        subject_resolution = ContentSubjectService(self._session).resolve(article.id)
+
         readiness_payload = self._readiness_payload(fact_pack)
 
         payload: dict = {
             "snapshot_version": SNAPSHOT_VERSION,
-            "article": {
-                "id": article.id,
-                "keyword_id": article.keyword_id,
-                "title": article.title,
-                "slug": article.slug,
-            },
+            "article": self._article_payload(article),
             "keyword": {
                 "id": keyword.id,
                 "text": keyword.keyword,
@@ -281,6 +282,18 @@ class DraftInputSnapshotBuilder:
         # **明示値** は canonical payload に入れて content_hash の対象にする。明示値の無い
         # legacy 行 (NULL) ではキー自体を出さないので、既存 article の payload / content_hash は
         # C2.5.8 導入前と同一のまま (historical snapshot を書き換えない)。
+        if subject_resolution.source == SUBJECT_SOURCE_PERSISTED:
+            payload["content_subjects"] = [
+                {
+                    "subject_key": s.subject_key,
+                    "subject_ref": s.display_name,
+                    "subject_source": s.subject_source,
+                    "affiliate_program_id": s.affiliate_program_id,
+                    "position": s.position,
+                }
+                for s in subject_resolution.subjects
+            ]
+
         effective = monetization.resolve_effective_mode(article.monetization_mode, links)
         if effective.is_explicit:
             payload["monetization"] = {
@@ -313,6 +326,24 @@ class DraftInputSnapshotBuilder:
             monetization_mode=effective.mode,
             monetization_mode_source=effective.source,
         )
+
+    @staticmethod
+    def _article_payload(article: Article) -> dict:
+        """article ブロック。C3 の明示 article_type は **あるときだけ** 足す。
+
+        legacy 行 (NULL) では従来と同じ 4 キーのままなので、既存 snapshot の payload /
+        content_hash は 1 bit も変わらない。
+        """
+
+        payload = {
+            "id": article.id,
+            "keyword_id": article.keyword_id,
+            "title": article.title,
+            "slug": article.slug,
+        }
+        if article.article_type:
+            payload["article_type"] = article.article_type
+        return payload
 
     # -- cell / grid --------------------------------------------------
     def _build_cell(

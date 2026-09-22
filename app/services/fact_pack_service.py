@@ -48,6 +48,7 @@ from app.repositories.keyword_repository import KeywordRepository
 from app.repositories.source_repository import SourceRepository
 from app.services.article_plan_service import ArticlePlanService
 from app.services.article_service import ArticleService
+from app.services.content_subject_service import ContentSubjectService
 
 _PRICING_STATUS_OK = {ValueStatus.VERIFIED, ValueStatus.UNKNOWN}
 
@@ -75,7 +76,11 @@ class FactPackService:
         )
         plan_metadata = self._plan_metadata(article.keyword_id)
 
-        programs = self._subject_programs(article_id)
+        # C3: 比較対象は「編集上の subject」。affiliate link はその一部でしかない
+        # (行が無い legacy 記事だけ link から fallback する)。
+        resolution = ContentSubjectService(self._session).resolve(article_id)
+        subjects = resolution.subjects
+        programs = resolution.programs
         sources_by_id = {s.id: s for s in self._sources.list_by_article(article_id)}
         latest_facts = self._facts.get_latest_facts_for_article(article_id)
         by_subject: dict[str, dict[str, ArticleFact]] = {}
@@ -89,8 +94,8 @@ class FactPackService:
         warnings: list[str] = []
         tools_with_official_pricing = 0
 
-        for program in programs:
-            subject = program.name
+        for resolved in subjects:
+            subject = resolved.display_name
             facts_for = by_subject.get(subject, {})
             entries: list[FactEntry] = []
             usable: list[str] = []
@@ -174,7 +179,7 @@ class FactPackService:
             tool_facts.append(
                 ToolFacts(
                     subject_ref=subject,
-                    affiliate_program_id=program.id,
+                    affiliate_program_id=resolved.affiliate_program_id,
                     facts=entries,
                     usable_claims=usable,
                     do_not_claim=do_not_claim,
@@ -195,7 +200,7 @@ class FactPackService:
         article_type = plan_metadata.article_type if plan_metadata is not None else None
         subjects_required = monetization.requires_comparison_subjects(article_type)
         blocking = self._blocking_reasons(
-            programs, per_tool_readiness, mode=mode, subjects_required=subjects_required
+            subjects, per_tool_readiness, mode=mode, subjects_required=subjects_required
         )
         drafting_allowed = not blocking
         if mode == monetization.MODE_SUPPORTING:
@@ -220,7 +225,7 @@ class FactPackService:
             affiliate_candidates=self._candidates(article_id, programs),
             tool_facts=tool_facts,
             source_coverage=self._coverage(
-                article_id, len(programs), tools_with_official_pricing
+                article_id, len(subjects), tools_with_official_pricing
             ),
             missing_facts=missing_facts,
             freshness=FreshnessReport(
@@ -242,21 +247,17 @@ class FactPackService:
                     "present" if mode == monetization.MODE_AFFILIATE else "absent_by_design"
                 ),
                 comparison_subjects_required=subjects_required,
-                comparison_subject_count=len(programs),
+                comparison_subject_count=len(subjects),
+                comparison_subject_names=[s.display_name for s in subjects],
+                comparison_subject_source=resolution.source,
+                non_affiliate_subject_count=sum(
+                    1 for s in subjects if not s.is_affiliate_backed
+                ),
             ),
             warnings=warnings,
         )
 
     # -- helpers --------------------------------------------------
-    def _subject_programs(self, article_id: int) -> list[AffiliateProgram]:
-        links = self._links.list_by_article(article_id)
-        programs: list[AffiliateProgram] = []
-        for link in sorted(links, key=lambda x: x.affiliate_program_id):
-            program = self._programs.get_by_id(link.affiliate_program_id)
-            if program is not None:
-                programs.append(program)
-        return programs
-
     def _plan_metadata(self, keyword_id: int | None) -> FactPackPlanMetadata | None:
         if keyword_id is None:
             return None
@@ -375,22 +376,22 @@ class FactPackService:
 
     def _blocking_reasons(
         self,
-        programs: list[AffiliateProgram],
+        subjects,
         per_tool: list[ToolReadiness],
         *,
         mode: str = monetization.MODE_AFFILIATE,
         subjects_required: bool = True,
     ) -> list[str]:
         reasons: list[str] = []
-        if not programs:
+        if not subjects:
             if mode == monetization.MODE_AFFILIATE:
                 reasons.append("no comparison subjects (Article に affiliate link がない)")
             elif subjects_required:
-                # affiliate ではなく内容の要件: 比較型の記事は調査済みの比較対象が要る
+                # affiliate ではなく内容の要件: 比較型の記事は調査済みの比較対象が要る。
+                # C3: 対象は affiliate 案件でなくてよい (編集 subject を選べる)。
                 reasons.append(
-                    "no comparison subjects: this article type compares tools and needs at "
-                    "least one researched comparison subject (link a candidate as a secondary "
-                    "program); non-affiliate subjects are not modelled yet"
+                    "no comparison subjects: this article type compares subjects and needs at "
+                    "least one selected content subject (affiliate-backed or editorial)"
                 )
         for r in per_tool:
             if not r.ok:

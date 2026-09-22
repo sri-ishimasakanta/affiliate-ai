@@ -24,6 +24,10 @@ class ArticleType(StrEnum):
     COMPARISON_LISTICLE = "comparison_listicle"
     HOW_TO = "how_to"
     CATEGORY_LANDING = "category_landing"
+    # C3: 料金・プラン比較のページ (単一製品 / カテゴリの価格意図)
+    PRICING = "pricing"
+    # C3: 定義・ルール・運用解説など、製品推薦を主目的にしない解説記事
+    INFORMATIONAL = "informational"
 
 
 # intent marker -> ArticleType。上から順に判定し、最初に一致したものを採用する
@@ -36,6 +40,13 @@ _ARTICLE_TYPE_RULES: tuple[tuple[ArticleType, tuple[str, ...]], ...] = (
         ("おすすめ", "オススメ", "ランキング", "人気", "選び方"),
     ),
     (ArticleType.CATEGORY_LANDING, ("とは", "意味", "一覧", "まとめ", "種類")),
+    # C3 (末尾に追加): 既存 marker が 1 つも無いときだけ効く。
+    # 「無料」は料金ページとは限らない (無料ツール探し) ので marker にしない。
+    (ArticleType.PRICING, ("料金", "価格", "費用", "プラン")),
+    (
+        ArticleType.INFORMATIONAL,
+        ("ガイドライン", "ガバナンス", "規程", "ルール", "事例", "注意点", "メリット"),
+    ),
 )
 
 # tail から取り除いて「テーマ本体」を得るための修飾語 (最低 1 token は残す)。
@@ -64,6 +75,8 @@ _ARTICLE_TYPE_INTENT: dict[ArticleType, str] = {
     ArticleType.COMPARISON_LISTICLE: "候補どうしの違いの比較",
     ArticleType.HOW_TO: "導入・操作手順の解説",
     ArticleType.CATEGORY_LANDING: "基礎知識・全体像の解説",
+    ArticleType.PRICING: "料金・プランの把握",
+    ArticleType.INFORMATIONAL: "論点・ルールの理解",
 }
 
 _SLUG_TYPE_TOKEN: dict[ArticleType, str] = {
@@ -71,6 +84,8 @@ _SLUG_TYPE_TOKEN: dict[ArticleType, str] = {
     ArticleType.COMPARISON_LISTICLE: "comparison",
     ArticleType.HOW_TO: "howto",
     ArticleType.CATEGORY_LANDING: "category",
+    ArticleType.PRICING: "pricing",
+    ArticleType.INFORMATIONAL: "guide",
 }
 
 _TITLE_TEMPLATE: dict[ArticleType, str] = {
@@ -78,6 +93,8 @@ _TITLE_TEMPLATE: dict[ArticleType, str] = {
     ArticleType.COMPARISON_LISTICLE: "{kw}｜違い・料金・選び方を比較",
     ArticleType.HOW_TO: "{kw}｜手順と注意点をわかりやすく解説",
     ArticleType.CATEGORY_LANDING: "{kw}｜意味・種類・選び方の基礎知識",
+    ArticleType.PRICING: "{kw}｜プラン別の料金と選び方",
+    ArticleType.INFORMATIONAL: "{kw}｜要点と実務上の注意点",
 }
 
 _TARGET_READER: dict[ArticleType, str] = {
@@ -96,6 +113,13 @@ _TARGET_READER: dict[ArticleType, str] = {
     ArticleType.CATEGORY_LANDING: (
         "テーマの全体像をこれから把握する読者。定義・種類・選ぶ観点を一通り知りたい。"
     ),
+    ArticleType.PRICING: (
+        "導入コストを見積もっている読者。プラン構成・無料枠・どのプランが自分に合うかを知りたい。"
+    ),
+    ArticleType.INFORMATIONAL: (
+        "論点やルールを理解したい読者。定義・背景・実務上の注意点を知りたい。"
+        "製品の推薦を求めているとは限らない。"
+    ),
 }
 
 _PRIMARY_GOAL: dict[ArticleType, str] = {
@@ -108,6 +132,12 @@ _PRIMARY_GOAL: dict[ArticleType, str] = {
     ArticleType.HOW_TO: "読者が手順どおりに実行して目的を達成できる状態にする。",
     ArticleType.CATEGORY_LANDING: (
         "読者がテーマの全体像と、次に読むべき詳細トピックを把握できる状態にする。"
+    ),
+    ArticleType.PRICING: (
+        "読者が各プランの費用と適合条件を理解し、自分に合うプランを判断できる状態にする。"
+    ),
+    ArticleType.INFORMATIONAL: (
+        "読者が論点を理解し、自分の状況で何に注意すべきかを判断できる状態にする。"
     ),
 }
 
@@ -166,6 +196,14 @@ _SOURCE_REQUIREMENTS: dict[ArticleType, tuple[str, ...]] = {
     ArticleType.CATEGORY_LANDING: (
         "対象テーマの一次情報（公式・業界団体等）",
         "主要製品・サービスの公式概要",
+    ),
+    ArticleType.PRICING: (
+        "対象サービスの公式 pricing ページ（取得日を明記）",
+        "公式の無料枠・トライアル条件",
+    ),
+    ArticleType.INFORMATIONAL: (
+        "一次情報（公式・監督官庁・業界団体・標準化団体等）",
+        "公開されている実例・公式ガイドライン",
     ),
 }
 
@@ -301,6 +339,10 @@ _SEARCH_INTENT: dict[ArticleType, str] = {
     ArticleType.HOW_TO: "手順・操作（顕在）。実行方法を知りたい。",
     ArticleType.CATEGORY_LANDING: (
         "情報収集（準顕在）。テーマの全体像を把握したい。"
+    ),
+    ArticleType.PRICING: "料金確認（顕在）。費用とプランの適合を判断したい。",
+    ArticleType.INFORMATIONAL: (
+        "課題理解（準顕在）。論点・ルール・注意点を把握したい。"
     ),
 }
 
@@ -475,6 +517,64 @@ def _category_outline(theme: str) -> tuple[PlanSection, ...]:
     )
 
 
+def _pricing_outline(theme: str) -> tuple[PlanSection, ...]:
+    return (
+        PlanSection(
+            "H1", f"{theme}の料金｜プラン別の費用と選び方", "料金意図に直接応える",
+            ("対象 keyword",),
+        ),
+        PlanSection(
+            "intro", "導入", "結論の先出し",
+            ("いくらから使えるか", "取得時点の明示"),
+        ),
+        PlanSection(
+            "H2", "料金プラン一覧", "確認できた事実だけを並べる",
+            ("プラン名と価格", "課金単位（ユーザー / 月・年）", "as_of ラベルと公式 source"),
+        ),
+        PlanSection(
+            "H2", "無料プラン・トライアル", "無料枠の条件を明確にする",
+            ("無料枠の有無", "制限", "確認できない場合はその旨"),
+        ),
+        PlanSection(
+            "H2", "どのプランが誰に向くか", "費用を判断に接続する",
+            ("利用規模別の目安", "機能差による分岐"),
+        ),
+        PlanSection(
+            "H2", "料金以外に必要なコスト", "総コストの注意点",
+            ("初期費用・オプション", "確認できた範囲のみ"),
+        ),
+        PlanSection("H2", "よくある質問", "残余意図の回収", ("3 件以上の Q&A",)),
+        PlanSection("H2", "まとめ", "判断の要約", ("取得時点の再掲",)),
+    )
+
+
+def _informational_outline(theme: str) -> tuple[PlanSection, ...]:
+    return (
+        PlanSection(
+            "H1", f"{theme}｜要点と実務上の注意点", "情報意図に直接応える",
+            ("対象 keyword",),
+        ),
+        PlanSection("intro", "導入", "誰の何を解決するか", ("読者の状況", "この記事の範囲")),
+        PlanSection("H2", f"{theme}とは", "定義と背景", ("定義", "なぜ論点になるのか")),
+        PlanSection(
+            "H2", "押さえるべき要点", "論点の構造化",
+            ("主要な論点", "一次情報の裏付け"),
+        ),
+        PlanSection(
+            "H2", "実務での進め方", "読者の行動に接続",
+            ("検討順序", "社内で決めるべきこと"),
+        ),
+        PlanSection(
+            "H2", "注意点・リスク", "誤解と失敗の予防",
+            ("よくある誤解", "確認できた範囲のリスク"),
+        ),
+        PlanSection("H2", "よくある質問", "残余意図の回収", ("3 件以上の Q&A",)),
+        PlanSection(
+            "H2", "まとめ", "次に読むべきトピック", ("関連記事への内部リンク",),
+        ),
+    )
+
+
 def build_outline(keyword: str, article_type: ArticleType | None) -> tuple[PlanSection, ...]:
     if article_type is None:
         return (
@@ -491,6 +591,8 @@ def build_outline(keyword: str, article_type: ArticleType | None) -> tuple[PlanS
         ArticleType.COMPARISON_LISTICLE: _comparison_outline,
         ArticleType.HOW_TO: _howto_outline,
         ArticleType.CATEGORY_LANDING: _category_outline,
+        ArticleType.PRICING: _pricing_outline,
+        ArticleType.INFORMATIONAL: _informational_outline,
     }
     return builders[article_type](theme)
 
@@ -514,6 +616,11 @@ def cta_strategy(article_type: ArticleType | None) -> str:
         return (
             "手順完了地点と記事末に関連ツールの CTA を控えめに配置する。"
             "affiliate link の実挿入は approved 後。"
+        )
+    if article_type is ArticleType.PRICING:
+        return (
+            "プラン表の直後と記事末に、対象サービスの公式導線を控えめに置く。"
+            "料金の断定は取得時点付きの事実の範囲に限る。affiliate link の実挿入は approved 後。"
         )
     return (
         "各詳細トピックへの内部リンクを主要 CTA とし、商用リンクは最小限。"

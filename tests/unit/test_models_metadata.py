@@ -87,6 +87,7 @@ def test_all_tables_registered() -> None:
         "articles",
         "article_metrics",
         "article_affiliate_programs",
+        "article_content_subjects",
         "article_facts",
         "keyword_scores",
         "keyword_signals",

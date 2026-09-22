@@ -241,6 +241,11 @@ class ArticlePlanDTO(BaseModel):
     primary_eligible_candidate_count: int | None = None
     no_primary_eligible_candidate: bool | None = None
     # C2.5.8 (追加): monetization mode。「作ってよいか」と「affiliate primary があるか」を分ける
+    # C3: 記事タイプ。article_type は推論の結果 (推奨)、既存 article があればその実効値も出す
+    recommended_article_type: ArticleType | None = None
+    article_type_recommendation_marker: str | None = None
+    existing_article_type: ArticleType | None = None
+    existing_article_type_source: Literal["explicit", "inferred"] | None = None
     recommended_monetization_mode: Literal["affiliate", "supporting"] | None = None
     monetization_recommendation_reason: str | None = None
     # この keyword の既存 (live) article の実効 mode。未承認なら None
@@ -284,6 +289,11 @@ class ArticlePlanApproveRequest(BaseModel):
     # C2.5.8: affiliate = primary 必須 (primary_eligible) / supporting = primary 無し。
     # 省略時は request から決める: primary があれば affiliate、無ければ supporting (後方互換)
     monetization_mode: Literal["affiliate", "supporting"] | None = None
+    # C3: 人が確定する記事タイプ。省略時は keyword からの推論を採用する (後方互換)。
+    # 推論できない keyword (料金 / 無料 / ブランド名など) はここで明示する。
+    article_type: ArticleType | None = None
+    # C3: affiliate 案件に裏付けられない比較対象 (app/config/content_subjects.json の key)
+    content_subject_keys: list[str] = Field(default_factory=list)
     acknowledge_cannibalization: bool = False
     acknowledge_incomplete_plan: bool = False
     notes: str | None = Field(default=None, max_length=2000)
@@ -426,6 +436,11 @@ class FactPackReadiness(BaseModel):
     # 記事タイプが比較対象 (subject) を必要とするか (affiliate とは別の内容要件)
     comparison_subjects_required: bool | None = None
     comparison_subject_count: int | None = None
+    # C3 (追加): 比較対象の内訳。affiliate link に依存しない編集 subject を含む
+    comparison_subject_names: list[str] = Field(default_factory=list)
+    # persisted = 承認時に固定した選択 / legacy_affiliate_links = link からの fallback
+    comparison_subject_source: Literal["persisted", "legacy_affiliate_links"] | None = None
+    non_affiliate_subject_count: int | None = None
 
 
 class FactPackPlanMetadata(BaseModel):

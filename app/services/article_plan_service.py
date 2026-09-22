@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.article import monetization, planning
+from app.article import article_type_resolution, monetization, planning
 from app.article.cluster_plan import template_readiness
 from app.article.planning import ArticleType
 from app.article.schemas import (
@@ -48,6 +48,7 @@ from app.repositories.article_affiliate_program_repository import (
 from app.repositories.article_repository import ArticleRepository
 from app.repositories.keyword_repository import KeywordRepository
 from app.repositories.keyword_signal_repository import KeywordSignalRepository
+from app.services.content_subject_service import ContentSubjectService
 from app.services.status_transitions import ARTICLE_TRANSITIONS, ensure_transition_allowed
 
 _KEYWORD = "Keyword"
@@ -117,7 +118,9 @@ class ArticlePlanService:
         recommended_mode, recommendation_reason = monetization.recommend_mode(
             primary_eligible_count
         )
-        existing, production_blockers = self._production_state(keyword.id, article_type)
+        existing, existing_type, production_blockers = self._production_state(
+            keyword.id, article_type, keyword.keyword
+        )
         supporting_blockers = (
             [monetization.SUBJECTS_UNAVAILABLE]
             if monetization.requires_comparison_subjects(article_type) and not candidates
@@ -179,6 +182,10 @@ class ArticlePlanService:
             ),
             primary_eligible_candidate_count=primary_eligible_count,
             no_primary_eligible_candidate=primary_eligible_count == 0,
+            recommended_article_type=type_result.article_type,
+            article_type_recommendation_marker=type_result.matched_marker,
+            existing_article_type=existing_type.article_type if existing_type else None,
+            existing_article_type_source=existing_type.source if existing_type else None,
             recommended_monetization_mode=recommended_mode,
             monetization_recommendation_reason=recommendation_reason,
             monetization_mode=existing.mode if existing is not None else None,
@@ -211,6 +218,8 @@ class ArticlePlanService:
         self._validate_no_live_article(keyword_id)
         self._validate_slug(payload.slug)
         mode, primary_id, secondary_ids = self._validate_affiliates(plan, payload)
+        selected_type = self._validate_article_type(plan, payload)
+        subject_keys = self._validate_content_subjects(payload)
 
         # 3) writes (単一 transaction)
         try:
@@ -221,6 +230,7 @@ class ArticlePlanService:
                 slug=payload.slug,
                 keyword_id=keyword_id,
                 monetization_mode=mode,
+                article_type=selected_type.value if selected_type is not None else None,
             )
             ensure_transition_allowed(
                 _ARTICLE,
@@ -240,6 +250,15 @@ class ArticlePlanService:
                     article_id=article.id,
                     affiliate_program_id=program_id,
                     is_primary=False,
+                )
+            # C3: 比較対象を承認時点で行として固定する (affiliate 裏付け + 編集 subject)。
+            # 何も無ければ行を作らない -> 読み取りは legacy fallback (link) のままで後方互換。
+            linked_ids = ([primary_id] if primary_id is not None else []) + secondary_ids
+            if linked_ids or subject_keys:
+                ContentSubjectService(self._session).persist_for_new_article(
+                    article.id,
+                    affiliate_program_ids=linked_ids,
+                    editorial_subject_keys=subject_keys,
                 )
             self._session.commit()
         except Exception:
@@ -298,12 +317,17 @@ class ArticlePlanService:
             raise DuplicateEntityError(_ARTICLE, "slug", slug)
 
     def _production_state(
-        self, keyword_id: int, article_type: ArticleType | None
-    ) -> tuple[monetization.EffectiveMode | None, list[str]]:
-        """既存 article の実効 mode と、affiliate 以外の blocker (mode に関わらない)。"""
+        self, keyword_id: int, article_type: ArticleType | None, keyword_text: str
+    ) -> tuple[
+        monetization.EffectiveMode | None,
+        article_type_resolution.EffectiveArticleType | None,
+        list[str],
+    ]:
+        """既存 article の実効 mode / 記事タイプと、affiliate 以外の blocker。"""
 
         blockers: list[str] = []
         existing: monetization.EffectiveMode | None = None
+        existing_type: article_type_resolution.EffectiveArticleType | None = None
         for article in self._articles.list_by_keyword(keyword_id):
             if ArticleStatus(article.status) in _LIVE_ARTICLE_STATUSES:
                 blockers.append(f"live_article_exists:{article.id}")
@@ -312,13 +336,54 @@ class ArticlePlanService:
                     existing = monetization.resolve_effective_mode(
                         article.monetization_mode, self._links.list_by_article(article.id)
                     )
+                    existing_type = article_type_resolution.resolve_article_type(
+                        article.article_type, keyword_text
+                    )
+        # C3: 記事タイプは承認時に人が明示できるので、推論できないこと自体は blocker ではない
+        # (推奨が出ないだけ)。template は確定したタイプに対してだけ検査する。
         if article_type is None:
-            blockers.append("article_type_undetermined")
+            blockers.append("article_type_not_inferred:select_explicitly")
         else:
             template = template_readiness(article_type)
             if not template.ready:
                 blockers.append(f"no_prompt_template:{article_type.value}")
-        return existing, blockers
+        return existing, existing_type, blockers
+
+    def _validate_article_type(
+        self, plan: ArticlePlanDTO, payload: ArticlePlanApproveRequest
+    ) -> ArticleType:
+        """C3: 明示された記事タイプ。省略時は推論値を採用する (後方互換)。
+
+        どちらも決まらなければ template を解決できないので拒否する。
+        """
+
+        selected = payload.article_type or plan.article_type
+        if selected is None:
+            allowed = [t.value for t in ArticleType]
+            raise PlanApprovalError(
+                "article_type could not be inferred from this keyword; pass an explicit "
+                f"article_type (one of {allowed})"
+            )
+        if not template_readiness(selected).ready:
+            raise PlanApprovalError(
+                f"no prompt template exists for article_type={selected.value}"
+            )
+        return selected
+
+    def _validate_content_subjects(self, payload: ArticlePlanApproveRequest) -> list[str]:
+        """C3: 編集 subject key が版管理カタログにあるか (fail-closed)。"""
+
+        keys = list(payload.content_subject_keys)
+        if len(keys) != len(set(keys)):
+            raise PlanApprovalError("content_subject_keys contains duplicates")
+        catalog = ContentSubjectService(self._session).catalog
+        unknown = [k for k in keys if catalog.by_key(k) is None]
+        if unknown:
+            raise PlanApprovalError(
+                f"unknown content_subject_keys {unknown}; declare them in "
+                "app/config/content_subjects.json first"
+            )
+        return keys
 
     def _validate_affiliates(
         self, plan: ArticlePlanDTO, payload: ArticlePlanApproveRequest

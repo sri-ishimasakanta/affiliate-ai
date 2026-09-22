@@ -532,9 +532,11 @@ def test_entries_report_score_components_prerequisites_and_notes() -> None:
     assert by["RPA おすすめ"].components == {"search_demand": 46.49, "competition_ease": 98.0}
     assert by["RPA おすすめ"].opportunity_score == 50.0
     assert by["RPA 導入"].prerequisites[0] == "signals_incomplete:competition_ease|trend"
-    assert "no_prompt_template:how_to" in by["RPA 導入"].prerequisites
+    # C3: how_to の prompt template ができたので、この prerequisite は消えた
+    assert "no_prompt_template:how_to" not in by["RPA 導入"].prerequisites
     assert by["Make 料金"].prerequisites[0] == "unscored"
-    assert "article_type_unclassified" in by["Make 料金"].prerequisites
+    # C3: 料金 keyword は pricing として分類され、template もあるので未分類ではなくなった
+    assert "article_type_unclassified" not in by["Make 料金"].prerequisites
     assert "no_affiliate_match" in by["RPA おすすめ"].notes
 
 
@@ -577,9 +579,12 @@ def test_template_readiness_reflects_the_single_roundup_template() -> None:
         ArticleType.COMPARISON_LISTICLE,
         ArticleType.HOW_TO,
         ArticleType.CATEGORY_LANDING,
+        ArticleType.PRICING,
+        ArticleType.INFORMATIONAL,
     ):
+        # C3: 全記事タイプに type 固有の template がある (roundup 以外も ready)
         result = template_readiness(other)
-        assert not result.ready and other.value in result.reason
+        assert result.ready and result.template_version
     assert template_readiness(None).reason == "article_type_unclassified"
 
 
