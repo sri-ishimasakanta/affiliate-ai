@@ -1,5 +1,5 @@
 {
-  "policy_version": "c8.5",
+  "policy_version": "c8.6",
   "notes": [
     "Operational defaults for the recurring measurement pipeline. These are our own",
     "operating choices (windows, lags, staleness tolerances), NOT guarantees from",
@@ -7,7 +7,8 @@
     "Conservative on purpose: it is better to stay quiet than to page a human about",
     "a provider's normal reporting delay.",
     "This pipeline never writes article content and never calls /go/<token>.",
-    "C8.5: source freshness is judged on IMPORT COVERAGE (did a successful import reach the expected date?), never on DATA ACTIVITY (is the newest metric row recent?). A low-traffic site legitimately produces no new rows for days."
+    "C8.5: source freshness is judged on IMPORT COVERAGE (did a successful import reach the expected date?), never on DATA ACTIVITY (is the newest metric row recent?). A low-traffic site legitimately produces no new rows for days.",
+    "C8.6: the scheduled action is a first-party launcher (scripts/run_operations_task.cmd) so the schtasks /TR argument never contains nested quotes. Daily runs MON-SAT and weekly runs SUN, so Sunday never executes the pipeline twice."
   ],
   "timezone": "Asia/Tokyo",
   "imports": {
@@ -77,9 +78,12 @@
   },
   "scheduler": {
     "recommendation": "windows_task_scheduler",
+    "daily_days": "MON,TUE,WED,THU,FRI,SAT",
     "daily_at": "06:30",
-    "weekly_at": "07:30",
     "weekly_day": "SUN",
-    "log_directory": "D:\\Logs\\affiliate-ai"
+    "weekly_at": "07:30",
+    "log_directory": "D:\\Logs\\affiliate-ai",
+    "run_level": "LIMITED",
+    "launcher": "scripts\\run_operations_task.cmd"
   }
 }
