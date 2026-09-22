@@ -440,3 +440,31 @@ def test_pricing_and_howto_prompts_carry_their_own_discipline(session: Session) 
     assert "それらしい偽の手順を作らないでください" in prompts["howto"]
     assert "前提条件" in prompts["howto"]
     assert prompts["pricing"] != prompts["howto"]
+
+
+def test_fact_pack_uses_the_explicit_article_type_not_the_inference(
+    session: Session,
+) -> None:
+    """C4 canary で見つかった不具合の回帰テスト。
+
+    keyword の推論は comparison_listicle (= 比較対象が必要) でも、人が informational を
+    明示したなら比較対象は要らない。推論値で要件を課してはいけない。
+    """
+
+    _catalog(session)
+    read = _approve(
+        session, "AI 議事録 比較", slug="explicit-informational",
+        monetization_mode="supporting", article_type=ArticleType.INFORMATIONAL,
+    )
+    # 推論は comparison_listicle
+    assert resolve_article_type(None, "AI 議事録 比較").article_type is (
+        ArticleType.COMPARISON_LISTICLE
+    )
+
+    readiness = FactPackService(session).build(read.id, now=NOW).readiness
+
+    # 明示した informational が使われるので比較対象は不要 -> subject 0 件でも止まらない
+    assert readiness.comparison_subjects_required is False
+    assert readiness.comparison_subject_count == 0
+    assert readiness.drafting_allowed is True
+    assert readiness.blocking_reasons == []

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.article import monetization
+from app.article import article_type_resolution, monetization
 from app.article.fact_freshness import ensure_aware, is_fresh, max_age_for
 from app.article.fact_keys import (
     MIN_LIST_LEN,
@@ -197,7 +197,13 @@ class FactPackService:
             article.monetization_mode, self._links.list_by_article(article_id)
         )
         mode = effective.mode
-        article_type = plan_metadata.article_type if plan_metadata is not None else None
+        # C3: 比較対象が要るかどうかは **その記事の実効タイプ** で決める。keyword からの推論は
+        # 推奨でしかないので、人が明示したタイプがあればそちらが正 (推論と食い違う型を選んだ
+        # ときに誤った要件を課さない)。
+        effective_type = article_type_resolution.resolve_article_type(
+            article.article_type, keyword.keyword if keyword is not None else ""
+        )
+        article_type = effective_type.article_type
         subjects_required = monetization.requires_comparison_subjects(article_type)
         blocking = self._blocking_reasons(
             subjects, per_tool_readiness, mode=mode, subjects_required=subjects_required
@@ -208,9 +214,9 @@ class FactPackService:
                 "affiliate_monetization_absent_by_design: supporting content (primary の "
                 "affiliate 無し)。affiliate CTA を置かない。error ではない"
             )
-        if plan_metadata is not None and plan_metadata.article_type is None:
+        if article_type is None:
             warnings.append(
-                "article_type_undetermined: ArticlePlan の記事タイプが未確定"
+                "article_type_undetermined: 記事タイプが未確定 (承認時に明示できる)"
             )
 
         pricing_checked_all = [
