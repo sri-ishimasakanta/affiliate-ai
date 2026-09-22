@@ -1,8 +1,11 @@
 """WordPress dry-run preview の **pre-publication editorial/safety validation** (pure)。
 
 DB / network 非依存。呼び出し側 (service) が Article / matching promotion / rendered
-HTML / source run 由来のメタ (7 tool 名・許可ドメイン) を渡す。結果は Human review 用の
-``validation_report`` であり、``publishable`` は「fail が 0 件」を意味する。
+HTML / source run 由来のメタ (期待見出し数・比較対象名・許可ドメイン) を渡す。結果は
+Human review 用の ``validation_report`` であり、``publishable`` は「fail が 0 件」を意味する。
+
+見出し数の期待値 (``expected_h2_count`` / ``expected_h3_count``) は article type ごとに
+異なるため定数化せず、呼び出し側が plan outline と比較対象数から導出して渡す。
 """
 
 from __future__ import annotations
@@ -54,6 +57,8 @@ def validate_wordpress_publication_preview(
     rendered_h3_count: int,
     rendered_table_count: int,
     rendered_external_links: list[str],
+    expected_h2_count: int,
+    expected_h3_count: int,
     expected_tool_names: list[str],
     allowed_external_domains: set[str],
     affiliate_substitution_count: int,
@@ -162,9 +167,13 @@ def validate_wordpress_publication_preview(
         _check(
             "rendered_structure_h2_h3",
             "pass"
-            if rendered_h2_count == 7 and rendered_h3_count == 7
+            if (
+                rendered_h2_count == expected_h2_count
+                and rendered_h3_count == expected_h3_count
+            )
             else "fail",
-            f"rendered h2={rendered_h2_count} h3={rendered_h3_count} (期待 7/7)",
+            f"rendered h2={rendered_h2_count} h3={rendered_h3_count} "
+            f"(期待 {expected_h2_count}/{expected_h3_count})",
         )
     )
     checks.append(

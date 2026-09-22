@@ -88,14 +88,43 @@ _SLUG_TYPE_TOKEN: dict[ArticleType, str] = {
     ArticleType.INFORMATIONAL: "guide",
 }
 
-_TITLE_TEMPLATE: dict[ArticleType, str] = {
-    ArticleType.RECOMMENDATION_ROUNDUP: "{kw}｜選び方と目的別おすすめ比較",
-    ArticleType.COMPARISON_LISTICLE: "{kw}｜違い・料金・選び方を比較",
-    ArticleType.HOW_TO: "{kw}｜手順と注意点をわかりやすく解説",
-    ArticleType.CATEGORY_LANDING: "{kw}｜意味・種類・選び方の基礎知識",
-    ArticleType.PRICING: "{kw}｜プラン別の料金と選び方",
-    ArticleType.INFORMATIONAL: "{kw}｜要点と実務上の注意点",
+# title の後半部分。keyword 自体が「おすすめ」「比較」「料金」などを含むことは多く、
+# 単一の定型文だと "CRMおすすめ｜選び方と目的別おすすめ比較" のように同じ語が重複する。
+# そのため type ごとに候補を順に持ち、keyword と語が重複しない最初の候補を採用する。
+_TITLE_SUFFIXES: dict[ArticleType, tuple[str, ...]] = {
+    ArticleType.RECOMMENDATION_ROUNDUP: (
+        "選び方と目的別おすすめ比較",
+        "選び方と目的別の比較",
+        "選び方と目的別に整理",
+    ),
+    ArticleType.COMPARISON_LISTICLE: (
+        "違い・料金・選び方を比較",
+        "違い・料金・選び方",
+        "どこが違うのかを整理",
+    ),
+    ArticleType.HOW_TO: (
+        "手順と注意点をわかりやすく解説",
+        "進め方と注意点をわかりやすく解説",
+    ),
+    ArticleType.CATEGORY_LANDING: (
+        "意味・種類・選び方の基礎知識",
+        "押さえておきたい基礎知識",
+    ),
+    ArticleType.PRICING: (
+        "プラン別の料金と選び方",
+        "プラン別の費用と選び方",
+        "プラン別の内訳と選び方",
+    ),
+    ArticleType.INFORMATIONAL: (
+        "要点と実務上の注意点",
+        "押さえておきたい実務上のポイント",
+    ),
 }
+
+# keyword と suffix の両方に現れると読みにくくなる語。
+_TITLE_DUPLICATE_PRONE = (
+    "おすすめ", "比較", "料金", "費用", "違い", "選び方", "手順", "種類", "意味", "注意点",
+)
 
 _TARGET_READER: dict[ArticleType, str] = {
     ArticleType.RECOMMENDATION_ROUNDUP: (
@@ -281,7 +310,13 @@ def working_title(keyword: str, article_type: ArticleType | None) -> str:
     display = display_text(keyword)
     if article_type is None:
         return f"{display}｜（記事タイプ未確定・要 human review）"
-    return _TITLE_TEMPLATE[article_type].format(kw=display)
+    suffixes = _TITLE_SUFFIXES[article_type]
+    for suffix in suffixes:
+        if not any(
+            word in display and word in suffix for word in _TITLE_DUPLICATE_PRONE
+        ):
+            return f"{display}｜{suffix}"
+    return f"{display}｜{suffixes[-1]}"
 
 
 def _slug_base(keyword: str, article_type: ArticleType | None) -> str:

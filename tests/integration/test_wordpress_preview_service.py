@@ -134,3 +134,30 @@ def test_preview_via_api_does_no_writes(api_client, session: Session, wp_unconfi
 def test_preview_missing_article_404(api_client) -> None:
     resp = api_client.post("/api/v1/articles/999999/wordpress-preview")
     assert resp.status_code == 404
+
+
+def test_expected_heading_counts_come_from_plan_outline(session: Session) -> None:
+    """期待見出し数は plan outline から導出する (H3 は候補数だけ繰り返す)。"""
+    ps = promoted_scenario(session)
+    promotion = session.scalars(
+        select(ArticleDraftPromotion).where(
+            ArticleDraftPromotion.article_id == ps.article_id
+        )
+    ).one()
+    subjects = len(promotion.source_run.prompt_package["comparison_tools"])
+    outline = promotion.source_run.prompt_package["plan"]["outline"]
+    h2_rows = sum(1 for row in outline if row.get("level") == "H2")
+    h3_rows = sum(1 for row in outline if row.get("level") == "H3")
+
+    got = WordPressPreviewService._expected_heading_counts(
+        promotion, subject_count=subjects
+    )
+
+    assert got == (h2_rows, h3_rows * subjects)
+
+
+def test_expected_heading_counts_fall_back_without_a_package() -> None:
+    """outline が取れないときだけ従来の 7/7 に落ちる。"""
+    assert WordPressPreviewService._expected_heading_counts(
+        None, subject_count=0
+    ) == (7, 7)

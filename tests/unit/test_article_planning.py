@@ -93,7 +93,7 @@ def test_working_title_deterministic_and_despaced() -> None:
     kw = "業務効率化 ツール おすすめ"
     t1 = working_title(kw, ArticleType.RECOMMENDATION_ROUNDUP)
     assert t1 == working_title(kw, ArticleType.RECOMMENDATION_ROUNDUP)
-    assert t1 == "業務効率化ツールおすすめ｜選び方と目的別おすすめ比較"
+    assert t1 == "業務効率化ツールおすすめ｜選び方と目的別の比較"
     assert "業務効率化ツール" in t1  # 不要な空白なし
     assert working_title(kw, None) != t1  # 未確定は別文言
 
@@ -203,3 +203,23 @@ def test_planning_output_never_contains_tracking_url() -> None:
     text = open(src, encoding="utf-8").read().lower()
     assert "tracking_url" not in text
     assert "http://" not in text and "https://" not in text
+
+
+def test_working_title_does_not_repeat_a_word_the_keyword_already_has() -> None:
+    """keyword が「おすすめ」「比較」「料金」を含んでも title 内で重複させない。"""
+    cases = [
+        ("CRM おすすめ", ArticleType.RECOMMENDATION_ROUNDUP, "おすすめ"),
+        ("AI 議事録 比較", ArticleType.COMPARISON_LISTICLE, "比較"),
+        ("HubSpot 料金", ArticleType.PRICING, "料金"),
+    ]
+    for keyword, article_type, word in cases:
+        title = working_title(keyword, article_type)
+        assert title.count(word) == 1, title
+
+
+def test_working_title_keeps_the_primary_suffix_when_nothing_collides() -> None:
+    """重複が無い keyword では従来どおり先頭の候補を使う。"""
+    assert (
+        working_title("業務効率化 ツール", ArticleType.RECOMMENDATION_ROUNDUP)
+        == "業務効率化ツール｜選び方と目的別おすすめ比較"
+    )

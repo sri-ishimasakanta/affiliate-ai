@@ -57,6 +57,8 @@ def _run(**over):
         rendered_h3_count=r.h3_count,
         rendered_table_count=r.table_count,
         rendered_external_links=r.external_links,
+        expected_h2_count=7,
+        expected_h3_count=7,
         expected_tool_names=_TOOLS,
         allowed_external_domains=_DOMAINS,
         affiliate_substitution_count=0,
@@ -199,3 +201,30 @@ def test_fullwidth_question_mark_does_not_fail() -> None:
 
 def test_meta_too_long_fails() -> None:
     assert "meta_length_ok" in _ids(_run(article_meta_description="あ" * 161), "fail")
+
+
+def test_rendered_structure_expectation_is_supplied_by_caller() -> None:
+    """期待見出し数は定数ではなく引数。7/7 以外の形でも pass できる。"""
+    body = (
+        "本記事は広告（アフィリエイト）を含みます。\n\n"
+        "## 料金プラン一覧\n" + "解説。" * 300 + "\n\n"
+        "| プラン | 料金 |\n|---|---|\n| Free | $0 |\n\n"
+        "## 無料プラン\n無料枠。\n\n"
+        "## 誰に向くか\n適合条件。\n\n"
+        "## FAQ\nQ&A。\n\n"
+        "## まとめ\n結論。\n"
+    )
+    r = render_wordpress_html(body)
+    assert (r.h2_count, r.h3_count) == (5, 0)
+
+    passing = _run(
+        body=body, article_body=body, promotion=_Promo(body_hash=compute_text_hash(body)),
+        expected_h2_count=5, expected_h3_count=0, expected_tool_names=[],
+    )
+    assert "rendered_structure_h2_h3" not in _ids(passing, "fail")
+
+    failing = _run(
+        body=body, article_body=body, promotion=_Promo(body_hash=compute_text_hash(body)),
+        expected_h2_count=7, expected_h3_count=7, expected_tool_names=[],
+    )
+    assert "rendered_structure_h2_h3" in _ids(failing, "fail")

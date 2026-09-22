@@ -40,6 +40,10 @@ _FALLBACK_DOMAINS = {
     "www.pipedrive.com", "reclaim.ai", "todoist.com",
 }
 
+# outline が取れない場合の fallback (7 候補 roundup = article #1 の形)。
+_FALLBACK_H2_COUNT = 7
+_FALLBACK_H3_COUNT = 7
+
 _V1_POST_STATUS = "draft"
 
 
@@ -58,6 +62,9 @@ class WordPressPreviewService:
         promotion = promotions[0] if promotions else None
 
         expected_tools, allowed_domains = self._package_meta(promotion)
+        expected_h2, expected_h3 = self._expected_heading_counts(
+            promotion, subject_count=len(expected_tools)
+        )
 
         rendered = render_wordpress_html(article.body or "")
 
@@ -94,6 +101,8 @@ class WordPressPreviewService:
             rendered_h3_count=rendered.h3_count,
             rendered_table_count=rendered.table_count,
             rendered_external_links=rendered.external_links,
+            expected_h2_count=expected_h2,
+            expected_h3_count=expected_h3,
             expected_tool_names=expected_tools,
             allowed_external_domains=allowed_domains,
             affiliate_substitution_count=len(affiliate_substitutions),
@@ -225,6 +234,23 @@ class WordPressPreviewService:
             blocking_reasons=blocking,
             wordpress_configured=get_settings().wordpress_configured,
         )
+
+    @staticmethod
+    def _expected_heading_counts(promotion, *, subject_count: int) -> tuple[int, int]:
+        """plan outline から期待見出し数を導出する。
+
+        outline の H3 行は「各候補（候補数だけ繰り返し）」という繰り返し指示なので、
+        期待 H3 数は ``outline の H3 行数 × 比較対象数``。outline が取れない場合のみ
+        従来の 7/7 (7 候補の roundup) に fallback する。
+        """
+        run = getattr(promotion, "source_run", None) if promotion is not None else None
+        pkg = getattr(run, "prompt_package", None) if run is not None else None
+        outline = ((pkg or {}).get("plan") or {}).get("outline") or []
+        if not outline:
+            return _FALLBACK_H2_COUNT, _FALLBACK_H3_COUNT
+        h2 = sum(1 for row in outline if row.get("level") == "H2")
+        h3_rows = sum(1 for row in outline if row.get("level") == "H3")
+        return h2, h3_rows * subject_count
 
     @staticmethod
     def _package_meta(promotion) -> tuple[list[str], set[str]]:
