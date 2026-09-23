@@ -18,12 +18,16 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from app.social.threads.policy import ThreadsStylePolicy
-from app.social.threads.proposal import LINK_MODE_ARTICLE, LINK_MODE_NONE, ThreadsProposal
+from app.social.threads.proposal import (
+    LINK_MODE_ARTICLE,
+    LINK_MODE_NONE,
+    ThreadsProposal,
+    canonical_identity,
+)
 
 #: 制御文字 (改行とタブは許す)。
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -172,9 +176,13 @@ def _check_style(text: str, policy: ThreadsStylePolicy, result: ValidationResult
 
 
 def normalized_identity(text: str) -> str:
-    """重複判定に使う正規形 (表記ゆれだけを均す)。"""
+    """重複判定に使う正規形。
 
-    return unicodedata.normalize("NFKC", (text or "").strip()).casefold()
+    投稿される文字列 (:func:`~app.social.threads.proposal.normalize_text`) とは
+    別物で、こちらは NFKC まで畳んで「？」と「?」の違いを吸収する。
+    """
+
+    return canonical_identity(text).casefold()
 
 
 def find_duplicates(proposals) -> list[tuple[int, int]]:

@@ -234,3 +234,28 @@ def test_duplicates_are_detected_after_normalization() -> None:
 
 def test_normalization_only_evens_out_spacing() -> None:
     assert normalize_text("a  b　c\n\n\n\nd") == "a b c\n\nd"
+
+
+# -- the approved text is the text that gets posted ------------------------------
+def test_japanese_punctuation_survives_into_the_publish_text() -> None:
+    """人が承認した文字がそのまま投稿される (NFKC で畳まない)。"""
+
+    proposal = _build("どこから手をつけた？　（別添7）を開く。")
+
+    assert "？" in proposal.publish_text
+    assert "（別添7）" in proposal.publish_text
+    assert "?" not in proposal.publish_text
+    assert _validate(proposal).ok
+
+
+def test_identity_still_folds_width_differences() -> None:
+    """表記幅だけ違う案は、別物として二重に作らない。"""
+
+    from app.social.threads.proposal import canonical_identity
+
+    full = _build("どこから手をつけた？")
+    half = _build("どこから手をつけた?")
+
+    assert full.publish_text != half.publish_text
+    assert canonical_identity(full.publish_text) == canonical_identity(half.publish_text)
+    assert find_duplicates([full, half]) == [(0, 1)]

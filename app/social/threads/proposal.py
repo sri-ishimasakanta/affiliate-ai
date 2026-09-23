@@ -96,15 +96,29 @@ class ThreadsProposal:
 
 
 def normalize_text(text: str) -> str:
-    """比較と hash に使う正規形。
+    """**投稿される文字列** の整形。空白まわりだけを均す。
 
-    表記ゆれ (全角空白・連続空白・行末空白・過剰な空行) だけを均し、本文の意味は
-    変えない。重複判定もこの正規形で行う。
+    NFKC はここでは **かけない**。日本語の「？」「（）」を半角へ畳んでしまうと、
+    人が承認した文字とは別の文字が投稿されることになる。表記の統一より、
+    承認したものがそのまま出ることのほうが大事である。
+
+    ここでやるのは改行コードの統一、行末の空白落とし、連続空白の圧縮、過剰な
+    空行の圧縮だけ。
     """
 
-    normalized = unicodedata.normalize("NFKC", text or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = [_WHITESPACE_RE.sub(" ", line).strip() for line in normalized.split("\n")]
     return _BLANKLINES_RE.sub("\n\n", "\n".join(lines)).strip()
+
+
+def canonical_identity(text: str) -> str:
+    """**同一性の判定** に使う正規形。こちらは NFKC まで畳む。
+
+    「？」と「?」の違いだけで別の提案として扱わないため。投稿される文字列は
+    :func:`normalize_text` のほうで、元の表記のまま残る。
+    """
+
+    return unicodedata.normalize("NFKC", normalize_text(text))
 
 
 def compute_content_seed(
@@ -128,7 +142,7 @@ def compute_content_seed(
             str(source_article_body_hash),
             str(angle),
             str(link_mode),
-            normalize_text(draft_body),
+            canonical_identity(draft_body),
             str(policy_version),
             str(generator_version),
         ]
