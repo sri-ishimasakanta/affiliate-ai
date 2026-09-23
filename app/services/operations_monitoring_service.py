@@ -56,6 +56,16 @@ class OperationsMonitoringService:
         self._policy = policy or get_policy()
         self._notifiers = notifiers
 
+    def _threads_health_drafts(self) -> list:
+        """Threads 連携の故障だけを草案にする。失敗しても監視全体を壊さない。"""
+
+        from app.services.threads_insights_service import ThreadsInsightsService
+
+        try:
+            return ThreadsInsightsService(self._session, settings=self._settings).alert_drafts()
+        except Exception:  # noqa: BLE001 - Threads が未設定でも監視は続ける
+            return []
+
     def evaluate(self, *, outcome, now: datetime | None = None, today: date | None = None) -> dict:
         now = now or datetime.now(UTC)
         today = today or now.date()
@@ -96,6 +106,10 @@ class OperationsMonitoringService:
         ):
             changes += compare_candidates(engine=engine, previous=previous, current=current)
         drafts += evaluate_candidate_changes(changes=changes, policy=self._policy)
+
+        # T4: Threads は「計測が壊れているか」だけを見る。
+        # **成績 (views/いいね) ではアラートを 1 件も作らない。**
+        drafts += self._threads_health_drafts()
 
         drafts += evaluate_automation_health(
             run_status=outcome.status,

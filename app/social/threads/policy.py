@@ -120,3 +120,70 @@ def load_policy(path: Path | str | None = None) -> ThreadsStylePolicy:
 @lru_cache
 def get_policy() -> ThreadsStylePolicy:
     return load_policy()
+
+
+@dataclass(frozen=True)
+class ThreadsMeasurementPolicy:
+    """計測の閾値 (T4)。境界はコードではなく JSON に置く。"""
+
+    policy_version: str
+    raw: dict[str, Any]
+
+    def section(self, name: str) -> dict[str, Any]:
+        value = self.raw.get(name)
+        return value if isinstance(value, dict) else {}
+
+    @property
+    def maturity_hours(self) -> dict[str, float]:
+        raw = self.section("maturity_hours")
+        return {
+            "just_published": float(raw.get("just_published", 1)),
+            "early_observation": float(raw.get("early_observation", 24)),
+            "initial_sample": float(raw.get("initial_sample", 72)),
+        }
+
+    def maturity_note(self, stage: str) -> str:
+        return str(self.section("maturity_notes").get(stage, ""))
+
+    @property
+    def minimum_mature_posts(self) -> int:
+        return int(self.section("comparison").get("minimum_mature_posts_per_dimension", 3))
+
+    @property
+    def minimum_views_for_ratio(self) -> int:
+        return int(self.section("comparison").get("minimum_views_for_ratio", 30))
+
+    @property
+    def length_buckets(self) -> list[dict[str, Any]]:
+        value = self.raw.get("length_buckets")
+        return list(value) if isinstance(value, list) else []
+
+    @property
+    def metric_caveats(self) -> dict[str, str]:
+        return {str(k): str(v) for k, v in self.section("metric_caveats").items()}
+
+    @property
+    def unsupported_metrics(self) -> tuple[str, ...]:
+        value = self.raw.get("unsupported_metrics")
+        return tuple(str(v) for v in value) if isinstance(value, list) else ()
+
+
+_MEASUREMENT_PATH = (
+    Path(__file__).resolve().parents[2] / "config" / "threads_measurement_policy.json"
+)
+
+
+def load_measurement_policy(path: Path | str | None = None) -> ThreadsMeasurementPolicy:
+    target = Path(path) if path is not None else _MEASUREMENT_PATH
+    document = json.loads(target.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("threads measurement policy must be a JSON object")
+    version = document.get("policy_version")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("threads measurement policy must declare a policy_version")
+    return ThreadsMeasurementPolicy(policy_version=version, raw=document)
+
+
+@lru_cache
+def get_measurement_policy() -> ThreadsMeasurementPolicy:
+    return load_measurement_policy()

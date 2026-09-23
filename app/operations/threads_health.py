@@ -1,0 +1,123 @@
+"""Threads 連携の健全性アラート (T4、pure)。
+
+**成績はアラートにしない。** view が伸びないことも、いいねが 0 であることも、
+運用の障害ではない。ここで警告にするのは「計測そのものが壊れている」ときだけ
+である:
+
+- 資格情報が使えない (auth / permission)
+- 取り込みが繰り返し失敗している
+- 公開済み投稿が読めなくなった (削除・非公開・ID 不整合)
+- 公開されている文字列が、承認された文字列と一致しなくなった
+
+閾値ではなく **状態** で判定するので、母数が少ない時期でも誤警報を出さない。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from app.operations.monitoring import AUTOMATION_HEALTH, IMPORT_FAILURE, AlertDraft
+from app.operations.policy import SEVERITY_ERROR, SEVERITY_WARNING
+
+#: 「設定か資格情報を直すまで、何度試しても通らない」種類の失敗。
+FATAL_CATEGORIES = ("threads_auth", "threads_permission", "threads_not_configured")
+#: 時間をおけば直りうる失敗。1 回では警告にしない。
+TRANSIENT_CATEGORIES = ("threads_rate_limit", "threads_server", "threads_timeout")
+
+
+@dataclass(frozen=True)
+class ThreadsHealthInput:
+    """アラート判定に必要な事実だけ。指標の **値は含めない**。"""
+
+    publication_id: int
+    failure_category: str | None = None
+    failure_reason: str | None = None
+    consecutive_failures: int = 0
+    media_readable: bool = True
+    text_matches_approved: bool = True
+
+
+def build_threads_alert_drafts(
+    inputs: list[ThreadsHealthInput], *, repeated_failure_threshold: int = 3
+) -> list[AlertDraft]:
+    """計測の故障だけを警告に変える。**成績は 1 件も見ていない。**"""
+
+    drafts: list[AlertDraft] = []
+    for item in inputs:
+        category = item.failure_category
+        if category in FATAL_CATEGORIES:
+            drafts.append(
+                AlertDraft(
+                    alert_type=IMPORT_FAILURE,
+                    severity=SEVERITY_ERROR,
+                    source="threads_insights",
+                    title=f"Threads の指標を取得できない ({category})",
+                    summary=(
+                        "資格情報か権限の問題で Threads の指標が読めない。"
+                        "直すまで再試行しても通らない。"
+                    ),
+                    fingerprint=f"threads_insights:{category}",
+                    evidence={
+                        "publication_id": item.publication_id,
+                        "category": category,
+                        # reason は ThreadsError 側で redact 済み。token は入らない。
+                        "reason": item.failure_reason,
+                    },
+                )
+            )
+            continue
+        if category in TRANSIENT_CATEGORIES and item.consecutive_failures >= (
+            repeated_failure_threshold
+        ):
+            drafts.append(
+                AlertDraft(
+                    alert_type=IMPORT_FAILURE,
+                    severity=SEVERITY_WARNING,
+                    source="threads_insights",
+                    title=f"Threads の指標取得が {item.consecutive_failures} 回続けて失敗",
+                    summary="一時的な失敗が続いている。回数だけを事実として記録する。",
+                    fingerprint=f"threads_insights:repeated:{item.publication_id}",
+                    evidence={
+                        "publication_id": item.publication_id,
+                        "category": category,
+                        "consecutive_failures": item.consecutive_failures,
+                    },
+                )
+            )
+            continue
+        if not item.media_readable:
+            drafts.append(
+                AlertDraft(
+                    alert_type=AUTOMATION_HEALTH,
+                    severity=SEVERITY_WARNING,
+                    source="threads_insights",
+                    title="公開済み Threads 投稿が読めない",
+                    summary="削除・非公開・ID の不整合のいずれか。人が確認する必要がある。",
+                    fingerprint=f"threads_media_unreadable:{item.publication_id}",
+                    evidence={"publication_id": item.publication_id},
+                )
+            )
+        if not item.text_matches_approved:
+            drafts.append(
+                AlertDraft(
+                    alert_type=AUTOMATION_HEALTH,
+                    severity=SEVERITY_ERROR,
+                    source="threads_insights",
+                    title="公開中の文面が、承認された文面と一致しない",
+                    summary=(
+                        "人が承認したのとは違う文字列が公開されている。"
+                        "承認の意味が失われるため、内容を確認する。"
+                    ),
+                    fingerprint=f"threads_text_drift:{item.publication_id}",
+                    evidence={"publication_id": item.publication_id},
+                )
+            )
+    return drafts
+
+
+__all__ = [
+    "FATAL_CATEGORIES",
+    "TRANSIENT_CATEGORIES",
+    "ThreadsHealthInput",
+    "build_threads_alert_drafts",
+]

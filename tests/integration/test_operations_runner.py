@@ -37,6 +37,7 @@ from app.services.operations_runner_service import (
     STEP_REVENUE_CANDIDATES,
     STEP_SEARCH_CONSOLE,
     STEP_SEO_CANDIDATES,
+    STEP_THREADS_INSIGHTS,
     OperationsRunner,
     StepOutcome,
 )
@@ -391,3 +392,55 @@ def test_recurrence_reopens_a_resolved_alert(session: Session) -> None:
     row = session.scalars(select(OperationsAlert)).one()
     assert row.status == "open"
     assert row.resolved_at is None
+
+
+# ==================== threads insights step (T4) ==============================
+def test_threads_insights_runs_daily_and_weekly(session: Session) -> None:
+    daily = _runner(session).plan(profile="daily", now=_NOW)
+    weekly = _runner(session).plan(profile="weekly", now=_NOW)
+
+    assert STEP_THREADS_INSIGHTS in [s.step_name for s in daily.steps]
+    assert STEP_THREADS_INSIGHTS in [s.step_name for s in weekly.steps]
+
+
+def test_threads_insights_depends_on_nothing(session: Session) -> None:
+    """**他の取り込みから切り離してある。** 上流が倒れても計測は止まらない。"""
+
+    from app.services.operations_runner_service import STEP_DEPENDENCIES
+
+    assert STEP_DEPENDENCIES.get(STEP_THREADS_INSIGHTS) is None
+
+    overrides = _all_ok({name: _fail(name, RuntimeError("x")) for name in (STEP_SEARCH_CONSOLE,)})
+    outcome = _runner(session, overrides=overrides).execute(profile="daily", now=_NOW)
+    step = outcome.step(STEP_THREADS_INSIGHTS)
+    assert step is not None and step.status == "succeeded"
+
+
+def test_threads_insights_failure_does_not_break_the_other_steps(session: Session) -> None:
+    overrides = _all_ok({STEP_THREADS_INSIGHTS: _fail(STEP_THREADS_INSIGHTS, RuntimeError("x"))})
+    outcome = _runner(session, overrides=overrides).execute(profile="daily", now=_NOW)
+
+    assert outcome.step(STEP_THREADS_INSIGHTS).status == "failed"
+    assert outcome.step(STEP_SEARCH_CONSOLE).status == "succeeded"
+    assert outcome.status == "partial"
+
+
+def test_threads_insights_plan_declares_zero_writes(session: Session) -> None:
+    outcome = _runner(session).plan(profile="daily", now=_NOW)
+    step = next(s for s in outcome.steps if s.step_name == STEP_THREADS_INSIGHTS)
+    assert step.result == {"read_only": True, "threads_writes": 0}
+
+
+def test_unconfigured_threads_is_not_an_incident(session: Session) -> None:
+    """Threads を使っていないことは障害ではない。**毎日の異常メールを出さない。**"""
+
+    overrides = _all_ok()
+    # このステップだけ本体を動かす。_Settings には Threads の設定が無い。
+    overrides.pop(STEP_THREADS_INSIGHTS)
+    outcome = _runner(session, overrides=overrides).execute(profile="daily", now=_NOW)
+    step = outcome.step(STEP_THREADS_INSIGHTS)
+
+    assert step.status == "succeeded"
+    assert step.result["configured"] is False
+    assert step.result["threads_writes"] == 0
+    assert outcome.status == "succeeded"

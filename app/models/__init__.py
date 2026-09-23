@@ -198,6 +198,13 @@ from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.seo_improvement_candidate import SeoImprovementCandidate
 from app.models.seo_improvement_run import SeoImprovementRun
 from app.models.source import Source
+from app.models.threads_insight_snapshot import (
+    SNAPSHOT_EMPTY,
+    SNAPSHOT_FAILED,
+    SNAPSHOT_OBSERVED,
+    SNAPSHOT_OUTCOMES,
+    ThreadsInsightSnapshot,
+)
 from app.models.threads_post_proposal import (
     TP_APPROVED,
     TP_AWAITING_APPROVAL,
@@ -257,6 +264,11 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "SNAPSHOT_EMPTY",
+    "SNAPSHOT_FAILED",
+    "SNAPSHOT_OBSERVED",
+    "SNAPSHOT_OUTCOMES",
+    "ThreadsInsightSnapshot",
     "PUB_CONTAINER_CREATED",
     "PUB_CREATING",
     "PUB_FAILED",

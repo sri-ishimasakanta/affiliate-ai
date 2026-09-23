@@ -52,6 +52,7 @@ STEP_MAKE_COMMISSIONS = "import_make_commissions"
 STEP_INDEXABILITY = "check_indexability"
 STEP_SEO_CANDIDATES = "evaluate_seo_candidates"
 STEP_REVENUE_CANDIDATES = "evaluate_revenue_candidates"
+STEP_THREADS_INSIGHTS = "import_threads_insights"
 STEP_MONITORING = "evaluate_monitoring"
 
 DAILY_STEPS = (
@@ -62,6 +63,7 @@ DAILY_STEPS = (
     STEP_INDEXABILITY,
     STEP_SEO_CANDIDATES,
     STEP_REVENUE_CANDIDATES,
+    STEP_THREADS_INSIGHTS,
     STEP_MONITORING,
 )
 WEEKLY_STEPS = DAILY_STEPS
@@ -295,6 +297,8 @@ class OperationsRunner:
             return {"days": self._policy.import_config("make_commissions").get("days")}
         if name == STEP_INDEXABILITY:
             return {"inspect": self._inspect_enabled(profile)}
+        if name == STEP_THREADS_INSIGHTS:
+            return {"read_only": True, "threads_writes": 0}
         if name in (STEP_SEO_CANDIDATES, STEP_REVENUE_CANDIDATES):
             return {"window_days": self._policy.gate("candidates", "window_days", 30)}
         return {}
@@ -550,6 +554,52 @@ class OperationsRunner:
                     "idempotency_key": key,
                 },
             )
+
+    def _step_import_threads_insights(self, *, now, **_kwargs) -> StepOutcome:
+        """Threads の指標を読むだけの独立ステップ (T4)。
+
+        **他のステップから切り離してある。** ここが失敗しても SEO/収益の取り込み
+        にも候補評価にも影響しない。逆に、依存もしない。
+
+        書き込むのは観測 1 行だけで、投稿も承認も公開も行わない。
+        """
+
+        from app.services.threads_insights_service import ThreadsInsightsService
+        from app.social.threads.service import ThreadsService
+
+        status = ThreadsService(self._settings).describe()
+        if not (status.enabled and status.configured):
+            # Threads を使っていないことは障害ではない。ここで SKIPPED を返すと run が
+            # partial に落ち、毎日「異常」メールが飛ぶ。取り込むものが無いと分かった
+            # のだから、事実としては成功である。
+            return StepOutcome(
+                step_name=STEP_THREADS_INSIGHTS,
+                status=OPS_SUCCEEDED,
+                rows_received=0,
+                rows_changed=0,
+                result={
+                    "configured": False,
+                    "reason": "threads integration is not configured; nothing to import",
+                    "threads_writes": 0,
+                },
+            )
+
+        with self._session_factory() as session:
+            result = ThreadsInsightsService(session, settings=self._settings).collect(
+                execute=True, now=now
+            )
+        return StepOutcome(
+            step_name=STEP_THREADS_INSIGHTS,
+            status=OPS_SUCCEEDED if result.failed == 0 else OPS_PARTIAL,
+            rows_received=result.checked,
+            rows_changed=result.imported,
+            result={
+                "imported": result.imported,
+                "unchanged": result.unchanged,
+                "failed": result.failed,
+                "threads_writes": 0,
+            },
+        )
 
     def _step_evaluate_monitoring(self, *, outcome, now, effective_date, **_kwargs) -> StepOutcome:
         """監視は :class:`OperationsMonitoringService` に委譲する (循環 import を避ける)。"""
