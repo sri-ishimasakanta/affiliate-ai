@@ -24,6 +24,7 @@ from app.models import (
     KeywordScore,
     KeywordScoreSignal,
     KeywordSignal,
+    NotificationDelivery,
     OperationsAlert,
     OperationsLock,
     OperationsRun,
@@ -109,6 +110,8 @@ IMMUTABLE_HISTORY_MODELS = (
     # ChangeRequest 自身は status が進むため mutable (updated_at を持つ)。
     ChangeRequestApproval,
     ChangeApplication,
+    # 通知の送信試行 (append-only)。成功も失敗も上書きしない。
+    NotificationDelivery,
 )
 
 
@@ -144,6 +147,7 @@ def test_all_tables_registered() -> None:
         "change_requests",
         "change_request_approvals",
         "change_applications",
+        "notification_deliveries",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

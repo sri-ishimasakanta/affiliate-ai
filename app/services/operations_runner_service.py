@@ -247,7 +247,36 @@ class OperationsRunner:
                 )
 
         self._finalize(outcome)
+        self._notify(outcome, now=now)
         return outcome
+
+    # -- notification ---------------------------------------------------------
+    def _notify(self, outcome: OperationsOutcome, *, now: datetime) -> None:
+        """メール通知を試みる。**失敗しても取り込み結果を壊さない**。
+
+        判断は :class:`OperationsNotificationService` に委譲する (日次は異常時
+        のみ / 週次は必ず 1 通)。通知はここで例外を吸収し、結果を note として
+        残すだけにする -- パイプラインの成否を通知の成否で書き換えない。
+        """
+
+        if outcome.run_id is None or outcome.plan_only:
+            return
+        from app.services.operations_notification_service import (
+            OperationsNotificationService,
+        )
+
+        try:
+            with self._session_factory() as session:
+                result = OperationsNotificationService(
+                    session, settings=self._settings, policy=self._policy
+                ).notify_run(operations_run_id=outcome.run_id, now=now)
+        except Exception as exc:  # noqa: BLE001 - 通知失敗は上位を壊さない
+            outcome.notes.append(f"notification failed: {type(exc).__name__}")
+            return
+        if result.sent:
+            outcome.notes.append(f"notification sent: {result.notification_type}")
+        elif result.reason:
+            outcome.notes.append(f"notification not sent: {result.reason}")
 
     # -- steps ----------------------------------------------------------------
     def _steps_for(self, profile: str) -> tuple[str, ...]:

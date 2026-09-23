@@ -35,6 +35,7 @@ _FORBIDDEN_KEY_PARTS = (
     "api_key",
     "tracking_url",
     "webhook",
+    "smtp",
 )
 #: 値に含まれていたら伏せる URL パターン (/go/ の token と ASP の tracking URL)。
 _FORBIDDEN_VALUE_RE = re.compile(r"https?://[^\s\"']*/go/[^\s\"']+", re.IGNORECASE)
@@ -142,11 +143,24 @@ class WebhookNotifier:
         return NotificationResult(self.name, False, f"HTTP {response.status_code}")
 
 
-def build_notifiers(settings, *, writer=print, http_client=None) -> list[Notifier]:
-    """設定から利用可能なプロバイダを作る。Webhook は未設定なら **作らない**。"""
+def build_notifiers(
+    settings, *, writer=print, http_client=None, smtp_factory=None
+) -> list[Notifier]:
+    """設定から利用可能なプロバイダを作る。
+
+    Webhook もメールも **未設定なら作らない**。ログ通知だけは常に残るので、
+    外部送信が落ちても運用記録は失われない。
+    """
 
     notifiers: list[Notifier] = [LogNotifier(writer=writer)]
     url = getattr(settings, "operations_webhook_url", None)
     if isinstance(url, str) and url.strip().startswith("https://"):
         notifiers.append(WebhookNotifier(url.strip(), http_client=http_client))
+
+    # 循環 import を避けるため遅延 import する (email は notifications に依存する)。
+    from app.operations.email import build_email_notifier
+
+    email = build_email_notifier(settings, smtp_factory=smtp_factory)
+    if email is not None:
+        notifiers.append(email)
     return notifiers

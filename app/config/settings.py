@@ -66,6 +66,23 @@ class Settings(BaseSettings):
     # 設定されているときだけ Webhook 通知が有効になる。値は DB にもログにも出さない。
     operations_webhook_url: str | None = None
 
+    # --- 運用メール (C8.7) ---
+    # 明示的に有効化したときだけ SMTP に接続する。既定は無効で、未設定でも
+    # 取り込み・評価・監視はそのまま動く。
+    # password は **DB にも log にも alert evidence にも例外にも出さない**。
+    # 宛先はソースに定数で書かず、環境 / .env から読む。
+    operations_email_enabled: bool = False
+    operations_email_smtp_host: str | None = None
+    operations_email_smtp_port: int = 587
+    operations_email_username: str | None = None
+    operations_email_password: str | None = None
+    operations_email_from: str | None = None
+    #: カンマ区切りで複数指定できる (本番は 1 件)。
+    operations_email_to: str | None = None
+    operations_email_use_starttls: bool = True
+    #: 件名の接頭辞。運用者がどの環境から来たかを見分けるため。
+    operations_email_subject_prefix: str = "BizFluxLab"
+
     # Affiliate redirect runtime (WordPress MU-plugin, Phase 3C-5F-D)。
     # base URL は wordpress_base_url を再利用する。共有 HMAC 鍵は projection を
     # **push (execute)** するときだけ必須。plan / dry-run では不要。default は置かない。
@@ -131,6 +148,27 @@ class Settings(BaseSettings):
         (token の妥当性検証はしない — 実際の呼び出しで 401 として現れる)。"""
 
         return bool(self.make_api_base_url and self.make_api_token)
+
+    @property
+    def operations_email_recipients(self) -> list[str]:
+        """設定された宛先。空白やカンマの揺れを吸収する。"""
+
+        raw = self.operations_email_to or ""
+        return [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+
+    @property
+    def operations_email_configured(self) -> bool:
+        """SMTP 送信に必要な設定が揃っているか (有効化されていることを含む)。
+
+        password の中身は検証しない -- 実際の送信で認証エラーとして現れる。
+        """
+
+        return bool(
+            self.operations_email_enabled
+            and self.operations_email_smtp_host
+            and self.operations_email_from
+            and self.operations_email_recipients
+        )
 
     @property
     def google_ads_configured(self) -> bool:
