@@ -210,5 +210,93 @@ contains( $body_only, "defined( 'BFL_APPROVAL_RELAY_SECRET' )", 'the relay reads
 lacks( $body_only, 'BFL_AFFILIATE_RUNTIME_SECRET', 'the relay never reads the affiliate constant' );
 
 
+/* -- browser cookie seam (C8.8.2) ---------------------------------------- *
+ * The first production rejection failed because the confirmation cookie was
+ * scoped to the review page prefix while the decision POST goes to the REST
+ * namespace. Nothing in the old suite modelled cookie delivery, so nothing
+ * caught it. These tests model RFC 6265 directly.
+ */
+$REST_BASE = '/wp-json/affiliate-ai/v1/';
+$ROUTES    = bfl_approval_review_routes( $REST_BASE );
+
+eq( $ROUTES['exchange'], '/wp-json/affiliate-ai/v1/approval-review/exchange', 'the exchange route is derived from the REST base' );
+eq( $ROUTES['decide'], '/wp-json/affiliate-ai/v1/approval-review/decide', 'the decide route is derived from the REST base' );
+
+// The cookie scope and the routes come from the SAME base, so they cannot drift.
+eq( bfl_approval_path_matches( $ROUTES['exchange'], $REST_BASE ), true, 'the cookie reaches the exchange endpoint' );
+eq( bfl_approval_path_matches( $ROUTES['decide'], $REST_BASE ), true, 'the cookie reaches the decide endpoint' );
+
+// The exact production bug, pinned as a regression.
+eq( bfl_approval_path_matches( $ROUTES['decide'], '/bfl-approval/' ), false, 'the OLD page-prefix scope would not reach decide (the C8.8 bug)' );
+
+// Scope stays narrow: not the whole site.
+eq( $REST_BASE === '/', false, 'the cookie scope is not the site root' );
+foreach ( array( '/', '/wp-admin/', '/go/example', '/bfl-approval/example', '/wp-json/other/v1/x' ) as $elsewhere ) {
+	eq( bfl_approval_path_matches( $elsewhere, $REST_BASE ), false, "the cookie is not sent to {$elsewhere}" );
+}
+
+// RFC 6265 5.1.4 edge cases.
+eq( bfl_approval_path_matches( '/a/b', '/a/b' ), true, 'an exact path matches' );
+eq( bfl_approval_path_matches( '/a/b/c', '/a/b' ), true, 'a prefix followed by / matches' );
+eq( bfl_approval_path_matches( '/a/bc', '/a/b' ), false, 'a partial segment does not match' );
+eq( bfl_approval_path_matches( '/a', '' ), false, 'an empty cookie path never matches' );
+
+/* -- the full browser sequence, without a browser ------------------------- */
+$NONCE         = bin2hex( str_repeat( 'ab', 32 ) );
+$STORED_DIGEST = hash( 'sha256', $NONCE );
+$pending       = array( 'state' => BFL_Approval_State::PENDING, 'expires_at_unix' => $NOW + 3600 );
+
+/** Deliver the cookie only if a real browser would. */
+function cookie_for( string $request_path, string $cookie_path, string $value ) : string {
+	return bfl_approval_path_matches( $request_path, $cookie_path ) ? $value : '';
+}
+
+// 1) GET shell -> sets nothing, reads nothing (already covered above).
+// 2) exchange -> issues the nonce cookie scoped to $REST_BASE.
+// 3) reject POST at the EXACT route the JS uses.
+$delivered = cookie_for( $ROUTES['decide'], $REST_BASE, $NONCE );
+eq( $delivered, $NONCE, 'the browser delivers the cookie to the decide route' );
+
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $pending, $delivered, $STORED_DIGEST, $NONCE, $NOW );
+eq( array( $ok, $reason, $status ), array( true, 'ok', 200 ), 'a real reject POST passes the decision guard' );
+
+// Under the OLD scope the same sequence fails -- this is what production hit.
+$old_delivered = cookie_for( $ROUTES['decide'], '/bfl-approval/', $NONCE );
+eq( $old_delivered, '', 'under the old scope no cookie is delivered' );
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $pending, $old_delivered, $STORED_DIGEST, $NONCE, $NOW );
+eq( array( $ok, $reason, $status ), array( false, 'session_not_found', 403 ), 'the old scope reproduces the production failure' );
+
+/* -- negative cases ------------------------------------------------------- */
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $pending, '', $STORED_DIGEST, $NONCE, $NOW );
+eq( array( $reason, $status ), array( 'session_not_found', 403 ), 'a POST without the cookie is refused' );
+
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $pending, $NONCE, $STORED_DIGEST, 'wrong-nonce', $NOW );
+eq( array( $reason, $status ), array( 'session_not_found', 403 ), 'a missing/incorrect nonce header is refused' );
+
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $pending, 'other-cookie', $STORED_DIGEST, 'other-cookie', $NOW );
+eq( array( $reason, $status ), array( 'session_not_found', 403 ), 'a cookie from another session is refused' );
+
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $pending, $NONCE, null, $NONCE, $NOW );
+eq( array( $reason, $status ), array( 'session_not_found', 403 ), 'an expired review transient is refused' );
+
+$decided = array( 'state' => BFL_Approval_State::DECIDED, 'expires_at_unix' => $NOW + 3600 );
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $decided, $NONCE, $STORED_DIGEST, $NONCE, $NOW );
+eq( array( $reason, $status ), array( 'already_decided', 409 ), 'a duplicate POST is idempotent, not a second decision' );
+
+$expired = array( 'state' => BFL_Approval_State::PENDING, 'expires_at_unix' => $NOW - 1 );
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $expired, $NONCE, $STORED_DIGEST, $NONCE, $NOW );
+eq( array( $reason, $status ), array( 'session_expired', 409 ), 'an expired session fails safely' );
+
+$revoked = array( 'state' => BFL_Approval_State::REVOKED, 'expires_at_unix' => $NOW + 3600 );
+list( $ok, $reason, $status ) = bfl_approval_decision_guard( $revoked, $NONCE, $STORED_DIGEST, $NONCE, $NOW );
+eq( array( $reason, $status ), array( 'session_not_pending', 409 ), 'a revoked session fails safely' );
+
+/* -- the plugin wires the cookie to the same base as the routes ----------- */
+$plugin_src = (string) file_get_contents( __DIR__ . '/../../bizfluxlab-approval-relay.php' );
+contains( $plugin_src, "'path'     => bfl_approval_rest_base()", 'the cookie path is derived from the REST base' );
+contains( $plugin_src, 'bfl_approval_review_routes( bfl_approval_rest_base() )', 'the page routes come from the same base' );
+lacks( $plugin_src, "'path'     => BFL_APPROVAL_PAGE_PREFIX", 'the cookie is no longer scoped to the review page prefix' );
+
+
 fwrite( STDOUT, "\n{$PASS} passed, {$FAIL} failed\n" );
 exit( $FAIL > 0 ? 1 : 0 );

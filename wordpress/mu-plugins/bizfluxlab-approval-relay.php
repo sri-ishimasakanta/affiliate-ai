@@ -53,8 +53,10 @@ if ( ! defined( 'BFL_APPROVAL_RELAY_LOADED' ) ) {
 	define( 'BFL_APPROVAL_NS', 'affiliate-ai/v1' );
 	define( 'BFL_APPROVAL_SESSIONS_ROUTE', '/wp-json/affiliate-ai/v1/approval-sessions' );
 	define( 'BFL_APPROVAL_DECISIONS_ROUTE', '/wp-json/affiliate-ai/v1/approval-decisions' );
-	define( 'BFL_APPROVAL_EXCHANGE_ROUTE', '/wp-json/affiliate-ai/v1/approval-review/exchange' );
-	define( 'BFL_APPROVAL_DECIDE_ROUTE', '/wp-json/affiliate-ai/v1/approval-review/decide' );
+	// The browser-facing routes and the confirmation cookie scope are derived
+	// together from bfl_approval_rest_base() so they cannot drift apart (C8.8.2).
+	// The HMAC-signed routes above stay literal: affiliate-ai signs those exact
+	// paths, so they must not follow a differently-configured REST prefix.
 	define( 'BFL_APPROVAL_SESSION_COOKIE', 'bfl_approval_review' );
 	// The browser review session is deliberately short: it exists only for the
 	// minutes a human spends reading one proposal.
@@ -143,6 +145,23 @@ final class BFL_Approval_Repo {
  * Shared helpers.
  * ========================================================================= */
 /**
+ * The REST path prefix this site actually serves for our namespace, e.g.
+ * "/wp-json/affiliate-ai/v1/". Derived rather than hardcoded so the cookie
+ * scope follows the real prefix. Falls back to the default only if rest_url()
+ * is unavailable.
+ */
+function bfl_approval_rest_base() : string {
+	$path = '';
+	if ( function_exists( 'rest_url' ) ) {
+		$path = (string) parse_url( rest_url( BFL_APPROVAL_NS . '/' ), PHP_URL_PATH );
+	}
+	if ( '' === $path || '/' === $path ) {
+		return '/wp-json/' . BFL_APPROVAL_NS . '/';
+	}
+	return rtrim( $path, '/' ) . '/';
+}
+
+/**
  * The approval relay's OWN secret. Never falls back to the affiliate runtime's
  * key: a fallback would silently re-merge the two trust domains.
  */
@@ -209,10 +228,11 @@ add_action(
 			exit;
 		}
 		// Note: we do NOT look the session up here. A scanner learns nothing.
+		$routes = bfl_approval_review_routes( bfl_approval_rest_base() );
 		echo BFL_Approval_Render::shell( // phpcs:ignore WordPress.Security.EscapeOutput
 			$sid,
-			BFL_APPROVAL_EXCHANGE_ROUTE,
-			BFL_APPROVAL_DECIDE_ROUTE,
+			$routes['exchange'],
+			$routes['decide'],
 			$nonce
 		);
 		exit;
@@ -425,7 +445,11 @@ function bfl_approval_exchange( WP_REST_Request $request ) {
 		$review_nonce,
 		array(
 			'expires'  => time() + BFL_APPROVAL_REVIEW_TTL,
-			'path'     => BFL_APPROVAL_PAGE_PREFIX,
+			// Scope the cookie to the REST namespace that actually receives it.
+			// The review page never reads this cookie (it is HttpOnly), so the
+			// page prefix was the wrong tree: RFC 6265 would never deliver it to
+			// .../approval-review/decide. Still narrower than "/".
+			'path'     => bfl_approval_rest_base(),
 			'secure'   => true,
 			'httponly' => true,
 			'samesite' => 'Strict',
@@ -460,26 +484,23 @@ function bfl_approval_decide( WP_REST_Request $request ) {
 		return bfl_approval_error( 'invalid_payload', 400 );
 	}
 
-	// Same-origin confirmation: the cookie set by the exchange must match the
-	// stored digest for this exact session.
-	$cookie = isset( $_COOKIE[ BFL_APPROVAL_SESSION_COOKIE ] ) ? (string) $_COOKIE[ BFL_APPROVAL_SESSION_COOKIE ] : '';
-	$stored = get_transient( 'bfl_approval_nonce_' . $sid );
-	if ( '' === $cookie || ! is_string( $stored ) || ! hash_equals( (string) $stored, hash( 'sha256', $cookie ) ) ) {
-		return bfl_approval_error( 'session_not_found', 403 );
-	}
-	$header_nonce = (string) $request->get_header( 'x-bfl-approval-nonce' );
-	if ( ! hash_equals( $cookie, $header_nonce ) ) {
-		return bfl_approval_error( 'session_not_found', 403 );
-	}
-
 	$row = BFL_Approval_Repo::get( $sid );
 	if ( null === $row ) {
 		return bfl_approval_error( 'session_not_found', 404 );
 	}
-	list( $ok, $reason ) = BFL_Approval_State::can_decide( $row, time() );
+
+	// Same-origin confirmation + state, in one tested guard (see lib-core).
+	$cookie = isset( $_COOKIE[ BFL_APPROVAL_SESSION_COOKIE ] ) ? (string) $_COOKIE[ BFL_APPROVAL_SESSION_COOKIE ] : '';
+	list( $ok, $reason, $status ) = bfl_approval_decision_guard(
+		$row,
+		$cookie,
+		get_transient( 'bfl_approval_nonce_' . $sid ),
+		(string) $request->get_header( 'x-bfl-approval-nonce' ),
+		time()
+	);
 	if ( ! $ok ) {
 		// A duplicate POST lands here and is reported, not applied twice.
-		return bfl_approval_error( $reason, 409 );
+		return bfl_approval_error( $reason, $status );
 	}
 
 	$updated = BFL_Approval_Repo::update(

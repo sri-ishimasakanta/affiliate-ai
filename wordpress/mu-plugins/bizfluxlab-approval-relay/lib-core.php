@@ -345,3 +345,88 @@ function bfl_approval_public_snapshot( array $snapshot, string $expires_at_local
 	$out['expires_at_local'] = $expires_at_local;
 	return $out;
 }
+
+/* =========================================================================
+ * Browser cookie seam (C8.8.2).
+ *
+ * The first production rejection failed here: the confirmation cookie was
+ * scoped to the review page prefix (/bfl-approval/) while the decision POST
+ * goes to the REST namespace (/wp-json/affiliate-ai/v1/...). Under RFC 6265
+ * those are disjoint path trees, so the browser never sent the cookie and the
+ * decision was refused every time.
+ *
+ * The rule below is the actual browser behaviour, so a test can assert that
+ * the cookie we set really would be delivered to the route the page posts to.
+ * ========================================================================= */
+
+/**
+ * RFC 6265 section 5.1.4 path-match. Returns true when a browser would send a
+ * cookie scoped to $cookie_path on a request for $request_path.
+ */
+function bfl_approval_path_matches( string $request_path, string $cookie_path ) : bool {
+	if ( '' === $cookie_path ) {
+		return false;
+	}
+	if ( $request_path === $cookie_path ) {
+		return true;
+	}
+	if ( 0 !== strpos( $request_path, $cookie_path ) ) {
+		return false;
+	}
+	if ( '/' === substr( $cookie_path, -1 ) ) {
+		return true;
+	}
+	return '/' === substr( $request_path, strlen( $cookie_path ), 1 );
+}
+
+/**
+ * The browser-facing review routes, derived from ONE base so the cookie scope
+ * and the routes the page posts to cannot drift apart again.
+ *
+ * @return array{exchange:string,decide:string}
+ */
+function bfl_approval_review_routes( string $rest_base ) : array {
+	$base = rtrim( $rest_base, '/' ) . '/';
+	return array(
+		'exchange' => $base . 'approval-review/exchange',
+		'decide'   => $base . 'approval-review/decide',
+	);
+}
+
+/**
+ * The decision guard, extracted so it is testable without WordPress or MySQL.
+ *
+ * Order matters: possession of the review session is checked before anything
+ * about the subject is revealed.
+ *
+ * @param array  $session        relay row (state, expires_at_unix)
+ * @param string $cookie         value the browser sent, '' when absent
+ * @param mixed  $stored_digest  sha256 of the nonce issued at exchange
+ * @param string $header_nonce   X-BFL-Approval-Nonce
+ *
+ * @return array{0:bool,1:string,2:int} [ok, reason, http_status]
+ */
+function bfl_approval_decision_guard(
+	array $session,
+	string $cookie,
+	$stored_digest,
+	string $header_nonce,
+	int $now_unix
+) : array {
+	// No cookie means the browser never established (or could not return) the
+	// review session. This is exactly what the path bug produced.
+	if ( '' === $cookie || ! is_string( $stored_digest ) || '' === $stored_digest ) {
+		return array( false, 'session_not_found', 403 );
+	}
+	if ( ! hash_equals( $stored_digest, hash( 'sha256', $cookie ) ) ) {
+		return array( false, 'session_not_found', 403 );
+	}
+	if ( ! hash_equals( $cookie, $header_nonce ) ) {
+		return array( false, 'session_not_found', 403 );
+	}
+	list( $ok, $reason ) = BFL_Approval_State::can_decide( $session, $now_unix );
+	if ( ! $ok ) {
+		return array( false, $reason, 409 );
+	}
+	return array( true, 'ok', 200 );
+}

@@ -43,8 +43,8 @@ Verify before deploying:
 php wordpress/mu-plugins/bizfluxlab-approval-relay/tests/run.php
 ```
 
-Currently: **43 passed, 0 failed** (including cross-secret rejection in both
-directions). It also runs inside pytest as
+Currently: **72 passed, 0 failed** (including cross-secret rejection in both
+directions and the RFC 6265 cookie-delivery seam). It also runs inside pytest as
 `tests/unit/test_wp_approval_relay_php_harness.py`.
 
 ## Step 0 — generate the approval relay secret (do this first)
@@ -139,6 +139,41 @@ first end-to-end test.
    recorded through `ChangeRequestService` with `decided_by=human-mobile`.
 8. Confirm the relay session is now `consumed` and a replay of the sync applies
    nothing.
+
+## Redeploying after C8.8.2 (cookie path fix)
+
+C8.8 shipped with the confirmation cookie scoped to `/bfl-approval/` while the
+decision POST goes to `/wp-json/affiliate-ai/v1/approval-review/decide`. Under
+RFC 6265 those are disjoint path trees, so the browser never sent the cookie and
+every rejection/approval failed with 「記録できませんでした」. The cookie is now
+scoped to `bfl_approval_rest_base()` (`/wp-json/affiliate-ai/v1/`), derived from
+`rest_url()` and shared with the route construction so the two cannot drift.
+
+Replace these two files on XServer (no others changed):
+
+```
+wp-content/mu-plugins/bizfluxlab-approval-relay.php
+wp-content/mu-plugins/bizfluxlab-approval-relay/lib-core.php
+```
+
+**No `dbDelta` / wp-admin visit is needed** — the table schema is unchanged.
+The relay's `tests/` directory still must not be uploaded.
+
+After redeploying, recover the failed session from the PC:
+
+```bash
+uv run python scripts/send_mobile_approval.py --revoke-session 1 --reason "cookie path fix; capability from the failed attempt is discarded"
+```
+
+Confirm request 2 is still `awaiting_approval`, then issue a fresh session and
+email (the old capability is never reused):
+
+```bash
+uv run python scripts/send_mobile_approval.py --request-id 2
+uv run python scripts/send_mobile_approval.py --request-id 2 --execute
+```
+
+Then repeat the rejection test below. Rejecting is still the safe direction.
 
 ## What is deliberately not stored
 
