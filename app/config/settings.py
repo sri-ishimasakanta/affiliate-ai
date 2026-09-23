@@ -83,6 +83,19 @@ class Settings(BaseSettings):
     #: 件名の接頭辞。運用者がどの環境から来たかを見分けるため。
     operations_email_subject_prefix: str = "BizFluxLab"
 
+    # --- Threads (T1) ---
+    # 明示的に有効化したときだけ Threads API に触れる。既定は無効で、未設定でも
+    # 既存の取り込み・評価・公開経路には一切影響しない。
+    # access token は default を持たず、log / DB / PLAN 出力 / 通知履歴 / 例外の
+    # どこにも出さない。Meta の API は token をリクエストパラメータで受け取るため、
+    # 診断へ出す前に必ず redact を通すこと。
+    threads_enabled: bool = False
+    threads_user_id: str | None = None
+    threads_access_token: str | None = None
+    #: 公式ドキュメントの例が使っているホストとバージョン。移行に備えて設定可能。
+    threads_api_base_url: str = "https://graph.threads.net"
+    threads_api_version: str = "v1.0"
+
     # Affiliate redirect runtime (WordPress MU-plugin, Phase 3C-5F-D)。
     # base URL は wordpress_base_url を再利用する。共有 HMAC 鍵は projection を
     # **push (execute)** するときだけ必須。plan / dry-run では不要。default は置かない。
@@ -158,6 +171,20 @@ class Settings(BaseSettings):
         (token の妥当性検証はしない — 実際の呼び出しで 401 として現れる)。"""
 
         return bool(self.make_api_base_url and self.make_api_token)
+
+    @property
+    def threads_configured(self) -> bool:
+        """Threads へ認証つきで問い合わせられるか。
+
+        **token の値は決して外へ出さない** -- 診断で示してよいのはこの真偽だけ。
+        有効化されていなければ、設定が揃っていても configured とは呼ばない。
+        """
+
+        return bool(
+            self.threads_enabled
+            and str(self.threads_user_id or "").strip()
+            and (self.threads_access_token or "").strip()
+        )
 
     @property
     def approval_relay_configured(self) -> bool:
