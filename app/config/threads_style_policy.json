@@ -1,0 +1,87 @@
+{
+  "policy_version": "t2.1",
+  "rationale": [
+    "WordPress の記事は正式・根拠重視で、検索と参照のための資産である。",
+    "Threads はその要約ではない。同じ論点を Threads 用に書き直す。",
+    "狙う位置: 企業メディアの投稿より少し人間味があり、個人の雑談より情報価値が高い。"
+  ],
+  "limits": {
+    "max_characters": 500,
+    "preferred_max_characters": 380,
+    "max_sentences": 8,
+    "preferred_max_sentence_characters": 60
+  },
+  "tone": {
+    "conversational": true,
+    "short_sentences": true,
+    "fragments_allowed": true,
+    "conclusion_first": true,
+    "standalone_value_required": true,
+    "natural_hook_allowed": true,
+    "max_questions": 1
+  },
+  "prohibitions": [
+    "作り話の実体験",
+    "でっち上げの逸話",
+    "作られた感情",
+    "誇張した煽り",
+    "過剰な絵文字",
+    "押しの強いアフィリエイト口調"
+  ],
+  "banned_phrases": [
+    "神ツール",
+    "絶対に",
+    "革命的",
+    "圧倒的に",
+    "誰でも簡単に",
+    "必ず儲かる"
+  ],
+  "discouraged_phrases": [
+    "本記事では",
+    "について解説します",
+    "解説していきます",
+    "重要です",
+    "いかがでしたでしょうか",
+    "いかがだったでしょうか",
+    "ぜひ参考にしてください",
+    "まとめると"
+  ],
+  "polite_form": {
+    "markers": [
+      "です",
+      "ます"
+    ],
+    "max_consecutive_sentence_endings": 3,
+    "note": "「〜です/〜ます」で終わる文が続くと、機械的に読める。"
+  },
+  "emoji": {
+    "max_count": 2
+  },
+  "angles": [
+    "insight",
+    "common_mistake",
+    "comparison",
+    "question",
+    "beginner_tip"
+  ],
+  "link": {
+    "allowed_modes": [
+      "none",
+      "article"
+    ],
+    "allowed_host": "bizfluxlab.com",
+    "forbidden_path_prefixes": [
+      "/go/"
+    ],
+    "note": "Threads からはサイトの記事にだけ誘導する。アフィリエイト先へ直接送らない。"
+  },
+  "factual_grounding": {
+    "source": "source_article_body",
+    "rules": [
+      "記事で確認できた事実の範囲を超えない",
+      "日付・価格・条件・限定表現を落とさない",
+      "不確かなことを断定に変えない",
+      "記事に無い機能・数値・体験を足さない"
+    ]
+  }
+}

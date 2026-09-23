@@ -36,8 +36,7 @@ def build_snapshot(*, subject_type: str, subject, article=None, target_article=N
     if subject_type == SUBJECT_CHANGE_REQUEST:
         snapshot = _change_request_snapshot(subject, article, target_article)
     elif subject_type == SUBJECT_THREADS_POST:
-        # 封筒としては表現できるが、V1 では作らない (Threads は未実装)。
-        raise UnsupportedSubjectError(subject_type)
+        snapshot = _threads_post_snapshot(subject, article)
     else:
         raise UnsupportedSubjectError(subject_type)
     return sanitize_payload(snapshot)
@@ -74,6 +73,38 @@ def _change_request_snapshot(request, article, target_article) -> dict:
         "diff_lines": diff[:MAX_DIFF_LINES],
         "diff_truncated": truncated,
         "warnings": list(proposal.get("warnings") or []),
+    }
+
+
+def _threads_post_snapshot(proposal, article) -> dict:
+    """Threads 投稿案 1 件を、携帯で判断できる形にする (T2)。
+
+    **人が見るのは、実際に投稿されるそのままの文字列** である。要約や整形をした
+    ものを見せて、別の文章を公開することがあってはならない。
+    """
+
+    return {
+        "subject_type": SUBJECT_THREADS_POST,
+        "subject_id": proposal.id,
+        "subject_hash": proposal.proposal_hash,
+        "subject_hash_short": proposal.proposal_hash[:16],
+        # Threads 提案には版が無いので、生成規則の版を identity の補助に使う。
+        "subject_version": 1,
+        "status": proposal.status,
+        "angle": proposal.angle,
+        "article_id": proposal.source_article_id,
+        "article_title": getattr(article, "title", None),
+        "article_url": getattr(article, "published_url", None),
+        "source_article_body_hash": proposal.source_article_body_hash,
+        "source_article_body_hash_short": proposal.source_article_body_hash[:16],
+        "policy_version": proposal.policy_version,
+        "generator_version": proposal.generator_version,
+        "link_mode": proposal.link_mode,
+        "destination_url": proposal.destination_url,
+        # 公開される文字列そのもの。切らない。
+        "publish_text": proposal.content_text,
+        "character_count": proposal.character_count,
+        "warnings": list(proposal.warnings_json or []),
     }
 
 

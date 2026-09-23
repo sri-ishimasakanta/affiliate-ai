@@ -47,8 +47,9 @@ SUBJECT_CHANGE_REQUEST = "change_request"
 #: まだ実装しないが、封筒としては表現できる (C8.8 の設計要件)。
 SUBJECT_THREADS_POST = "threads_post"
 SUBJECT_TYPES = (SUBJECT_CHANGE_REQUEST, SUBJECT_THREADS_POST)
-#: V1 で実際にセッションを作れるのはこれだけ。
-SUBJECT_TYPES_SUPPORTED_IN_V1 = (SUBJECT_CHANGE_REQUEST,)
+#: 実際にセッションを作れる subject。C9 の記事変更 (C8.8) に加えて、
+#: T2 で Threads 投稿案を有効化した。
+SUBJECT_TYPES_SUPPORTED_IN_V1 = (SUBJECT_CHANGE_REQUEST, SUBJECT_THREADS_POST)
 
 # -- states --------------------------------------------------------------------
 MA_PENDING = "pending"

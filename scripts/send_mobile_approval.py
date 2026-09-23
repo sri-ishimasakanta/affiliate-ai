@@ -30,6 +30,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.approval.capability import DEFAULT_TTL_HOURS  # noqa: E402
 from app.config.database import SessionLocal  # noqa: E402
 from app.config.settings import get_settings  # noqa: E402
+from app.models import (  # noqa: E402
+    SUBJECT_CHANGE_REQUEST,
+    SUBJECT_TYPES_SUPPORTED_IN_V1,
+)
 from app.services.mobile_approval_service import (  # noqa: E402
     MobileApprovalError,
     MobileApprovalService,
@@ -42,6 +46,13 @@ EXIT_REFUSED = 2
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request-id", type=int, help="承認を依頼する change request の id")
+    parser.add_argument(
+        "--subject-type",
+        default=SUBJECT_CHANGE_REQUEST,
+        choices=list(SUBJECT_TYPES_SUPPORTED_IN_V1),
+        help="承認対象の種類 (既定は記事の変更要求)",
+    )
+    parser.add_argument("--subject-id", type=int, help="--subject-type に対応する id")
     parser.add_argument("--ttl-hours", type=int, default=DEFAULT_TTL_HOURS)
     parser.add_argument("--execute", action="store_true", help="実際に送る (既定は PLAN)")
     parser.add_argument("--revoke-session", type=int, help="失効させるセッション id")
@@ -74,18 +85,30 @@ def _dispatch(service: MobileApprovalService, args) -> dict:
         print(f"revoked session {row.id} -> {row.state}")
         return {"session_id": row.id, "state": row.state}
 
-    if args.request_id is None:
-        raise MobileApprovalError("--request-id is required")
+    subject_type = args.subject_type
+    subject_id = args.subject_id
+    if args.request_id is not None:
+        subject_type, subject_id = SUBJECT_CHANGE_REQUEST, args.request_id
+    if subject_id is None:
+        raise MobileApprovalError("--request-id or --subject-id is required")
 
     if not args.execute:
-        prepared = service.plan(change_request_id=args.request_id, ttl_hours=args.ttl_hours)
+        prepared = service.plan(
+            subject_type=subject_type, subject_id=subject_id, ttl_hours=args.ttl_hours
+        )
         snapshot = prepared.snapshot
         print("=== mobile approval (PLAN) ===")
-        print(f"change_request_id  = {prepared.change_request_id}")
+        print(f"subject            = {subject_type}:{subject_id}")
         print(f"article            = {snapshot.get('article_title')}")
         print(f"target             = {snapshot.get('target_article_title')}")
-        print(f"change_type        = {snapshot.get('change_type')}")
+        print(f"change_type        = {snapshot.get('change_type') or snapshot.get('angle')}")
         print(f"priority           = {snapshot.get('priority')}")
+        if snapshot.get("publish_text"):
+            print(f"characters         = {snapshot.get('character_count')}")
+            print(f"link               = {snapshot.get('link_mode')}")
+            print("--- 公開される文字列 ---")
+            print(snapshot["publish_text"])
+            print("---")
         print(f"proposal           = v{prepared.subject_version} {prepared.subject_hash[:16]}")
         print(f"ttl_hours          = {prepared.ttl_hours}")
         print(f"eligible           = {prepared.ok}")
@@ -95,8 +118,9 @@ def _dispatch(service: MobileApprovalService, args) -> dict:
         print("承認はされない。メールはレビューページを開く導線を運ぶだけである。")
         return prepared.as_dict()
 
-    row = service.send(change_request_id=args.request_id, ttl_hours=args.ttl_hours)
+    row = service.send(subject_type=subject_type, subject_id=subject_id, ttl_hours=args.ttl_hours)
     print("=== mobile approval sent ===")
+    print(f"subject            = {row.subject_type}:{row.subject_id}")
     print(f"session_id         = {row.id}")
     print(f"state              = {row.state}")
     print(f"relay_session_id   = {row.relay_session_id}")

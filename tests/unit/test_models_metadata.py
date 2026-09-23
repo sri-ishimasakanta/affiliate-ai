@@ -154,6 +154,7 @@ def test_all_tables_registered() -> None:
         "notification_deliveries",
         "mobile_approval_sessions",
         "mobile_approval_events",
+        "threads_post_proposals",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

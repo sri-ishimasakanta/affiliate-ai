@@ -31,6 +31,7 @@ from app.models import (
     MA_STALE,
     MA_SYNCHRONIZED,
     NOTIFICATION_APPROVAL_REQUEST,
+    SUBJECT_TYPES_SUPPORTED_IN_V1,
     Article,
     ChangeApplication,
     ChangeRequest,
@@ -616,19 +617,24 @@ def test_the_sync_service_cannot_decide_on_its_own(session, awaiting, relay, not
 
 
 # -- future subjects ------------------------------------------------------------
-def test_the_envelope_can_represent_a_threads_post_without_implementing_threads() -> None:
+def test_the_envelope_supports_both_subject_types() -> None:
+    """T2 で threads_post を有効化した (C8.8 の封筒はそのまま使える)。"""
+
     from app.approval.review_snapshot import UnsupportedSubjectError, build_snapshot
-    from app.models import SUBJECT_THREADS_POST, SUBJECT_TYPES, SUBJECT_TYPES_SUPPORTED_IN_V1
+    from app.models import SUBJECT_CHANGE_REQUEST, SUBJECT_THREADS_POST, SUBJECT_TYPES
 
-    # 封筒としては表現できる。
     assert SUBJECT_THREADS_POST in SUBJECT_TYPES
-    # だが V1 では作れない (Threads は未実装)。
-    assert SUBJECT_THREADS_POST not in SUBJECT_TYPES_SUPPORTED_IN_V1
+    assert set(SUBJECT_TYPES_SUPPORTED_IN_V1) == {SUBJECT_CHANGE_REQUEST, SUBJECT_THREADS_POST}
+    # 知らない subject は今も拒否する。
     with pytest.raises(UnsupportedSubjectError):
-        build_snapshot(subject_type=SUBJECT_THREADS_POST, subject=object())
+        build_snapshot(subject_type="instagram_post", subject=object())
 
 
-def test_a_threads_decision_is_not_synchronized_yet(session, awaiting, relay, notifier) -> None:
+def test_a_decision_for_the_wrong_subject_type_is_refused(
+    session, awaiting, relay, notifier
+) -> None:
+    """封筒の subject と違う種類の決定は、承認に化けない。"""
+
     _, _, request = awaiting
     service = _service(session, relay, notifier)
     row = service.send(change_request_id=request.id, now=_NOW)
@@ -637,4 +643,5 @@ def test_a_threads_decision_is_not_synchronized_yet(session, awaiting, relay, no
     outcome = service.sync(execute=True, now=_NOW)
 
     assert outcome.applied == 0
+    assert outcome.details[0]["reason"] == "subject type mismatch"
     assert session.scalars(select(ChangeRequestApproval)).all() == []

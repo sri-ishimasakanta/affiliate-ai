@@ -198,6 +198,18 @@ from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.seo_improvement_candidate import SeoImprovementCandidate
 from app.models.seo_improvement_run import SeoImprovementRun
 from app.models.source import Source
+from app.models.threads_post_proposal import (
+    TP_APPROVED,
+    TP_AWAITING_APPROVAL,
+    TP_OPEN_STATES,
+    TP_PROPOSED,
+    TP_REJECTED,
+    TP_STALE,
+    TP_STATES,
+    TP_SUPERSEDED,
+    ThreadsPostProposal,
+    threads_proposal_transition_allowed,
+)
 from app.models.wordpress_content_update_reconciliation import (
     WP_CU_RECONCILED_SUCCEEDED,
     WP_CU_RECONCILED_UNRESOLVED,
@@ -230,6 +242,16 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "TP_APPROVED",
+    "TP_AWAITING_APPROVAL",
+    "TP_OPEN_STATES",
+    "TP_PROPOSED",
+    "TP_REJECTED",
+    "TP_STALE",
+    "TP_STATES",
+    "TP_SUPERSEDED",
+    "ThreadsPostProposal",
+    "threads_proposal_transition_allowed",
     "NOTIFICATION_APPROVAL_REQUEST",
     "DECIDED_BY_MOBILE",
     "DECISIONS",

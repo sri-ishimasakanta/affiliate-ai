@@ -48,11 +48,16 @@ from app.models import (
     MA_STALE,
     MA_SYNCHRONIZED,
     SUBJECT_CHANGE_REQUEST,
+    SUBJECT_THREADS_POST,
     SUBJECT_TYPES_SUPPORTED_IN_V1,
+    TP_APPROVED,
+    TP_OPEN_STATES,
+    TP_REJECTED,
     Article,
     ChangeRequest,
     MobileApprovalEvent,
     MobileApprovalSession,
+    ThreadsPostProposal,
     mobile_approval_transition_allowed,
 )
 from app.services.change_request_service import ChangeRequestError, ChangeRequestService
@@ -78,6 +83,7 @@ class PreparedApproval:
     ttl_hours: int
     snapshot: dict
     existing_session_id: int | None = None
+    subject_type: str = SUBJECT_CHANGE_REQUEST
     blocked_reasons: list[str] = field(default_factory=list)
 
     @property
@@ -87,6 +93,7 @@ class PreparedApproval:
     def as_dict(self) -> dict:
         return {
             "change_request_id": self.change_request_id,
+            "subject_type": self.subject_type,
             "subject_hash": self.subject_hash,
             "subject_version": self.subject_version,
             "article_id": self.article_id,
@@ -120,6 +127,135 @@ class SyncOutcome:
         }
 
 
+# -- subject adapters ----------------------------------------------------------
+# 1 つの経路で 2 種類の subject を扱う。弱い検査の第 2 経路を作らないため、
+# 期限・封筒一致・陳腐化の判定はすべて共通で、subject 固有の知識だけをここへ閉じ込める。
+
+
+class _ChangeRequestSubject:
+    """C9 の記事変更要求 (C8.8 から変わらない)。"""
+
+    subject_type = SUBJECT_CHANGE_REQUEST
+
+    def __init__(self, session: Session, settings) -> None:
+        self._session = session
+        self._service = ChangeRequestService(session)
+
+    def load(self, subject_id: int):
+        request = self._session.get(ChangeRequest, subject_id)
+        if request is None:
+            raise MobileApprovalError(f"change request {subject_id} not found")
+        article = self._session.get(Article, request.article_id)
+        target = (
+            self._session.get(Article, request.target_article_id)
+            if request.target_article_id
+            else None
+        )
+        return request, article, target
+
+    def snapshot(self, subject, article, target) -> dict:
+        return build_snapshot(
+            subject_type=SUBJECT_CHANGE_REQUEST,
+            subject=subject,
+            article=article,
+            target_article=target,
+        )
+
+    def identity(self, subject) -> tuple[str, int]:
+        return subject.proposal_hash, subject.proposal_version
+
+    def blocked_reasons(self, subject) -> list[str]:
+        reasons: list[str] = []
+        if subject.status not in CR_OPEN_STATUSES:
+            reasons.append(
+                f"request status is {subject.status!r}; only a request awaiting approval "
+                "can be sent for mobile review"
+            )
+        report = self._service.evaluate_staleness(subject)
+        if report.stale:
+            reasons.extend(report.reasons)
+        return reasons
+
+    def apply_decision(self, subject, decision: str, reason: str | None, now: datetime):
+        """既存の C9 service を通す。ここだけが承認を記録できる経路である。"""
+
+        if decision == DECISION_APPROVED:
+            return self._service.approve(
+                subject.id,
+                proposal_hash=subject.proposal_hash,
+                decided_by=DECIDED_BY_MOBILE,
+                reason=reason,
+                now=now,
+            )
+        return self._service.reject(
+            subject.id,
+            reason=reason or "モバイルから却下",
+            decided_by=DECIDED_BY_MOBILE,
+            now=now,
+        )
+
+
+class _ThreadsPostSubject:
+    """Threads 投稿案 (T2)。
+
+    **承認は公開ではない。** ここでも Threads API には一切触れない。承認された案は
+    「公開してよい」状態になるだけで、実際の公開は T3 の別操作である。
+    """
+
+    subject_type = SUBJECT_THREADS_POST
+
+    def __init__(self, session: Session, settings) -> None:
+        self._session = session
+        from app.services.threads_proposal_service import ThreadsProposalService
+
+        self._service = ThreadsProposalService(session)
+
+    def load(self, subject_id: int):
+        row = self._session.get(ThreadsPostProposal, subject_id)
+        if row is None:
+            raise MobileApprovalError(f"threads post proposal {subject_id} not found")
+        article = self._session.get(Article, row.source_article_id)
+        return row, article, None
+
+    def snapshot(self, subject, article, target) -> dict:
+        return build_snapshot(subject_type=SUBJECT_THREADS_POST, subject=subject, article=article)
+
+    def identity(self, subject) -> tuple[str, int]:
+        # Threads の提案は版を持たない (作り直せば別レコードになる)。
+        return subject.proposal_hash, 1
+
+    def blocked_reasons(self, subject) -> list[str]:
+        reasons: list[str] = []
+        if subject.status not in TP_OPEN_STATES:
+            reasons.append(
+                f"proposal status is {subject.status!r}; only a proposal awaiting approval "
+                "can be sent for mobile review"
+            )
+        stale, why = self._service.evaluate_staleness(subject)
+        if stale:
+            reasons.extend(why)
+        return reasons
+
+    def apply_decision(self, subject, decision: str, reason: str | None, now: datetime):
+        """人の判断を提案へ記録する。**公開しない。**"""
+
+        stale, why = self._service.evaluate_staleness(subject)
+        if stale:
+            raise ChangeRequestError("; ".join(why))
+        if subject.status not in TP_OPEN_STATES:
+            raise ChangeRequestError(f"the proposal is already {subject.status}")
+        subject.status = TP_APPROVED if decision == DECISION_APPROVED else TP_REJECTED
+        subject.status_reason = reason or f"decided on mobile ({decision})"
+        self._session.commit()
+        return None
+
+
+_SUBJECT_ADAPTERS = {
+    SUBJECT_CHANGE_REQUEST: _ChangeRequestSubject,
+    SUBJECT_THREADS_POST: _ThreadsPostSubject,
+}
+
+
 class MobileApprovalService:
     def __init__(self, session: Session, *, settings, relay_client=None, notifier=None) -> None:
         self._session = session
@@ -128,43 +264,47 @@ class MobileApprovalService:
         self._notifier = notifier
 
     # -- 1) 承認依頼 -----------------------------------------------------------
-    def plan(
-        self, *, change_request_id: int, ttl_hours: int = DEFAULT_TTL_HOURS
-    ) -> PreparedApproval:
-        """送らずに、いま依頼を出せるかだけを判定する。"""
+    def _adapter(self, subject_type: str):
+        adapter = _SUBJECT_ADAPTERS.get(subject_type)
+        if adapter is None or subject_type not in SUBJECT_TYPES_SUPPORTED_IN_V1:
+            raise MobileApprovalError(f"subject type {subject_type!r} is not supported")
+        return adapter(self._session, self._settings)
 
-        request = self._require_request(change_request_id)
-        article = self._session.get(Article, request.article_id)
-        target = (
-            self._session.get(Article, request.target_article_id)
-            if request.target_article_id
-            else None
-        )
+    def plan(
+        self,
+        *,
+        change_request_id: int | None = None,
+        subject_type: str = SUBJECT_CHANGE_REQUEST,
+        subject_id: int | None = None,
+        ttl_hours: int = DEFAULT_TTL_HOURS,
+    ) -> PreparedApproval:
+        """送らずに、いま依頼を出せるかだけを判定する。
+
+        ``change_request_id`` は C9 のための従来どおりの呼び方で、
+        ``subject_type`` / ``subject_id`` は Threads を含む一般形である。
+        """
+
+        if change_request_id is not None:
+            subject_type, subject_id = SUBJECT_CHANGE_REQUEST, change_request_id
+        if subject_id is None:
+            raise MobileApprovalError("a subject id is required")
+
+        adapter = self._adapter(subject_type)
+        subject, article, target = adapter.load(subject_id)
+        subject_hash, subject_version = adapter.identity(subject)
         prepared = PreparedApproval(
-            change_request_id=request.id,
-            subject_hash=request.proposal_hash,
-            subject_version=request.proposal_version,
-            article_id=request.article_id,
+            change_request_id=subject_id,
+            subject_hash=subject_hash,
+            subject_version=subject_version,
+            article_id=getattr(article, "id", 0) or 0,
             expires_at="",
             ttl_hours=ttl_hours,
-            snapshot=build_snapshot(
-                subject_type=SUBJECT_CHANGE_REQUEST,
-                subject=request,
-                article=article,
-                target_article=target,
-            ),
+            snapshot=adapter.snapshot(subject, article, target),
         )
+        prepared.subject_type = subject_type
+        prepared.blocked_reasons.extend(adapter.blocked_reasons(subject))
 
-        if request.status not in CR_OPEN_STATUSES:
-            prepared.blocked_reasons.append(
-                f"request status is {request.status!r}; only a request awaiting approval "
-                "can be sent for mobile review"
-            )
-        report = ChangeRequestService(self._session).evaluate_staleness(request)
-        if report.stale:
-            prepared.blocked_reasons.extend(report.reasons)
-
-        existing = self._active_session(request)
+        existing = self._active_session(subject_type, subject_id)
         if existing is not None:
             prepared.existing_session_id = existing.id
             prepared.blocked_reasons.append(
@@ -176,7 +316,9 @@ class MobileApprovalService:
     def send(
         self,
         *,
-        change_request_id: int,
+        change_request_id: int | None = None,
+        subject_type: str = SUBJECT_CHANGE_REQUEST,
+        subject_id: int | None = None,
         ttl_hours: int = DEFAULT_TTL_HOURS,
         now: datetime | None = None,
     ) -> MobileApprovalSession:
@@ -186,16 +328,19 @@ class MobileApprovalService:
         """
 
         now = now or datetime.now(UTC)
-        prepared = self.plan(change_request_id=change_request_id, ttl_hours=ttl_hours)
+        if change_request_id is not None:
+            subject_type, subject_id = SUBJECT_CHANGE_REQUEST, change_request_id
+        if subject_id is None:
+            raise MobileApprovalError("a subject id is required")
+        prepared = self.plan(subject_type=subject_type, subject_id=subject_id, ttl_hours=ttl_hours)
         if not prepared.ok:
             raise MobileApprovalError("; ".join(prepared.blocked_reasons))
 
-        request = self._require_request(change_request_id)
         issued = generate_capability(
-            subject_type=SUBJECT_CHANGE_REQUEST,
-            subject_id=request.id,
-            subject_hash=request.proposal_hash,
-            subject_version=request.proposal_version,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            subject_hash=prepared.subject_hash,
+            subject_version=prepared.subject_version,
             issued_at=now,
             ttl_hours=ttl_hours,
         )
@@ -205,10 +350,10 @@ class MobileApprovalService:
         try:
             self._relay.create_session(
                 relay_session_id=relay_session_id,
-                subject_type=SUBJECT_CHANGE_REQUEST,
-                subject_id=request.id,
-                subject_hash=request.proposal_hash,
-                subject_version=request.proposal_version,
+                subject_type=subject_type,
+                subject_id=subject_id,
+                subject_hash=prepared.subject_hash,
+                subject_version=prepared.subject_version,
                 capability_digest=issued.digest,
                 expires_at=issued.expires_at.isoformat(),
                 snapshot=prepared.snapshot,
@@ -217,10 +362,10 @@ class MobileApprovalService:
             raise MobileApprovalError(f"relay refused the session: {exc.reason}") from None
 
         session_row = MobileApprovalSession(
-            subject_type=SUBJECT_CHANGE_REQUEST,
-            subject_id=request.id,
-            subject_hash=request.proposal_hash,
-            subject_version=request.proposal_version,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            subject_hash=prepared.subject_hash,
+            subject_version=prepared.subject_version,
             relay_session_id=relay_session_id,
             capability_digest=issued.digest,
             capability_binding=issued.binding,
@@ -312,6 +457,8 @@ class MobileApprovalService:
             return {**base, "result": "skipped", "reason": f"session is {row.state}"}
         if decision.subject_type not in SUBJECT_TYPES_SUPPORTED_IN_V1:
             return {**base, "result": "skipped", "reason": "subject type is not supported yet"}
+        if decision.subject_type != row.subject_type:
+            return {**base, "result": "skipped", "reason": "subject type mismatch"}
         if decision.decision not in (DECISION_APPROVED, DECISION_REJECTED):
             return {**base, "result": "skipped", "reason": "unknown decision"}
 
@@ -331,53 +478,39 @@ class MobileApprovalService:
                 self._transition(row, MA_EXPIRED, reason="the review session expired")
             return {**base, "result": "skipped", "reason": "session expired"}
 
-        request = self._session.get(ChangeRequest, row.subject_id)
-        if request is None:
+        try:
+            adapter = self._adapter(row.subject_type)
+            subject, _article, _target = adapter.load(row.subject_id)
+        except MobileApprovalError as exc:
             if execute:
-                self._transition(row, MA_STALE, reason="the change request no longer exists")
-            return {**base, "result": "skipped", "reason": "change request is missing"}
+                self._transition(row, MA_STALE, reason=exc.reason)
+            return {**base, "result": "skipped", "reason": exc.reason}
 
         # 提案が作り直されていれば、古い決定は移らない。
-        if request.proposal_hash != row.subject_hash:
+        subject_hash, subject_version = adapter.identity(subject)
+        if subject_hash != row.subject_hash:
             if execute:
                 self._transition(row, MA_STALE, reason="the proposal hash changed after review")
             return {**base, "result": "skipped", "reason": "proposal hash changed"}
-        if request.proposal_version != row.subject_version:
+        if subject_version != row.subject_version:
             if execute:
                 self._transition(row, MA_STALE, reason="the proposal version changed after review")
             return {**base, "result": "skipped", "reason": "proposal version changed"}
-        if request.status not in CR_OPEN_STATUSES:
-            if execute:
-                self._transition(row, MA_STALE, reason=f"the request is already {request.status}")
-            return {**base, "result": "skipped", "reason": f"request is {request.status}"}
 
-        service = ChangeRequestService(self._session)
-        report = service.evaluate_staleness(request)
-        if report.stale:
+        blocked = adapter.blocked_reasons(subject)
+        if blocked:
             if execute:
-                self._transition(row, MA_STALE, reason="; ".join(report.reasons))
-            return {**base, "result": "skipped", "reason": "; ".join(report.reasons)}
+                self._transition(row, MA_STALE, reason="; ".join(blocked))
+            return {**base, "result": "skipped", "reason": "; ".join(blocked)}
 
         if not execute:
             return {**base, "result": "would_apply", "reason": None}
 
-        # 既存の C9 service を通す。ここだけが承認を記録できる経路である。
+        # subject ごとの正規経路を通す。ここだけが人の判断を記録できる。
         try:
-            if decision.decision == DECISION_APPROVED:
-                approval = service.approve(
-                    request.id,
-                    proposal_hash=row.subject_hash,
-                    decided_by=DECIDED_BY_MOBILE,
-                    reason=decision.decision_reason,
-                    now=now,
-                )
-            else:
-                approval = service.reject(
-                    request.id,
-                    reason=decision.decision_reason or "モバイルから却下",
-                    decided_by=DECIDED_BY_MOBILE,
-                    now=now,
-                )
+            approval = adapter.apply_decision(
+                subject, decision.decision, decision.decision_reason, now
+            )
         except ChangeRequestError as exc:
             self._transition(row, MA_FAILED, reason=exc.reason)
             return {**base, "result": "failed", "reason": exc.reason}
@@ -385,7 +518,7 @@ class MobileApprovalService:
         row.decision = decision.decision
         row.decision_reason = decision.decision_reason
         row.decided_at = to_storage_utc(now)
-        row.change_request_approval_id = approval.id
+        row.change_request_approval_id = approval.id if approval is not None else None
         row.synchronized_at = to_storage_utc(now)
         intermediate = (
             MA_APPROVED_REMOTE if decision.decision == DECISION_APPROVED else MA_REJECTED_REMOTE
@@ -400,7 +533,12 @@ class MobileApprovalService:
         except RelayError as exc:
             # 反映は済んでいる。ack の失敗で承認を取り消さない。
             self._event(row, "relay_ack_failed", detail=exc.reason)
-        return {**base, "result": "applied", "reason": None, "approval_id": approval.id}
+        return {
+            **base,
+            "result": "applied",
+            "reason": None,
+            "approval_id": approval.id if approval is not None else None,
+        }
 
     def _send_email(self, row: MobileApprovalSession, prepared: PreparedApproval, url: str):
         from app.services.operations_notification_service import (
@@ -420,12 +558,12 @@ class MobileApprovalService:
         )
         return outcome.delivery_id
 
-    def _active_session(self, request: ChangeRequest) -> MobileApprovalSession | None:
+    def _active_session(self, subject_type: str, subject_id: int) -> MobileApprovalSession | None:
         return self._session.scalars(
             select(MobileApprovalSession)
             .where(
-                MobileApprovalSession.subject_type == SUBJECT_CHANGE_REQUEST,
-                MobileApprovalSession.subject_id == request.id,
+                MobileApprovalSession.subject_type == subject_type,
+                MobileApprovalSession.subject_id == subject_id,
                 MobileApprovalSession.state == MA_PENDING,
             )
             .order_by(MobileApprovalSession.id.desc())

@@ -279,13 +279,18 @@ def test_the_threads_writing_style_requirements_are_recorded_for_t2() -> None:
     assert FACT_RULES
 
 
-def test_t1_does_not_activate_threads_approval_yet() -> None:
-    """C8.8 の封筒は threads_post を表現できるが、まだ有効にしない。"""
+def test_threads_approval_is_active_but_publishing_is_not() -> None:
+    """T2 で threads_post の承認を有効化した。公開はまだ別 (T3)。"""
 
     from app.models import SUBJECT_THREADS_POST, SUBJECT_TYPES, SUBJECT_TYPES_SUPPORTED_IN_V1
 
     assert SUBJECT_THREADS_POST in SUBJECT_TYPES
-    assert SUBJECT_THREADS_POST not in SUBJECT_TYPES_SUPPORTED_IN_V1
+    assert SUBJECT_THREADS_POST in SUBJECT_TYPES_SUPPORTED_IN_V1
+    # 承認経路が有効になっても、公開は承認済み提案の hash を要求したままである。
+    client = _FakeClient()
+    outcome = _service(client).publish_text("承認されていないテキスト", execute=True)
+    assert outcome.outcome == "blocked"
+    assert client.calls == []
 
 
 def test_approval_is_not_publishing() -> None:
