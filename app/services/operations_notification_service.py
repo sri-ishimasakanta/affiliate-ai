@@ -27,6 +27,7 @@ from app.models import (
     DELIVERY_FAILED,
     DELIVERY_SENT,
     DELIVERY_SKIPPED,
+    NOTIFICATION_APPROVAL_REQUEST,
     NOTIFICATION_DAILY_INCIDENT,
     NOTIFICATION_WEEKLY_REPORT,
     NotificationDelivery,
@@ -38,6 +39,8 @@ from app.operations.email import EmailConfigError, build_email_config, build_ema
 from app.operations.notifications import sanitize_payload
 from app.operations.policy import SEVERITY_ORDER, OperationsPolicy, get_policy
 from app.operations.report_format import (
+    render_approval_request_html,
+    render_approval_request_text,
     render_daily_incident,
     render_weekly_report,
     weekly_subject,
@@ -191,6 +194,49 @@ class OperationsNotificationService:
             now=now,
         )
 
+    def send_approval_request(self, *, session, snapshot: dict, review_url: str):
+        """モバイル承認の依頼を 1 通送る (C8.8)。
+
+        **承認そのものではない。** レビューページを開く導線だけを運び、
+        ワンクリックで承認できるリンクは載せない。
+
+        capability は URL の fragment にあるため、``notification_deliveries`` の
+        subject にも detail にも残らない (件名に URL を入れない)。
+        """
+
+        from app.article.fact_freshness import ensure_aware
+
+        outcome = NotificationOutcome(NOTIFICATION_APPROVAL_REQUEST)
+        tz = self._policy.timezone
+        expires_local = ensure_aware(session.expires_at).astimezone(tz).isoformat()
+        outcome.detail = {
+            "mobile_approval_session_id": session.id,
+            "subject_type": session.subject_type,
+            "subject_id": session.subject_id,
+            "subject_hash_short": session.subject_hash[:16],
+            "expires_at_local": expires_local,
+        }
+        title = f"Approval required - Change request {session.subject_id}"
+        body = render_approval_request_text(
+            snapshot=snapshot, review_url=review_url, expires_at_local=expires_local
+        )
+        html = render_approval_request_html(
+            snapshot=snapshot, review_url=review_url, expires_at_local=expires_local
+        )
+        key = self._dedupe_key(
+            NOTIFICATION_APPROVAL_REQUEST, session.subject_type, session.id, session.subject_hash
+        )
+        return self._deliver(
+            outcome,
+            severity="info",
+            title=title,
+            body=body,
+            html_body=html,
+            dedupe_key=key,
+            operations_run_id=None,
+            now=datetime.now(UTC),
+        )
+
     # -- internals ------------------------------------------------------------
     def _deliver(
         self,
@@ -202,6 +248,7 @@ class OperationsNotificationService:
         dedupe_key: str,
         operations_run_id: int | None,
         now: datetime,
+        html_body: str | None = None,
     ) -> NotificationOutcome:
         try:
             config = build_email_config(self._settings)
@@ -250,7 +297,10 @@ class OperationsNotificationService:
             )
             return outcome
 
-        result = self._notifier.send_report(subject=subject, body=body)
+        # html_body は承認依頼だけが使う。既存の notifier に引数を増やさせない
+        # ため、HTML があるときだけ渡す (C8.7 の契約はそのまま)。
+        extra = {"html_body": html_body} if html_body else {}
+        result = self._notifier.send_report(subject=subject, body=body, **extra)
         outcome.sent = result.delivered
         if not result.delivered:
             outcome.reason = "delivery failed"

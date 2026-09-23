@@ -1,0 +1,84 @@
+"""中継へ渡すレビュー用スナップショット (C8.8、pure)。
+
+公開側に置くのは **人が読んで判断するための最小限** だけである。ローカル DB の
+中身を公開側へ写すのではない。
+
+- secret / 認証情報 / tracking URL / ``/go/`` token は載せない
+  (:func:`~app.operations.notifications.sanitize_payload` を最終防壁として通す)。
+- 本文全体は載せない。差分と前後の文脈だけを載せる。
+- ここで作るのは **データ** であって HTML ではない。描画側が必ずエスケープする。
+
+subject 固有の知識はこのモジュールの adapter に閉じ込める。中継側の token / 決定
+の仕組みには記事固有の前提を持ち込まない (あとで ``threads_post`` を足せるように)。
+"""
+
+from __future__ import annotations
+
+from app.models import SUBJECT_CHANGE_REQUEST, SUBJECT_THREADS_POST
+from app.operations.notifications import sanitize_payload
+
+#: 差分が長くなりすぎないように切る (携帯で読める量に収める)。
+MAX_DIFF_LINES = 40
+MAX_CONTEXT_CHARS = 240
+
+
+class UnsupportedSubjectError(Exception):
+    """まだ封筒に載せられない subject。"""
+
+    def __init__(self, subject_type: str) -> None:
+        super().__init__(f"subject type {subject_type!r} cannot be reviewed yet")
+        self.subject_type = subject_type
+
+
+def build_snapshot(*, subject_type: str, subject, article=None, target_article=None) -> dict:
+    """subject に応じた sanitized スナップショットを作る。"""
+
+    if subject_type == SUBJECT_CHANGE_REQUEST:
+        snapshot = _change_request_snapshot(subject, article, target_article)
+    elif subject_type == SUBJECT_THREADS_POST:
+        # 封筒としては表現できるが、V1 では作らない (Threads は未実装)。
+        raise UnsupportedSubjectError(subject_type)
+    else:
+        raise UnsupportedSubjectError(subject_type)
+    return sanitize_payload(snapshot)
+
+
+def _change_request_snapshot(request, article, target_article) -> dict:
+    """C9 の変更要求 1 件を、携帯で判断できる形に縮約する。"""
+
+    proposal = request.proposal_json or {}
+    diff = (proposal.get("unified_diff") or "").split("\n")
+    truncated = len(diff) > MAX_DIFF_LINES
+    return {
+        "subject_type": SUBJECT_CHANGE_REQUEST,
+        "subject_id": request.id,
+        "subject_hash": request.proposal_hash,
+        "subject_hash_short": request.proposal_hash[:16],
+        "subject_version": request.proposal_version,
+        "status": request.status,
+        "change_type": request.change_type,
+        "article_id": request.article_id,
+        "article_title": getattr(article, "title", None),
+        "article_url": getattr(article, "published_url", None),
+        "target_article_id": request.target_article_id,
+        "target_article_title": getattr(target_article, "title", None),
+        "target_url": proposal.get("target_url"),
+        "candidate_type": request.source_candidate_type,
+        "priority": request.source_candidate_priority,
+        "rationale": request.rationale,
+        "anchor_text": proposal.get("anchor_text"),
+        "inserted_paragraph": proposal.get("inserted_paragraph"),
+        "context_before": _clip(proposal.get("context_before")),
+        "context_after": _clip(proposal.get("context_after")),
+        "insertion_line": proposal.get("insertion_line"),
+        "diff_lines": diff[:MAX_DIFF_LINES],
+        "diff_truncated": truncated,
+        "warnings": list(proposal.get("warnings") or []),
+    }
+
+
+def _clip(value) -> str | None:
+    if not value:
+        return None
+    text = str(value)
+    return text if len(text) <= MAX_CONTEXT_CHARS else text[: MAX_CONTEXT_CHARS - 3] + "..."

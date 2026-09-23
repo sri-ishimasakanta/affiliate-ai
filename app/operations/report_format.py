@@ -231,3 +231,71 @@ def _fmt(value) -> str:
     if isinstance(value, list):
         return ", ".join(str(v) for v in value) or "(none)"
     return str(value)
+
+
+def render_approval_request_text(*, snapshot: dict, review_url: str, expires_at_local: str) -> str:
+    """承認依頼メールの text/plain (C8.8)。
+
+    **ワンクリック承認のリンクは載せない。** 載せるのはレビューページを開く導線
+    だけで、決定はページ上の明示的な操作でしか起きない。
+    """
+
+    out = [
+        "BizFluxLab の記事変更について、承認が必要です。",
+        "",
+        f"変更要求      : #{snapshot.get('subject_id')}",
+        f"記事          : {snapshot.get('article_title') or snapshot.get('article_id')}",
+        f"リンク先      : {snapshot.get('target_article_title') or '-'}",
+        f"変更種別      : {snapshot.get('change_type')}",
+        f"候補          : {snapshot.get('candidate_type')} ({snapshot.get('priority')})",
+        f"提案          : v{snapshot.get('subject_version')} {snapshot.get('subject_hash_short')}",
+        f"有効期限      : {expires_at_local}",
+        "",
+        "理由:",
+        f"  {snapshot.get('rationale')}",
+        "",
+        "内容を確認する:",
+        f"  {review_url}",
+        "",
+        "このリンクは内容を表示するだけで、開いても承認にはならない。",
+        "承認・却下はページ上で明示的に操作したときだけ記録される。",
+        "リンクは 1 回限りで、期限を過ぎると使えなくなる。他人に転送しないこと。",
+    ]
+    return "\n".join(out)
+
+
+def render_approval_request_html(*, snapshot: dict, review_url: str, expires_at_local: str) -> str:
+    """承認依頼メールの text/html (小さく保つ)。
+
+    動的な値はすべてエスケープする。外部アセットは読み込まない。
+    """
+
+    from html import escape
+
+    def e(value) -> str:
+        return escape(str(value if value is not None else "-"), quote=True)
+
+    return (
+        '<div style="font-family:sans-serif;max-width:560px;line-height:1.6">'
+        '<h2 style="font-size:18px">BizFluxLab: 記事変更の承認が必要です</h2>'
+        f"<p>変更要求 <strong>#{e(snapshot.get('subject_id'))}</strong> "
+        f"/ 提案 v{e(snapshot.get('subject_version'))} "
+        f"<code>{e(snapshot.get('subject_hash_short'))}</code></p>"
+        '<table cellpadding="4" style="border-collapse:collapse;font-size:14px">'
+        f"<tr><td>記事</td><td>{e(snapshot.get('article_title'))}</td></tr>"
+        f"<tr><td>リンク先</td><td>{e(snapshot.get('target_article_title'))}</td></tr>"
+        f"<tr><td>変更種別</td><td>{e(snapshot.get('change_type'))}</td></tr>"
+        f"<tr><td>候補</td><td>{e(snapshot.get('candidate_type'))} "
+        f"({e(snapshot.get('priority'))})</td></tr>"
+        f"<tr><td>有効期限</td><td>{e(expires_at_local)}</td></tr>"
+        "</table>"
+        f'<p style="font-size:14px">{e(snapshot.get("rationale"))}</p>'
+        f'<p><a href="{e(review_url)}" '
+        'style="display:inline-block;padding:12px 20px;background:#1a4d8f;color:#fff;'
+        'text-decoration:none;border-radius:6px;font-size:16px">内容を確認</a></p>'
+        f'<p style="font-size:12px;color:#555">開くだけでは承認になりません。'
+        "承認・却下はページ上で明示的に操作したときだけ記録されます。"
+        "リンクは 1 回限りで、期限を過ぎると使えません。</p>"
+        f'<p style="font-size:12px;color:#555">リンクが開けない場合: {e(review_url)}</p>'
+        "</div>"
+    )

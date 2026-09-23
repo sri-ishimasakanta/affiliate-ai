@@ -24,6 +24,7 @@ from app.models import (
     KeywordScore,
     KeywordScoreSignal,
     KeywordSignal,
+    MobileApprovalEvent,
     NotificationDelivery,
     OperationsAlert,
     OperationsLock,
@@ -112,6 +113,9 @@ IMMUTABLE_HISTORY_MODELS = (
     ChangeApplication,
     # 通知の送信試行 (append-only)。成功も失敗も上書きしない。
     NotificationDelivery,
+    # モバイル承認セッションに起きた事実 (append-only)。
+    # MobileApprovalSession 自身は state が進むため mutable (updated_at を持つ)。
+    MobileApprovalEvent,
 )
 
 
@@ -148,6 +152,8 @@ def test_all_tables_registered() -> None:
         "change_request_approvals",
         "change_applications",
         "notification_deliveries",
+        "mobile_approval_sessions",
+        "mobile_approval_events",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

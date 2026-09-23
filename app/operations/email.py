@@ -239,8 +239,14 @@ class EmailNotifier:
         subject = self._config.severity_subject(message.severity, sanitize_payload(message.title))
         return self.send_report(subject=subject, body=render_alert_body(message))
 
-    def send_report(self, *, subject: str, body: str) -> NotificationResult:
-        """任意の本文を送る (日次インシデント / 週次レポート共通)。"""
+    def send_report(
+        self, *, subject: str, body: str, html_body: str | None = None
+    ) -> NotificationResult:
+        """任意の本文を送る (日次インシデント / 週次レポート / 承認依頼 共通)。
+
+        ``html_body`` を渡したときだけ multipart になる。**plain text が本体**で、
+        HTML は補助である (携帯で HTML が落ちても読める)。
+        """
 
         mail = EmailMessage()
         mail["Subject"] = subject
@@ -248,6 +254,8 @@ class EmailNotifier:
         mail["To"] = ", ".join(self._config.recipients)
         mail["Date"] = formatdate(localtime=True)
         mail.set_content(body)
+        if html_body:
+            mail.add_alternative(html_body, subtype="html")
 
         try:
             self._deliver(mail)

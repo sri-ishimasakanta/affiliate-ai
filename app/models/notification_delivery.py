@@ -47,11 +47,14 @@ NOTIFICATION_DAILY_INCIDENT = "daily_incident"
 NOTIFICATION_WEEKLY_REPORT = "weekly_report"
 NOTIFICATION_ALERT = "alert"
 NOTIFICATION_TEST = "test"
+#: モバイル承認の依頼 (C8.8)。承認そのものではなく、レビュー依頼を運ぶだけ。
+NOTIFICATION_APPROVAL_REQUEST = "approval_request"
 NOTIFICATION_TYPES = (
     NOTIFICATION_DAILY_INCIDENT,
     NOTIFICATION_WEEKLY_REPORT,
     NOTIFICATION_ALERT,
     NOTIFICATION_TEST,
+    NOTIFICATION_APPROVAL_REQUEST,
 )
 
 # -- outcomes ------------------------------------------------------------------
