@@ -89,6 +89,16 @@ class Settings(BaseSettings):
     # 実値は絶対に print / log / commit / CLI 出力 / test snapshot に含めない。
     affiliate_runtime_shared_secret: str | None = None
 
+    # --- モバイル承認中継 (C8.8.1) ---
+    # **affiliate runtime とは別の secret を使う。** リダイレクト/クリックの経路と
+    # 「人の承認を運ぶ経路」は信頼ドメインが違うので、鍵を共有しない。片方が漏れても
+    # もう片方は無事である必要がある。
+    # default は置かない。fallback もしない -- 未設定なら認証付きの中継 API は
+    # すべて fail closed になる。実値は print / log / commit / CLI 出力 /
+    # notification_deliveries / test snapshot に絶対に含めない。
+    # WordPress 側の対応する定数は ``BFL_APPROVAL_RELAY_SECRET``。
+    approval_relay_shared_secret: str | None = None
+
     # D-C3-C synthetic runtime click probe (production runtime-only, no local
     # AffiliateLinkTarget)。probe の外部 state file (token を含む) のパス。
     # 未設定でも通常のアプリ動作には一切影響しない。実 Human パスはコードに
@@ -148,6 +158,15 @@ class Settings(BaseSettings):
         (token の妥当性検証はしない — 実際の呼び出しで 401 として現れる)。"""
 
         return bool(self.make_api_base_url and self.make_api_token)
+
+    @property
+    def approval_relay_configured(self) -> bool:
+        """モバイル承認中継を認証付きで呼べるか。
+
+        **値そのものは決して外へ出さない** -- 診断で示してよいのはこの真偽だけ。
+        """
+
+        return bool((self.approval_relay_shared_secret or "").strip())
 
     @property
     def operations_email_recipients(self) -> list[str]:

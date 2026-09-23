@@ -1,8 +1,18 @@
 """公開中継 (WordPress MU-plugin) との HTTP client (C8.8)。
 
 **新しい認証方式は作らない。** 既存の affiliate runtime と同じ HMAC-SHA256 契約
-(:mod:`app.affiliate.projection_signing`) をそのまま使う。共有 secret は
-``wp-config.php`` と ``.env`` にだけ置き、DB にもログにも載せない。
+(:mod:`app.affiliate.projection_signing`) をそのまま使う。変えるのは **鍵の出所**
+だけである。
+
+鍵は affiliate runtime と **共有しない** (C8.8.1)。``/go/`` のリダイレクト経路と
+「人の承認を運ぶ経路」は信頼ドメインが違う。片方の鍵が漏れても、もう片方の権限は
+渡らないようにする:
+
+- 承認中継   -- ``APPROVAL_RELAY_SHARED_SECRET`` / ``BFL_APPROVAL_RELAY_SECRET``
+- affiliate  -- ``AFFILIATE_RUNTIME_SHARED_SECRET`` / ``BFL_AFFILIATE_RUNTIME_SECRET``
+
+fallback は無い。承認用の secret が無ければ、認証付きの操作はすべて失敗する。
+secret は ``wp-config.php`` と ``.env`` にだけ置き、DB にもログにも載せない。
 
 この client がやり取りするのは 4 つだけ:
 
@@ -158,9 +168,18 @@ class ApprovalRelayClient:
 
     # -- internals ------------------------------------------------------------
     def _secret(self) -> str:
-        secret = getattr(self._settings, "affiliate_runtime_shared_secret", None) or ""
+        """承認中継 **専用** の secret。affiliate runtime の鍵へは決して落ちない。
+
+        未設定なら署名を作らずに失敗する (fail closed)。「無ければ別の鍵を使う」
+        という fallback は、信頼ドメインを分けた意味を消すので作らない。
+        """
+
+        secret = getattr(self._settings, "approval_relay_shared_secret", None) or ""
         if not secret.strip():
-            raise RelayError("the shared relay secret is not configured")
+            raise RelayError(
+                "APPROVAL_RELAY_SHARED_SECRET is not configured; "
+                "the approval relay does not fall back to any other secret"
+            )
         return secret
 
     def _origin(self) -> str:

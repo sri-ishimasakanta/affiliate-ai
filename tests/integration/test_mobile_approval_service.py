@@ -59,7 +59,9 @@ _SOURCE_BODY = """記事の冒頭。
 
 class _Settings:
     wordpress_base_url = _BASE
-    affiliate_runtime_shared_secret = "relay-shared-secret"
+    # 承認中継は専用の secret を使う (C8.8.1)。affiliate runtime の鍵とは別。
+    approval_relay_shared_secret = "approval-relay-secret"
+    affiliate_runtime_shared_secret = "affiliate-runtime-secret"
     operations_email_enabled = True
     operations_email_smtp_host = "smtp.example.com"
     operations_email_smtp_port = 587

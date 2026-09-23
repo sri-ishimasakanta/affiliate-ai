@@ -12,9 +12,22 @@ owns the change request, the proposal hash/version, staleness detection, the
 approval record and every WordPress mutation. This plugin contains no code path
 that can edit a post.
 
-It reuses the existing `BFL_Hmac` contract from the affiliate runtime plugin for
-the authenticated affiliate-ai endpoints, and the same shared secret constant
-(`BFL_AFFILIATE_RUNTIME_SECRET`). No new authentication mechanism is introduced.
+It reuses the existing `BFL_Hmac` *request format* from the affiliate runtime
+plugin for the authenticated affiliate-ai endpoints. No new authentication
+mechanism is introduced.
+
+**The key is not shared.** Redirect traffic and human approval authority are
+different trust domains, so leaking one key must not hand over the other:
+
+| Domain | WordPress constant | Local `.env` |
+|---|---|---|
+| Affiliate redirect runtime (`/go/`) | `BFL_AFFILIATE_RUNTIME_SECRET` | `AFFILIATE_RUNTIME_SHARED_SECRET` |
+| Mobile approval relay | `BFL_APPROVAL_RELAY_SECRET` | `APPROVAL_RELAY_SHARED_SECRET` |
+
+There is **no fallback between them** in either direction. If
+`BFL_APPROVAL_RELAY_SECRET` is missing or blank, every authenticated relay
+endpoint fails closed; the public read-only shell still renders, because it
+reads nothing and can decide nothing.
 
 ## Files
 
@@ -30,8 +43,40 @@ Verify before deploying:
 php wordpress/mu-plugins/bizfluxlab-approval-relay/tests/run.php
 ```
 
-Currently: **36 passed, 0 failed**. It also runs inside pytest as
+Currently: **43 passed, 0 failed** (including cross-secret rejection in both
+directions). It also runs inside pytest as
 `tests/unit/test_wp_approval_relay_php_harness.py`.
+
+## Step 0 — generate the approval relay secret (do this first)
+
+Generate an independent high-entropy value locally. Do **not** reuse the
+affiliate runtime secret, and do not paste the value into chat or a commit:
+
+```bash
+uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Put the **same** value in two places:
+
+1. local `.env`:
+   ```
+   APPROVAL_RELAY_SHARED_SECRET=<the generated value>
+   ```
+2. XServer `wp-config.php`, above the `/* That's all, stop editing! */` line:
+   ```php
+   define( 'BFL_APPROVAL_RELAY_SECRET', '<the generated value>' );
+   ```
+
+Leave `BFL_AFFILIATE_RUNTIME_SECRET` and `AFFILIATE_RUNTIME_SHARED_SECRET`
+exactly as they are. Rotating the approval secret later means changing both
+places together; any in-flight review session is unaffected because the
+capability is independent of this key.
+
+Confirm locally without revealing the value:
+
+```bash
+uv run python -c "from app.config.settings import get_settings as g; print('approval_relay_secret_configured =', g().approval_relay_configured)"
+```
 
 ## Dependency
 
@@ -42,24 +87,35 @@ first. Do not rename either file without rechecking that order.
 
 ## Deployment steps (require explicit approval)
 
-1. Upload `bizfluxlab-approval-relay.php` and the
+Order matters: the secret goes in **before** the code, so the endpoints are
+never briefly reachable with an unconfigured key.
+
+1. Generate the independent approval relay secret (Step 0 above).
+2. Put it in the local `.env` as `APPROVAL_RELAY_SHARED_SECRET`.
+3. Put the same value in XServer `wp-config.php` as
+   `BFL_APPROVAL_RELAY_SECRET`. Confirm `BFL_AFFILIATE_RUNTIME_SECRET` is
+   still present and unchanged.
+4. Upload `bizfluxlab-approval-relay.php` and the
    `bizfluxlab-approval-relay/` directory to `wp-content/mu-plugins/`.
    Do **not** upload `tests/` to production.
-2. Confirm `BFL_AFFILIATE_RUNTIME_SECRET` is already defined in `wp-config.php`
-   (the affiliate runtime uses it). No new secret is needed. If it is absent,
-   the authenticated endpoints fail closed and no session can be created.
-3. Log into `/wp-admin` once as an administrator. `admin_init` creates
+5. Log into `/wp-admin` once as an administrator. `admin_init` creates
    `wp_bfl_approval_sessions` via `dbDelta`. Anonymous traffic never triggers
-   schema installation.
-4. Verify the table exists and has the unique keys
+   schema installation. Verify the table exists with the unique keys
    `uq_relay_session` and `uq_capability`.
-5. Confirm `https://bizfluxlab.com/bfl-approval/<32-hex>` returns the shell page
-   with `X-Robots-Tag: noindex, nofollow, noarchive` and
-   `Cache-Control: no-store`.
-6. Confirm `https://bizfluxlab.com/robots.txt` now contains
-   `Disallow: /bfl-approval/`.
-7. Confirm `/go/<token>` still redirects exactly as before — this plugin must
-   not have changed it in any way.
+6. Authenticated preflight: `uv run python scripts/sync_mobile_approvals.py`
+   should now report `fetched = 0` instead of an `HTTP 404` relay error. That
+   proves the route exists and the two secrets match.
+7. Unauthenticated check: `curl -sSI https://bizfluxlab.com/bfl-approval/<32-hex>`
+   returns 200 with `X-Robots-Tag: noindex, nofollow, noarchive`,
+   `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
+   `X-Frame-Options: DENY` and the CSP — and changes no state. Also confirm
+   `https://bizfluxlab.com/robots.txt` contains `Disallow: /bfl-approval/`.
+8. Confirm `/go/<token>` still redirects exactly as before — this plugin must
+   not have changed it in any way, and its secret was not touched.
+9. Send one safe mobile approval test (below).
+
+If step 6 reports `signature_mismatch`, the two values differ — fix the
+configuration rather than relaxing the check.
 
 ## Post-deployment test procedure
 

@@ -162,5 +162,53 @@ eq( isset( $snapshot['tracking_url'] ), false, 'tracking URLs never reach the br
 eq( $snapshot['expires_at_local'], '2026-09-25 09:00', 'the expiry is shown in local time' );
 eq( $snapshot['subject_id'], 12, 'allowed fields survive' );
 
+/* -- trust domain separation (C8.8.1) ------------------------------------ *
+ * The relay signs and verifies with its OWN key. Reusing the affiliate
+ * runtime's key must not authenticate an approval call, and vice versa.
+ * BFL_Hmac lives in the affiliate runtime plugin, so the request FORMAT is
+ * shared -- only the key source differs. We reproduce that format here.
+ */
+require_once __DIR__ . '/../../bizfluxlab-affiliate-runtime/lib-core.php';
+
+$APPROVAL_SECRET  = 'approval-relay-key-aaaaaaaaaaaaaaaaaaaaaaaa';
+$AFFILIATE_SECRET = 'affiliate-runtime-key-bbbbbbbbbbbbbbbbbbbbbb';
+$BODY             = '{"relay_session_id":"' . str_repeat( 'a', 32 ) . '"}';
+$TS               = $NOW;
+$BODY_SHA         = hash( 'sha256', $BODY );
+$PATH             = '/wp-json/affiliate-ai/v1/approval-sessions';
+
+function signed_with( string $secret, string $path, string $body, int $ts ) : string {
+	return hash_hmac( 'sha256', BFL_Hmac::signing_string( 'POST', $path, $ts, hash( 'sha256', $body ) ), $secret );
+}
+
+$sig_approval  = signed_with( $APPROVAL_SECRET, $PATH, $BODY, $TS );
+$sig_affiliate = signed_with( $AFFILIATE_SECRET, $PATH, $BODY, $TS );
+
+list( $ok, $reason ) = BFL_Hmac::verify( $APPROVAL_SECRET, 'POST', $PATH, (string) $TS, $BODY_SHA, $sig_approval, $BODY, $NOW );
+eq( array( $ok, $reason ), array( true, 'ok' ), 'an approval call signed with the approval key is accepted' );
+
+list( $ok, $reason ) = BFL_Hmac::verify( $APPROVAL_SECRET, 'POST', $PATH, (string) $TS, $BODY_SHA, $sig_affiliate, $BODY, $NOW );
+eq( array( $ok, $reason ), array( false, 'signature_mismatch' ), 'the affiliate key cannot authenticate an approval call' );
+
+$AFF_PATH       = '/wp-json/affiliate-ai/v1/target-projections';
+$sig_aff_on_aff = signed_with( $AFFILIATE_SECRET, $AFF_PATH, $BODY, $TS );
+$sig_app_on_aff = signed_with( $APPROVAL_SECRET, $AFF_PATH, $BODY, $TS );
+
+list( $ok, $reason ) = BFL_Hmac::verify( $AFFILIATE_SECRET, 'POST', $AFF_PATH, (string) $TS, $BODY_SHA, $sig_aff_on_aff, $BODY, $NOW );
+eq( array( $ok, $reason ), array( true, 'ok' ), 'the affiliate runtime still accepts its own key' );
+
+list( $ok, $reason ) = BFL_Hmac::verify( $AFFILIATE_SECRET, 'POST', $AFF_PATH, (string) $TS, $BODY_SHA, $sig_app_on_aff, $BODY, $NOW );
+eq( array( $ok, $reason ), array( false, 'signature_mismatch' ), 'the approval key cannot authenticate an affiliate call' );
+
+list( $ok, $reason ) = BFL_Hmac::verify( '', 'POST', $PATH, (string) $TS, $BODY_SHA, $sig_approval, $BODY, $NOW );
+eq( array( $ok, $reason ), array( false, 'secret_not_configured' ), 'a missing approval secret fails closed' );
+
+// The plugin source must read its own constant and never the affiliate one.
+$plugin    = (string) file_get_contents( __DIR__ . '/../../bizfluxlab-approval-relay.php' );
+$body_only = substr( $plugin, (int) strpos( $plugin, 'function bfl_approval_secret' ) );
+contains( $body_only, "defined( 'BFL_APPROVAL_RELAY_SECRET' )", 'the relay reads its own constant' );
+lacks( $body_only, 'BFL_AFFILIATE_RUNTIME_SECRET', 'the relay never reads the affiliate constant' );
+
+
 fwrite( STDOUT, "\n{$PASS} passed, {$FAIL} failed\n" );
 exit( $FAIL > 0 ? 1 : 0 );

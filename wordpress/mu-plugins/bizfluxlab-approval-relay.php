@@ -18,11 +18,17 @@
  * - affiliate-ai is authoritative. This relay holds only what a human needs to
  *   read on a phone plus one decision. It never edits posts, never calls the
  *   WordPress content API, and has no code path that could.
- * - The authenticated endpoints reuse the EXISTING HMAC-SHA256 contract
- *   (BFL_Hmac in the affiliate runtime plugin, X-BFL-Timestamp /
+ * - The authenticated endpoints reuse the EXISTING HMAC-SHA256 request format
+ *   (BFL_Hmac from the affiliate runtime plugin, X-BFL-Timestamp /
  *   X-BFL-Content-SHA256 / X-BFL-Signature). No weaker mechanism is introduced.
- *   The shared secret comes from BFL_AFFILIATE_RUNTIME_SECRET; if it is missing
- *   the authenticated endpoints FAIL CLOSED.
+ * - The KEY IS NOT SHARED with the affiliate runtime (C8.8.1). Redirect traffic
+ *   and human approval authority are different trust domains: leaking one key
+ *   must not hand over the other. This plugin reads ONLY
+ *   BFL_APPROVAL_RELAY_SECRET; the affiliate runtime keeps using ONLY
+ *   BFL_AFFILIATE_RUNTIME_SECRET. There is NO fallback between them. If
+ *   BFL_APPROVAL_RELAY_SECRET is missing or empty, every authenticated endpoint
+ *   FAILS CLOSED (the public read-only shell still renders, because it reads
+ *   nothing and can decide nothing).
  * - GET can never decide. The review page GET reads nothing from the database:
  *   the capability is in the URL fragment, which browsers never send. Mail
  *   scanners and link preview bots cannot reach a state transition.
@@ -136,8 +142,14 @@ final class BFL_Approval_Repo {
 /* =========================================================================
  * Shared helpers.
  * ========================================================================= */
+/**
+ * The approval relay's OWN secret. Never falls back to the affiliate runtime's
+ * key: a fallback would silently re-merge the two trust domains.
+ */
 function bfl_approval_secret() : string {
-	return defined( 'BFL_AFFILIATE_RUNTIME_SECRET' ) ? (string) BFL_AFFILIATE_RUNTIME_SECRET : '';
+	// trim() so a whitespace-only constant also fails closed, matching the
+	// affiliate runtime's rule.
+	return defined( 'BFL_APPROVAL_RELAY_SECRET' ) ? trim( (string) BFL_APPROVAL_RELAY_SECRET ) : '';
 }
 
 function bfl_approval_error( string $code, int $status ) : WP_REST_Response {
