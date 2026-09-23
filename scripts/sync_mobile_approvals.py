@@ -11,15 +11,16 @@
 - 中継に人の決定が無ければ、何も起きない。
 - 候補の優先度から承認を作らない。
 - 自動承認も自動却下もしない。
-- **適用はしない。** WordPress には触れない。
+- **実行はしない。** WordPress にも Threads にも触れない。
 
 記録は必ず既存の ``ChangeRequestService`` を通る。したがって提案 hash の一致・
 版の一致・陳腐化判定は、PC で承認したときとまったく同じである。違うのは
 記録される決定者 (``human-mobile``) だけ。
 
-適用したい場合は、いつもどおり別コマンドを人が実行する:
+実行したい場合は、subject に応じた別コマンドを人が実行する:
 
-    uv run python scripts/apply_approved_change.py <id> --execute
+    記事変更 : uv run python scripts/apply_approved_change.py <id> --execute
+    Threads  : uv run python scripts/publish_threads_post.py --proposal-id <id> --execute
 """
 
 from __future__ import annotations
@@ -62,7 +63,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     if not args.execute:
         print("\nPLAN のみ。記録するには --execute を付ける。")
-    print("承認は適用ではない。適用は apply_approved_change.py を人が実行する。")
+    print("承認は実行ではない。記事変更の適用も Threads の投稿も、別のコマンドで人が実行する。")
+    print("  記事変更 : uv run python scripts/apply_approved_change.py <id> --execute")
+    print("  Threads  : uv run python scripts/publish_threads_post.py --proposal-id <id> --execute")
 
     if args.json_path:
         Path(args.json_path).write_text(

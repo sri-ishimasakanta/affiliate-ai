@@ -38,6 +38,7 @@ from app.models import (
     SeoImprovementCandidate,
     SeoImprovementRun,
     Source,
+    ThreadsPublicationAttempt,
     WordPressContentUpdateReconciliation,
     WordPressContentUpdateRun,
     WordPressDraftRun,
@@ -116,6 +117,8 @@ IMMUTABLE_HISTORY_MODELS = (
     # モバイル承認セッションに起きた事実 (append-only)。
     # MobileApprovalSession 自身は state が進むため mutable (updated_at を持つ)。
     MobileApprovalEvent,
+    # Threads 公開の試行 (append-only)。成功も失敗も uncertain も上書きしない。
+    ThreadsPublicationAttempt,
 )
 
 
@@ -155,6 +158,8 @@ def test_all_tables_registered() -> None:
         "mobile_approval_sessions",
         "mobile_approval_events",
         "threads_post_proposals",
+        "threads_publications",
+        "threads_publication_attempts",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

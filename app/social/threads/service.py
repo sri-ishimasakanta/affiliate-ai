@@ -106,6 +106,12 @@ class ThreadsService:
         self._client = client or ThreadsClient(settings)
         self._sleep = sleep
 
+    @property
+    def client(self) -> ThreadsClient:
+        """公開経路 (T3) が使う HTTP 層。判断はここには無い。"""
+
+        return self._client
+
     # -- configuration --------------------------------------------------------
     def describe(self) -> ThreadsConnectionStatus:
         """設定状況だけを返す (外部に触れない)。**token は出さない。**"""

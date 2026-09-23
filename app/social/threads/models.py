@@ -61,6 +61,25 @@ RECOMMENDED_PUBLISH_DELAY_SECONDS = 30
 #: 公式: "Profiles are limited to 250 published posts within a 24-hour period."
 DAILY_PUBLISH_LIMIT = 250
 
+# -- container status (公式のトラブルシューティングで確認) ----------------------
+#: ``GET /{threads-container-id}?fields=status,error_message`` が返す状態。
+CONTAINER_EXPIRED = "EXPIRED"
+CONTAINER_ERROR = "ERROR"
+CONTAINER_FINISHED = "FINISHED"
+CONTAINER_IN_PROGRESS = "IN_PROGRESS"
+CONTAINER_PUBLISHED = "PUBLISHED"
+CONTAINER_STATUSES = (
+    CONTAINER_EXPIRED,
+    CONTAINER_ERROR,
+    CONTAINER_FINISHED,
+    CONTAINER_IN_PROGRESS,
+    CONTAINER_PUBLISHED,
+)
+CONTAINER_FIELDS = ("status", "error_message")
+#: 公式: "querying a container's status once per minute, for no more than 5 minutes."
+CONTAINER_POLL_INTERVAL_SECONDS = 60
+CONTAINER_POLL_MAX_ATTEMPTS = 5
+
 # -- fields / metrics ----------------------------------------------------------
 #: 1 件の投稿から読める項目 (公式一覧のうち、T3 で使う見込みのものだけ)。
 MEDIA_FIELDS = ("id", "permalink", "timestamp", "text", "media_type", "shortcode", "username")
@@ -92,6 +111,10 @@ GRANT_REFRESH = "th_refresh_token"
 
 #: 公式ドキュメントで確認できなかったこと。埋めずに、確認済みと区別して残す。
 UNVERIFIED_FACTS = (
+    "コンテナ状態の照会 (GET /{container-id}?fields=status,error_message) は "
+    "公式のトラブルシューティングに記載があるが、テキスト投稿で ERROR になる場合の "
+    "error_message の値は動画向けのものしか列挙されていない。テキストで何が返るかは "
+    "未確認なので、未知の値はそのまま記録して人に見せる。",
     "access token を Authorization ヘッダで送れるかどうかは、読んだ範囲の公式"
     "ドキュメントに明記が無い。確認できた例はすべて access_token をリクエスト"
     "パラメータとして渡している。ここではその確認済みの形だけを使う。",

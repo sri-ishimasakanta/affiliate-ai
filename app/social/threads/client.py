@@ -32,6 +32,7 @@ from app.social.threads.errors import (
     redact,
 )
 from app.social.threads.models import (
+    CONTAINER_FIELDS,
     DEFAULT_API_BASE_URL,
     DEFAULT_API_VERSION,
     MEDIA_FIELDS,
@@ -92,6 +93,15 @@ class ThreadsClient:
         """公開済み投稿 1 件を読む (T3 の計測で使う)。"""
 
         return self._get(f"/{media_id}", {"fields": ",".join(fields)})
+
+    def fetch_container_status(self, creation_id: str) -> dict[str, Any]:
+        """コンテナの状態を読む (公開が成立したかの照合に使う)。
+
+        公式のトラブルシューティングに従い ``status`` / ``error_message`` を問う。
+        ``PUBLISHED`` が返れば、応答を取りこぼしただけで公開は成立している。
+        """
+
+        return self._get(f"/{creation_id}", {"fields": ",".join(CONTAINER_FIELDS)})
 
     def fetch_media_insights(self, media_id: str, metrics) -> dict[str, Any]:
         return self._get(f"/{media_id}/insights", {"metric": ",".join(metrics)})
