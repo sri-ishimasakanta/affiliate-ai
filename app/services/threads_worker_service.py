@@ -368,8 +368,13 @@ class ThreadsWorkerService:
             summary={
                 "tracked": tracked,
                 "would_refresh": due,
+                # 失敗も隠さない。何を試して、どう失敗したか (redact 済みの理由) を残す。
                 "refreshed": [
-                    {"publication_id": d.get("publication_id"), "result": d.get("result")}
+                    {
+                        "publication_id": d.get("publication_id"),
+                        "result": d.get("result"),
+                        "reason": d.get("reason"),
+                    }
                     for d in refreshed
                 ],
                 "network_calls": calls,
@@ -450,6 +455,16 @@ class ThreadsWorkerService:
                     .order_by(ThreadsInsightSnapshot.observed_at.desc())
                     .limit(1)
                 ).first()
+            # 最後に **試みた** 観測 (失敗も含む)。成功した観測だけを見せると、
+            # 取得が失敗し続けていても「最後の観測」が古いまま黙って残って見える。
+            latest_attempt = None
+            if latest is not None:
+                latest_attempt = session.scalars(
+                    select(ThreadsInsightSnapshot)
+                    .where(ThreadsInsightSnapshot.threads_publication_id == latest.id)
+                    .order_by(ThreadsInsightSnapshot.observed_at.desc())
+                    .limit(1)
+                ).first()
             latest_view = None
             if latest is not None:
                 published = ensure_aware(latest.published_at)
@@ -468,6 +483,18 @@ class ThreadsWorkerService:
                         ensure_aware(latest_snapshot.observed_at).isoformat()
                         if latest_snapshot
                         else None
+                    ),
+                    "latest_attempt_at": (
+                        ensure_aware(latest_attempt.observed_at).isoformat()
+                        if latest_attempt
+                        else None
+                    ),
+                    "latest_attempt_outcome": latest_attempt.outcome if latest_attempt else None,
+                    "latest_attempt_error_category": (
+                        latest_attempt.error_category if latest_attempt else None
+                    ),
+                    "latest_attempt_error": (
+                        latest_attempt.error_message if latest_attempt else None
                     ),
                 }
 

@@ -490,3 +490,35 @@ def test_timezone_conversion_does_not_change_maturity(session: Session, article:
     post = _service(session, _FakeThreads()).report(now=_NOW)["publications"][0]
     assert post["maturity"]["age_hours"] == pytest.approx(0.33, abs=0.01)
     assert post["maturity"]["stage"] == "just_published"
+
+
+# -- diagnostic classification (2026-09-25) ------------------------------------
+def test_a_blocked_api_is_reported_as_a_permission_failure_not_as_a_missing_post(
+    session: Session, article: Article
+) -> None:
+    from app.social.threads.errors import ThreadsNotFoundError, ThreadsPermissionError
+
+    _publication(session, _proposal(session, article))
+    service = _service(
+        session,
+        _FakeThreads(
+            error=ThreadsPermissionError(
+                "/media-1/insights failed: API access blocked.", status=400, api_code="200"
+            )
+        ),
+    )
+    service.collect(execute=True, now=_NOW)
+
+    drafts = service.alert_drafts()
+    assert [d.fingerprint for d in drafts] == ["threads_insights:threads_permission"]
+    assert drafts[0].severity == "error"
+    row = session.scalars(select(ThreadsInsightSnapshot)).one()
+    assert row.error_category == "threads_permission"
+
+    # 本当に見つからないとき (404) だけが「投稿が読めない」。
+    missing = _service(
+        session,
+        _FakeThreads(error=ThreadsNotFoundError("/media-1/insights failed: not found", status=404)),
+    )
+    missing.collect(execute=True, now=_NOW + timedelta(hours=1))
+    assert any(d.fingerprint == "threads_media_unreadable:1" for d in missing.alert_drafts())

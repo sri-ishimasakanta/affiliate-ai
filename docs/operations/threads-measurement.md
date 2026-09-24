@@ -118,9 +118,37 @@ C8 の日次/週次 run には `import_threads_insights` ステップとして�
 出すのは「計測そのものが壊れているとき」だけ:
 
 - 資格情報が使えない (`threads_auth` / `threads_permission` / 未設定) — 即時、error
-- 一時的な失敗が 3 回続いた — warning (1 回では出さない)
-- 公開済み投稿が読めない — warning
+- 一時的な失敗 (`threads_rate_limit` / `threads_server` / `threads_timeout`) が 3 回続いた
+  — warning (1 回では出さない)
+- 想定外の応答 (`threads_response`) — 即時、warning。原因は断定せず、理由をそのまま見せる
+- 公開済み投稿が見つからない (`threads_not_found` = HTTP 404) — warning
 - 公開中の文面が承認された文面と一致しない — error
+
+### 失敗の分類 (2026-09-25 に修正)
+
+Graph API は token 切れや権限の喪失の多くを **HTTP 400** で返し、種類は本文の
+`code` で示す。以前は HTTP status だけで分類していたため、2026-09-25 06:30 の
+日次実行で返った `HTTP 400 / code 200 / "API access blocked."` (API アクセスが
+アカウント単位で止められた) が「想定外の応答」になり、さらにそれが
+「公開済み投稿が読めない (削除・非公開・ID の不整合)」という **誤った警告** になった。
+
+いまは文書化された code を HTTP status より先に見る
+(出典: Graph API "Handling Errors"):
+
+| code / subcode | 分類 |
+| --- | --- |
+| 190, 102 / subcode 458, 459, 460, 463, 464, 467 | `threads_auth` |
+| 3, 10, 200–299, 368 | `threads_permission` |
+| 4, 17, 341 | `threads_rate_limit` |
+| 1, 2 | `threads_server` |
+| (code なし) HTTP 404 | `threads_not_found` |
+| それ以外の 4xx・JSON でない・形が違う・通信の失敗 | `threads_response` |
+
+「投稿が読めない」と言うのは `threads_not_found` のときだけ。警告は弱めていない
+(権限の喪失は warning から error に上がった)。
+
+`run_threads_worker.py` は、最後の **成功した** 観測に加えて、最後の **試み** が失敗して
+いればそれを `LAST ATTEMPT FAILED` として表示する。
 
 **出さないもの**: views が少ない、いいねが 0、反応が無い。
 これらは運用の障害ではない。

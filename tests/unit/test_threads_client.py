@@ -268,3 +268,55 @@ def test_the_client_never_disables_tls_or_the_timeout() -> None:
     assert "verify = False" not in source
     assert DEFAULT_TIMEOUT_SECONDS > 0
     assert "timeout=DEFAULT_TIMEOUT_SECONDS" in source
+
+
+# -- Graph OAuth codes on HTTP 400 (2026-09-25 warning) ------------------------
+def test_the_live_api_access_blocked_response_is_a_permission_failure() -> None:
+    """本番で返った応答そのもの: HTTP 400 / code 200 / "API access blocked."。
+
+    旧実装は HTTP status だけを見て「想定外の応答」に分類し、それが
+    「投稿が読めない (削除・非公開・ID の不整合)」という誤った警告になった。
+    """
+
+    from app.social.threads.errors import ThreadsPermissionError
+
+    http = _FakeHttp(
+        status=400,
+        payload={
+            "error": {"message": "API access blocked.", "type": "OAuthException", "code": 200}
+        },
+    )
+    with pytest.raises(ThreadsPermissionError) as excinfo:
+        _client(http).fetch_media_insights("18075152792458838", ("views",))
+    assert excinfo.value.category == "threads_permission"
+    assert excinfo.value.status == 400
+    assert excinfo.value.api_code == "200"
+    assert "API access blocked." in excinfo.value.reason
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "expected"),
+    [
+        (400, {"code": 190, "message": "token expired"}, "threads_auth"),
+        (400, {"code": 102, "message": "session"}, "threads_auth"),
+        (400, {"code": 10, "message": "permission denied"}, "threads_permission"),
+        (400, {"code": 3, "message": "missing capability"}, "threads_permission"),
+        (400, {"code": 299, "message": "permission"}, "threads_permission"),
+        (400, {"code": 368, "message": "temporarily blocked"}, "threads_permission"),
+        (400, {"code": 4, "message": "too many calls"}, "threads_rate_limit"),
+        (400, {"code": 17, "message": "user too many calls"}, "threads_rate_limit"),
+        (400, {"code": 341, "message": "application limit"}, "threads_rate_limit"),
+        (400, {"code": 1, "message": "unknown"}, "threads_server"),
+        (400, {"code": 2, "message": "service"}, "threads_server"),
+        (400, {"code": 100, "error_subcode": 460, "message": "password"}, "threads_auth"),
+        (404, {"message": "not found"}, "threads_not_found"),
+        (400, {"code": 100, "message": "bad request"}, "threads_response"),
+    ],
+)
+def test_documented_graph_codes_win_over_the_http_status(status, error, expected) -> None:
+    from app.social.threads.errors import ThreadsError
+
+    http = _FakeHttp(status=status, payload={"error": error})
+    with pytest.raises(ThreadsError) as excinfo:
+        _client(http).fetch_profile()
+    assert excinfo.value.category == expected

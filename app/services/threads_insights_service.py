@@ -44,7 +44,11 @@ from app.models import (
 )
 from app.operations.local_time import local_hour, local_weekday, to_local
 from app.operations.policy import get_policy as get_operations_policy
-from app.operations.threads_health import ThreadsHealthInput, build_threads_alert_drafts
+from app.operations.threads_health import (
+    NOT_FOUND_CATEGORY,
+    ThreadsHealthInput,
+    build_threads_alert_drafts,
+)
 from app.social.threads.errors import ThreadsError
 from app.social.threads.measurement import (
     classify_maturity,
@@ -346,7 +350,9 @@ class ThreadsInsightsService:
                     failure_category=category,
                     failure_reason=reason,
                     consecutive_failures=consecutive,
-                    media_readable=category != "threads_response",
+                    # 「読めない」は 404 (見つからない) のときだけ。権限・token・
+                    # 一時的な障害・想定外の応答を「削除・非公開」と呼ばない。
+                    media_readable=category != NOT_FOUND_CATEGORY,
                     text_matches_approved=matches,
                 )
             )

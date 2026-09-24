@@ -157,6 +157,12 @@ def _print_status(status: dict, *, mode: str) -> None:
             f"latest insight        = {latest['maturity']} comparable={latest['comparable']} "
             f"snapshot={latest['latest_snapshot_at'] or '(none)'}"
         )
+        if latest["latest_attempt_outcome"] == "failed":
+            # 成功した最後の観測だけを見せると、失敗が続いていても気付けない。
+            print(
+                f"  LAST ATTEMPT FAILED  = {latest['latest_attempt_at']} "
+                f"[{latest['latest_attempt_error_category']}] {latest['latest_attempt_error']}"
+            )
     else:
         print("latest publication    = (none)")
 
@@ -184,6 +190,16 @@ def _print_status(status: dict, *, mode: str) -> None:
     print(f"hard blockers         = {', '.join(status['hard_blockers']) or '(none)'}")
     if status["problems"]:
         print(f"PROBLEMS              = {', '.join(status['problems'])}")
+
+    for sub in status["subsystems"]:
+        if sub["name"] != "insights_refresh":
+            continue
+        for item in (sub.get("last_summary") or {}).get("refreshed") or []:
+            reason = f" — {item['reason']}" if item.get("reason") else ""
+            print(
+                f"insights refresh      = publication {item['publication_id']}: "
+                f"{item['result']}{reason}"
+            )
 
     print("\n--- subsystems (each owns its own next run) ---")
     for sub in status["subsystems"]:

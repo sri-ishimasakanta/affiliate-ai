@@ -23,6 +23,11 @@ from app.operations.policy import SEVERITY_ERROR, SEVERITY_WARNING
 FATAL_CATEGORIES = ("threads_auth", "threads_permission", "threads_not_configured")
 #: 時間をおけば直りうる失敗。1 回では警告にしない。
 TRANSIENT_CATEGORIES = ("threads_rate_limit", "threads_server", "threads_timeout")
+#: 対象が見つからない (HTTP 404)。**これだけが**「投稿が読めない」を意味する。
+NOT_FOUND_CATEGORY = "threads_not_found"
+#: 想定外の応答 (分類できない 4xx・JSON でない・形が違う・通信の失敗)。
+#: 原因が分からないので「削除・非公開」とは言わず、そのまま人に見せる。
+UNEXPECTED_CATEGORY = "threads_response"
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,29 @@ def build_threads_alert_drafts(
                 )
             )
             continue
+        if category == UNEXPECTED_CATEGORY:
+            # 旧実装はこれを「投稿が読めない (削除・非公開・ID の不整合)」と呼んでいた。
+            # 実際には権限や token の失敗も混ざっていたので、原因を断定しない。
+            # 警告の強さは変えない (1 回目から出す)。
+            drafts.append(
+                AlertDraft(
+                    alert_type=AUTOMATION_HEALTH,
+                    severity=SEVERITY_WARNING,
+                    source="threads_insights",
+                    title="Threads API が想定外の応答を返した",
+                    summary=(
+                        "分類できない応答で指標を取得できなかった。原因は断定しない。"
+                        "reason を見て人が確認する。"
+                    ),
+                    fingerprint=f"threads_insights:unexpected:{item.publication_id}",
+                    evidence={
+                        "publication_id": item.publication_id,
+                        "category": category,
+                        "reason": item.failure_reason,
+                        "consecutive_failures": item.consecutive_failures,
+                    },
+                )
+            )
         if not item.media_readable:
             drafts.append(
                 AlertDraft(
@@ -92,9 +120,15 @@ def build_threads_alert_drafts(
                     severity=SEVERITY_WARNING,
                     source="threads_insights",
                     title="公開済み Threads 投稿が読めない",
-                    summary="削除・非公開・ID の不整合のいずれか。人が確認する必要がある。",
+                    summary=(
+                        "API が 404 を返した。削除・非公開・ID の不整合のいずれか。人が確認する。"
+                    ),
                     fingerprint=f"threads_media_unreadable:{item.publication_id}",
-                    evidence={"publication_id": item.publication_id},
+                    evidence={
+                        "publication_id": item.publication_id,
+                        "category": category,
+                        "reason": item.failure_reason,
+                    },
                 )
             )
         if not item.text_matches_approved:
@@ -117,6 +151,8 @@ def build_threads_alert_drafts(
 
 __all__ = [
     "FATAL_CATEGORIES",
+    "NOT_FOUND_CATEGORY",
+    "UNEXPECTED_CATEGORY",
     "TRANSIENT_CATEGORIES",
     "ThreadsHealthInput",
     "build_threads_alert_drafts",

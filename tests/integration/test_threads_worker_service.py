@@ -675,3 +675,45 @@ def test_the_flush_does_not_run_every_heartbeat(session: Session, article: Artic
     assert health.runs == 13
     assert queue.runs == 13  # 5 分おき
     assert flush.runs <= 3
+
+
+# -- failures are surfaced, not hidden (2026-09-25) ----------------------------
+def test_the_cli_shows_a_failed_last_attempt(session: Session, article: Article, capsys) -> None:
+    """成功した最後の観測だけを見せると、取得が失敗し続けても気付けない。"""
+
+    from scripts.run_threads_worker import main
+
+    publication = _publication(
+        session, _proposal(session, article), published_at=_NOW - timedelta(hours=30)
+    )
+    session.add_all(
+        [
+            ThreadsInsightSnapshot(
+                threads_publication_id=publication.id,
+                threads_media_id="m1",
+                observed_at=_NOW - timedelta(hours=20),
+                outcome=SNAPSHOT_OBSERVED,
+                views=146,
+            ),
+            ThreadsInsightSnapshot(
+                threads_publication_id=publication.id,
+                threads_media_id="m1",
+                observed_at=_NOW - timedelta(hours=1),
+                outcome="failed",
+                error_category="threads_permission",
+                error_message="/m1/insights failed: API access blocked.",
+            ),
+        ]
+    )
+    session.commit()
+
+    status = _once(_service(session))
+    latest = status["latest_publication"]
+    assert latest["latest_attempt_outcome"] == "failed"
+    assert latest["latest_attempt_error_category"] == "threads_permission"
+
+    main([], session_factory=_factory(session), settings=_Settings())
+    out = capsys.readouterr().out
+    assert "LAST ATTEMPT FAILED" in out
+    assert "API access blocked." in out
+    assert _TOKEN not in out

@@ -108,3 +108,60 @@ def test_no_token_appears_in_evidence() -> None:
     rendered = str(drafts[0].evidence) + drafts[0].summary + drafts[0].title
     assert "THAAA" not in rendered
     assert "[redacted]" in drafts[0].evidence["reason"]
+
+
+# -- diagnostic classification (2026-09-25) ------------------------------------
+def test_a_permission_failure_is_not_called_unreadable_media() -> None:
+    """権限の喪失は「削除・非公開」ではない。即時の error として出す (弱めない)。"""
+
+    drafts = build_threads_alert_drafts(
+        [
+            ThreadsHealthInput(
+                publication_id=1,
+                failure_category="threads_permission",
+                failure_reason="/18075152792458838/insights failed: API access blocked.",
+                consecutive_failures=1,
+                media_readable=True,
+            )
+        ]
+    )
+    assert len(drafts) == 1
+    assert drafts[0].alert_type == IMPORT_FAILURE
+    assert drafts[0].severity == SEVERITY_ERROR
+    assert "threads_media_unreadable" not in drafts[0].fingerprint
+    assert "API access blocked." in drafts[0].evidence["reason"]
+
+
+def test_an_unexpected_response_is_reported_without_guessing_the_cause() -> None:
+    drafts = build_threads_alert_drafts(
+        [
+            ThreadsHealthInput(
+                publication_id=1,
+                failure_category="threads_response",
+                failure_reason="the response was not JSON",
+                consecutive_failures=1,
+            )
+        ]
+    )
+    assert len(drafts) == 1
+    assert drafts[0].severity == SEVERITY_WARNING  # 1 回目から出す (弱めない)
+    assert drafts[0].title == "Threads API が想定外の応答を返した"
+    assert "削除" not in drafts[0].summary
+    assert drafts[0].evidence["category"] == "threads_response"
+    assert drafts[0].evidence["reason"] == "the response was not JSON"
+
+
+def test_only_a_404_means_the_post_is_unreadable() -> None:
+    drafts = build_threads_alert_drafts(
+        [
+            ThreadsHealthInput(
+                publication_id=1,
+                failure_category="threads_not_found",
+                failure_reason="/18075152792458838/insights failed: not found",
+                consecutive_failures=1,
+                media_readable=False,
+            )
+        ]
+    )
+    assert [d.fingerprint for d in drafts] == ["threads_media_unreadable:1"]
+    assert drafts[0].evidence["reason"].endswith("not found")
