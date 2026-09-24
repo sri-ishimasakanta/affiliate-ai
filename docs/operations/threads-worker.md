@@ -1,4 +1,6 @@
-# Threads 常駐 worker (T4.1: 土台のみ・PLAN 専用)
+# Threads 常駐 worker (T4.1 土台 / T4.2 承認のまとめ送り・読むだけの指標取得)
+
+T4.2 の追加分 (在庫・承認の時刻・まとめ送り・queue 操作) は [threads-approval-digest.md](threads-approval-digest.md) にまとめた。
 
 T4.1 は **自動公開のフェーズではない**。作ったのは、後の自動公開 (T4.3) が
 きれいに乗るための土台だけである。
@@ -73,13 +75,13 @@ while True:
 - 起きたら **期限が来た仕事だけ** を動かす。
 - 仕事の失敗は worker を止めない。その仕事だけを heartbeat 後に再試行する。
 
-| 仕事 | 間隔 | T4.1 でやること |
+| 仕事 | 間隔 | やること |
 | --- | --- | --- |
 | `health` | 5 分 | 設定の状態 (disabled / misconfigured / ready) を見る |
-| `queue_observation` | 10 分 | 提案と公開の状態の指紋を取る。変わっていたら公開評価を前倒し |
+| `queue_observation` | 5 分 (T4.2 で 10 分から短縮) | 提案と公開の状態の指紋を取る。変わっていたら公開評価とまとめ送りの評価を前倒し |
 | `publication_evaluation` | **状態で決まる** | queue を評価し、次に評価すべき時刻ちょうどを返す |
-| `insights_refresh` | 若い投稿 30 分 / 1–3 日 60 分 / 成熟後 6 時間 / 14 日で停止 | 期限が来た投稿を報告するだけ (取得は C8) |
-| `approval_notification_flush` | — | 登録のみ・無効 (T4.2) |
+| `insights_refresh` | 若い投稿 30 分 / 1–3 日 60 分 / 成熟後 6 時間 / 14 日で停止 | 期限が来た投稿を報告する。`--collect-insights` のときだけ読むだけで取得 (C8 と同じ経路) |
+| `approval_notification_flush` | **状態で決まる** (cooldown / gather / 通知窓) | まとめ送りが期限かを評価する。`--send-approval-digests` のときだけ 1 通送る |
 
 公開評価は、worker が 5 分おきに起きていても、**自分の時刻 (例: 11:17) まで走らない**。
 
@@ -98,6 +100,9 @@ while True:
 | `stale` | 元記事が変わった・非公開になった |
 | `content_integrity` | 文字数の不整合など、中身の整合性が崩れている |
 | `uncertain_publication` | この提案の公開試行が不確定 |
+| `held` | 人が保留にしている (T4.2) |
+| `not_before` | `not_before` より前 (T4.2) |
+| `expired` | `expires_at` を過ぎた。消さない (T4.2) |
 
 queue 全体を止めるブロッカー:
 
@@ -116,11 +121,13 @@ T3 の `plan()` も同じ `assess()` を使うように切り出したので、�
 
 ### 並び順と安定性
 
-並び順は辞書式の比較で、スコアではない:
+並び順は辞書式の比較で、スコアではない。資格のある候補だけが並ぶので、
+「次に優先」が安全の条件を飛ばすことは構造上ない:
 
+0. 人が「次に優先」を指定したか (T4.2、指定した順)
 1. 直前の公開と同じ記事か (弱い信号)
 2. 直前の公開と同じ切り口か (弱い信号)
-3. 承認が古い順 (編集上の順序)
+3. 承認が古い順 (編集上の順序。T4.2 から権威ある `approved_at` だけを使う)
 4. proposal id
 
 何も変わらなければ、順序も変わらない。
@@ -165,8 +172,22 @@ hard blocker として立つ。`publish_threads_post.py --reconcile` で照合�
 
 ## ロック
 
-C8 と同じ `OperationsLockService` を、別のロック名 `threads_worker` で使う
-(スキーマ変更なし)。C8 のパイプラインのロックとは独立している。
+C8 と同じ `OperationsLockService` を、別のロック名 `threads_worker` で使う。
+C8 のパイプラインのロックとは独立している。
+
+T4.2 で **回収を原子的にした**。T4.1 までは「読んで、古ければ書く」で、古いロックの
+直後に 2 つの worker がほぼ同時に起動すると、どちらも回収できたと信じられた。
+いまは条件付き UPDATE (compare-and-swap) 1 文で回収し、書けた行数が 1 のときだけ
+取得できたとみなす。負けた方は `lost_race` で何もせずに終わる。
+
+所有者の証明: 取得ごとに乱数の `owner_token` を発行する (列を追加)。heartbeat と
+解放は token が一致したときだけ効く。T4.1 の worker は所有者を示さずに解放しており、
+所有権を失った worker が新しい所有者のロックを解放できた。これも直した。
+heartbeat が所有権の喪失を返したら、worker はその場で止まる (終了コード 5)。
+
+外に作用するフラグ (`--collect-insights` / `--send-approval-digests`) を付けたときは
+`--once` でもロックを取る。`plan_threads_approval_digest.py --execute` も同じロックを
+取るので、2 つのプロセスが同時に digest を送ることはない。
 
 - 2 つ目の worker は取得に失敗し、**何もせずに** 終わる (終了コード 4)。
   1 つ目のロックを解放しない。
@@ -187,8 +208,19 @@ uv run python scripts/run_threads_worker.py
 uv run python scripts/run_threads_worker.py --resident
 ```
 
-`--execute` は無い。どのモードでも、Threads への書き込み・承認メール・WordPress・
-`/go/`・スケジューラの変更は 0 件。
+```bash
+# 読むだけの指標取得を有効にする (T4.2)
+uv run python scripts/run_threads_worker.py --resident --collect-insights
+```
+
+```bash
+# 承認依頼のまとめ送りを有効にする (T4.2。本番では人の確認を経てから)
+uv run python scripts/run_threads_worker.py --resident --send-approval-digests
+```
+
+`--execute` は無い。どのモードでも、Threads への書き込み・WordPress・`/go/`・
+スケジューラの変更は 0 件。承認依頼メールは `--send-approval-digests` を付けたとき
+だけ送られ、Threads の指標は `--collect-insights` を付けたときだけ読む。
 
 ## Windows タスクスケジューラ (設計のみ・未登録)
 
@@ -214,18 +246,8 @@ uv run python scripts/run_threads_worker.py --resident
 
 ## 後のフェーズに回したもの
 
-**T4.2 — 提案の在庫と承認のまとめ送り**
-
-- 提案の在庫づくり (まとめて生成)
-- 承認ダイジェスト (1 通に通常 3–5 件、1 件ずつ承認/却下、一括承認は既定にしない)
-- 日中の承認通知は約 60 分の cooldown でまとめる
-- 21:00–08:00 は承認依頼も催促も送らない。夜の間の提案づくり・queue の準備・
-  指標の取得はしてよい
-- 夜の間にできた提案は 08:00 以降に評価し直し、古くなった・不要になったものを除いて
-  1 通のダイジェストにまとめる
-- 承認の有効期限は、提案を作った時刻ではなく **承認依頼を実際に送った時刻** から数える
-- 保留 / 解除 / 次に優先、の永続化
-- not_before / expires_at の永続化 (在庫と一緒に持つのが自然なら)
+**T4.2 — 済み** (在庫・承認の時刻・まとめ送り・queue 操作・読むだけの指標取得・
+原子的なロック回収)。詳細は [threads-approval-digest.md](threads-approval-digest.md)。
 
 **T4.3 — 日中の動的な公開**
 

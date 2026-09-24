@@ -49,12 +49,15 @@ NOTIFICATION_ALERT = "alert"
 NOTIFICATION_TEST = "test"
 #: モバイル承認の依頼 (C8.8)。承認そのものではなく、レビュー依頼を運ぶだけ。
 NOTIFICATION_APPROVAL_REQUEST = "approval_request"
+#: 複数の承認依頼を 1 通にまとめたもの (T4.2)。決定は提案ごとに独立している。
+NOTIFICATION_APPROVAL_DIGEST = "approval_digest"
 NOTIFICATION_TYPES = (
     NOTIFICATION_DAILY_INCIDENT,
     NOTIFICATION_WEEKLY_REPORT,
     NOTIFICATION_ALERT,
     NOTIFICATION_TEST,
     NOTIFICATION_APPROVAL_REQUEST,
+    NOTIFICATION_APPROVAL_DIGEST,
 )
 
 # -- outcomes ------------------------------------------------------------------

@@ -60,6 +60,7 @@ from app.models import (
     ThreadsPostProposal,
     mobile_approval_transition_allowed,
 )
+from app.models.notification_delivery import DELIVERY_SENT, NotificationDelivery
 from app.services.change_request_service import ChangeRequestError, ChangeRequestService
 
 
@@ -103,6 +104,18 @@ class PreparedApproval:
             "blocked_reasons": list(self.blocked_reasons),
             "snapshot": self.snapshot,
         }
+
+
+@dataclass
+class IssuedRequest:
+    """作ったレビューセッションと、メールに載せる URL (T4.2)。
+
+    ``review_url`` には生の capability が入る。**メール本文にだけ載せ、保存しない。**
+    """
+
+    row: MobileApprovalSession
+    review_url: str
+    prepared: PreparedApproval
 
 
 @dataclass
@@ -224,7 +237,7 @@ class _ThreadsPostSubject:
         # Threads の提案は版を持たない (作り直せば別レコードになる)。
         return subject.proposal_hash, 1
 
-    def blocked_reasons(self, subject) -> list[str]:
+    def blocked_reasons(self, subject, now: datetime | None = None) -> list[str]:
         reasons: list[str] = []
         if subject.status not in TP_OPEN_STATES:
             reasons.append(
@@ -234,10 +247,20 @@ class _ThreadsPostSubject:
         stale, why = self._service.evaluate_staleness(subject)
         if stale:
             reasons.extend(why)
+        # T4.2: 期限を過ぎた提案は、承認を求める意味も受け取る意味も無い。
+        if subject.expires_at is not None and ensure_aware(subject.expires_at) <= (
+            now or datetime.now(UTC)
+        ):
+            reasons.append("the proposal expired; it is no longer appropriate to publish")
         return reasons
 
     def apply_decision(self, subject, decision: str, reason: str | None, now: datetime):
-        """人の判断を提案へ記録する。**公開しない。**"""
+        """人の判断を提案へ記録する。**公開しない。**
+
+        承認されたら ``approved_at`` に **受理した時刻** を残す (T4.2)。以後の queue の
+        順序はこの時刻を使い、``updated_at`` からは推測しない。承認は queue に入る
+        だけで、公開は T3 の別操作である。
+        """
 
         stale, why = self._service.evaluate_staleness(subject)
         if stale:
@@ -246,6 +269,8 @@ class _ThreadsPostSubject:
             raise ChangeRequestError(f"the proposal is already {subject.status}")
         subject.status = TP_APPROVED if decision == DECISION_APPROVED else TP_REJECTED
         subject.status_reason = reason or f"decided on mobile ({decision})"
+        if decision == DECISION_APPROVED:
+            subject.approved_at = to_storage_utc(now)
         self._session.commit()
         return None
 
@@ -262,6 +287,12 @@ class MobileApprovalService:
         self._settings = settings
         self._relay = relay_client or ApprovalRelayClient(settings)
         self._notifier = notifier
+
+    @property
+    def notifier(self):
+        """承認依頼メールを送る notifier (まとめ送りでも同じものを使う)。"""
+
+        return self._notifier
 
     # -- 1) 承認依頼 -----------------------------------------------------------
     def _adapter(self, subject_type: str):
@@ -302,7 +333,7 @@ class MobileApprovalService:
             snapshot=adapter.snapshot(subject, article, target),
         )
         prepared.subject_type = subject_type
-        prepared.blocked_reasons.extend(adapter.blocked_reasons(subject))
+        prepared.blocked_reasons.extend(_blocked(adapter, subject, None))
 
         existing = self._active_session(subject_type, subject_id)
         if existing is not None:
@@ -332,6 +363,36 @@ class MobileApprovalService:
             subject_type, subject_id = SUBJECT_CHANGE_REQUEST, change_request_id
         if subject_id is None:
             raise MobileApprovalError("a subject id is required")
+        issued = self.issue(
+            subject_type=subject_type, subject_id=subject_id, ttl_hours=ttl_hours, now=now
+        )
+        delivery_id = self._send_email(issued.row, issued.prepared, issued.review_url)
+        if delivery_id is not None:
+            issued.row.notification_delivery_id = delivery_id
+            self._session.commit()
+        self.mark_request_sent([issued.row], delivery_id=delivery_id)
+        return issued.row
+
+    def issue(
+        self,
+        *,
+        subject_type: str,
+        subject_id: int,
+        ttl_hours: int = DEFAULT_TTL_HOURS,
+        now: datetime | None = None,
+        approval_digest_id: int | None = None,
+    ) -> IssuedRequest:
+        """レビューセッションを 1 つ作る。**メールは送らない** (T4.2 で切り出し)。
+
+        期限 (TTL) は ``now`` = **依頼を出す操作の時刻** から数える。提案を作った時刻
+        からは数えない。夜のうちに作った提案が、朝に送られるまでに期限を使い切る
+        ことはない。
+
+        まとめ送りでは、1 通に入る提案ごとにこれを 1 回ずつ呼ぶ。セッションも
+        capability も提案ごとに別々で、決定も別々である。
+        """
+
+        now = now or datetime.now(UTC)
         prepared = self.plan(subject_type=subject_type, subject_id=subject_id, ttl_hours=ttl_hours)
         if not prepared.ok:
             raise MobileApprovalError("; ".join(prepared.blocked_reasons))
@@ -372,6 +433,7 @@ class MobileApprovalService:
             state=MA_PENDING,
             snapshot_json=prepared.snapshot,
             expires_at=to_storage_utc(issued.expires_at),
+            approval_digest_id=approval_digest_id,
         )
         self._session.add(session_row)
         self._session.commit()
@@ -381,11 +443,30 @@ class MobileApprovalService:
         review_url = build_review_url(
             self._settings, relay_session_id=relay_session_id, capability=issued.secret
         )
-        delivery_id = self._send_email(session_row, prepared, review_url)
-        if delivery_id is not None:
-            session_row.notification_delivery_id = delivery_id
-            self._session.commit()
-        return session_row
+        # 生の capability は review_url の中 (メール本文) にしか存在しない。DB には残さない。
+        return IssuedRequest(row=session_row, review_url=review_url, prepared=prepared)
+
+    def mark_request_sent(self, rows, *, delivery_id: int | None) -> datetime | None:
+        """依頼が **実際に届いた** ときだけ、送信時刻を記録する (T4.2)。
+
+        時刻は配送記録の ``finished_at`` (SMTP が受け付けた後に刻まれる) を使う。
+        届かなかった (skipped / failed) なら何も書かず ``None`` を返す。
+        """
+
+        if delivery_id is None:
+            return None
+        delivery = self._session.get(NotificationDelivery, delivery_id)
+        if delivery is None or delivery.outcome != DELIVERY_SENT:
+            return None
+        sent_at = delivery.finished_at or delivery.attempted_at
+        for row in rows:
+            row.request_sent_at = sent_at
+            if row.subject_type == SUBJECT_THREADS_POST:
+                proposal = self._session.get(ThreadsPostProposal, row.subject_id)
+                if proposal is not None:
+                    proposal.approval_request_sent_at = sent_at
+        self._session.commit()
+        return ensure_aware(sent_at)
 
     def revoke(self, *, session_id: int, reason: str) -> MobileApprovalSession:
         """セッションを失効させる (以後 capability は使えない)。"""
@@ -401,6 +482,19 @@ class MobileApprovalService:
             # 中継に届かなくてもローカルは失効させる (こちらが権威)。
             self._event(row, "relay_revoke_failed", detail=exc.reason)
         self._transition(row, MA_REVOKED, reason=reason)
+        return row
+
+    def expire(self, *, session_id: int, reason: str) -> MobileApprovalSession:
+        """期限を過ぎた pending のセッションを、ローカルで expired にする (T4.2)。
+
+        中継側も期限切れの capability を受け付けないので、中継への呼び出しは不要。
+        これで同じ提案を改めて依頼できるようになる。**他のセッションには触れない。**
+        """
+
+        row = self._session.get(MobileApprovalSession, session_id)
+        if row is None:
+            raise MobileApprovalError(f"mobile approval session {session_id} not found")
+        self._transition(row, MA_EXPIRED, reason=reason)
         return row
 
     # -- 2) 決定の取り込み -----------------------------------------------------
@@ -497,7 +591,7 @@ class MobileApprovalService:
                 self._transition(row, MA_STALE, reason="the proposal version changed after review")
             return {**base, "result": "skipped", "reason": "proposal version changed"}
 
-        blocked = adapter.blocked_reasons(subject)
+        blocked = _blocked(adapter, subject, now)
         if blocked:
             if execute:
                 self._transition(row, MA_STALE, reason="; ".join(blocked))
@@ -606,6 +700,14 @@ class MobileApprovalService:
             )
         )
         self._session.commit()
+
+
+def _blocked(adapter, subject, now: datetime | None) -> list[str]:
+    """adapter ごとの blocked_reasons。時刻を見る adapter にだけ ``now`` を渡す。"""
+
+    if isinstance(adapter, _ThreadsPostSubject):
+        return adapter.blocked_reasons(subject, now)
+    return adapter.blocked_reasons(subject)
 
 
 def verify_session_capability(

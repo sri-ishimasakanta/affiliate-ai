@@ -1,5 +1,5 @@
 {
-  "policy_version": "t4.1",
+  "policy_version": "t4.2",
   "rationale": [
     "公開直後の 0 を「成績が悪い」と読まないための境界を、コードではなくここに置く。",
     "Threads はフィードの流れが速く、配信の大半は最初の 1 日に起きる。",
@@ -22,9 +22,18 @@
     "note": "母数が小さいうちは平均も比率も出さない。件数だけを示す。"
   },
   "length_buckets": [
-    { "name": "short", "max_characters": 150 },
-    { "name": "medium", "max_characters": 300 },
-    { "name": "long", "max_characters": 500 }
+    {
+      "name": "short",
+      "max_characters": 150
+    },
+    {
+      "name": "medium",
+      "max_characters": 300
+    },
+    {
+      "name": "long",
+      "max_characters": 500
+    }
   ],
   "metric_caveats": {
     "views": "公式に \"in development\" と注記されている。値の意味が変わりうる。",
@@ -37,5 +46,9 @@
     "impressions",
     "ctr",
     "engagement_rate"
-  ]
+  ],
+  "collection": {
+    "min_observation_spacing_minutes": 10,
+    "note": "C8 daily import and the resident worker share one collector. A publication observed less than this many minutes ago (by either path) is not fetched again."
+  }
 }

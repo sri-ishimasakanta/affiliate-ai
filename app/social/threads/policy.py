@@ -168,6 +168,12 @@ class ThreadsMeasurementPolicy:
         value = self.raw.get("unsupported_metrics")
         return tuple(str(v) for v in value) if isinstance(value, list) else ()
 
+    @property
+    def min_observation_spacing_minutes(self) -> int:
+        """C8 と常駐 worker が同じ投稿を続けて取りに行かないための最小間隔 (T4.2)。"""
+
+        return int(self.section("collection").get("min_observation_spacing_minutes", 10))
+
 
 _MEASUREMENT_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "threads_measurement_policy.json"
@@ -244,6 +250,43 @@ class ThreadsOperationsPolicy:
     def starvation_guard_hours(self) -> float:
         return float(self.section("queue").get("starvation_guard_hours", 48))
 
+    # -- T4.2: approval digest -------------------------------------------------
+    @property
+    def digest(self) -> dict[str, Any]:
+        return self.section("approval_digest")
+
+    @property
+    def digest_max_items(self) -> int:
+        return int(self.digest.get("max_items", 5))
+
+    @property
+    def digest_min_items(self) -> int:
+        return int(self.digest.get("min_items", 1))
+
+    @property
+    def digest_cooldown_minutes(self) -> int:
+        return int(self.digest.get("cooldown_minutes", 60))
+
+    @property
+    def digest_gather_minutes(self) -> int:
+        return int(self.digest.get("gather_minutes", 60))
+
+    @property
+    def approval_ttl_hours(self) -> int:
+        return int(self.digest.get("ttl_hours", 24))
+
+    @property
+    def digest_preview_characters(self) -> int:
+        return int(self.digest.get("preview_characters", 80))
+
+    @property
+    def stock_days_low(self) -> float:
+        return float(self.section("stock").get("approved_days_low", 1))
+
+    @property
+    def stock_days_high(self) -> float:
+        return float(self.section("stock").get("approved_days_high", 3))
+
 
 def _parse_window(document: dict, key: str) -> DailyWindowSpec:
     raw = document.get(key)
@@ -287,6 +330,17 @@ def load_operations_policy(path: Path | str | None = None) -> ThreadsOperationsP
     gap = int(document.get("soft_min_gap_minutes", 120))
     if gap <= 0:
         raise ValueError("soft_min_gap_minutes must be positive")
+    digest = document.get("approval_digest") or {}
+    max_items = int(digest.get("max_items", 5))
+    min_items = int(digest.get("min_items", 1))
+    if not 1 <= min_items <= max_items:
+        raise ValueError("approval_digest must satisfy 1 <= min_items <= max_items")
+    if max_items > 10:
+        # 1 通に詰め込みすぎると、個別に読んで判断するという前提が崩れる。
+        raise ValueError("approval_digest.max_items must stay small (<= 10)")
+    stock = document.get("stock") or {}
+    if stock and stock.get("advisory") is not True:
+        raise ValueError("stock coverage must be advisory")
     return ThreadsOperationsPolicy(
         policy_version=version,
         raw=document,

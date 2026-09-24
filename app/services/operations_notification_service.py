@@ -27,6 +27,7 @@ from app.models import (
     DELIVERY_FAILED,
     DELIVERY_SENT,
     DELIVERY_SKIPPED,
+    NOTIFICATION_APPROVAL_DIGEST,
     NOTIFICATION_APPROVAL_REQUEST,
     NOTIFICATION_DAILY_INCIDENT,
     NOTIFICATION_WEEKLY_REPORT,
@@ -39,6 +40,8 @@ from app.operations.email import EmailConfigError, build_email_config, build_ema
 from app.operations.notifications import sanitize_payload
 from app.operations.policy import SEVERITY_ORDER, OperationsPolicy, get_policy
 from app.operations.report_format import (
+    render_approval_digest_html,
+    render_approval_digest_text,
     render_approval_request_html,
     render_approval_request_text,
     render_daily_incident,
@@ -226,6 +229,46 @@ class OperationsNotificationService:
         key = self._dedupe_key(
             NOTIFICATION_APPROVAL_REQUEST, session.subject_type, session.id, session.subject_hash
         )
+        return self._deliver(
+            outcome,
+            severity="info",
+            title=title,
+            body=body,
+            html_body=html,
+            dedupe_key=key,
+            operations_run_id=None,
+            now=datetime.now(UTC),
+        )
+
+    def send_approval_digest(self, *, digest_id: int, items: list[dict], expires_at: datetime):
+        """複数の承認依頼を **1 通** で送る (T4.2)。
+
+        ``items`` の各要素は ``session`` (MobileApprovalSession) と、メールに載せる
+        ``proposal_id`` / ``article_title`` / ``angle`` / ``preview`` / ``timing`` /
+        ``review_url`` を持つ。
+
+        capability を含む URL は本文にだけ載せる。配送記録の件名にも detail にも
+        残さない。一括承認のリンクは載せない。
+        """
+
+        from app.article.fact_freshness import ensure_aware
+
+        outcome = NotificationOutcome(NOTIFICATION_APPROVAL_DIGEST)
+        tz = self._policy.timezone
+        expires_local = ensure_aware(expires_at).astimezone(tz).strftime("%Y-%m-%d %H:%M %Z")
+        outcome.detail = {
+            "approval_digest_id": digest_id,
+            "proposal_ids": [item["proposal_id"] for item in items],
+            "mobile_approval_session_ids": [item["session"].id for item in items],
+            "expires_at_local": expires_local,
+        }
+        title = f"Review {len(items)} Threads proposal(s)"
+        public_items = [
+            {key: value for key, value in item.items() if key != "session"} for item in items
+        ]
+        body = render_approval_digest_text(items=public_items, expires_at_local=expires_local)
+        html = render_approval_digest_html(items=public_items, expires_at_local=expires_local)
+        key = self._dedupe_key(NOTIFICATION_APPROVAL_DIGEST, "threads_post", digest_id, "digest")
         return self._deliver(
             outcome,
             severity="info",

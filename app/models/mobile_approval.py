@@ -157,6 +157,12 @@ class MobileApprovalSession(Base):
     notification_delivery_id: Mapped[int | None] = mapped_column(
         ForeignKey("notification_deliveries.id", ondelete="RESTRICT"), nullable=True
     )
+    #: 依頼メールが **実際に届けられた** 時刻 (T4.2)。届かなかったセッションは NULL のまま
+    #: 失効させる。期限 (expires_at) は送信の操作の時刻から数え、提案の作成時刻からは数えない。
+    request_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: まとめ送り (T4.2) の 1 通に含まれていた場合、その digest の id。
+    #: 1 通に複数入っていても、決定はセッションごとに独立している。
+    approval_digest_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     #: 中継へ渡した sanitized なスナップショット (人が読む用。secret を含まない)。
     snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

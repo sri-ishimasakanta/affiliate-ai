@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -176,8 +176,19 @@ class ThreadsInsightsService:
                 )
             return outcome
 
+        spacing = timedelta(minutes=self._policy.min_observation_spacing_minutes)
         for row in rows:
             detail = {"publication_id": row.id, "media_id": row.threads_media_id}
+            # C8 の日次取り込みと常駐 worker は同じこの経路を通る。どちらかが直前に
+            # 観測したばかりなら、もう一度 Meta に取りに行かない (T4.2)。
+            last = self._last_observed_at(row.id)
+            if last is not None and now - last < spacing:
+                outcome.unchanged += 1
+                minutes = round((now - last).total_seconds() / 60, 1)
+                outcome.details.append(
+                    {**detail, "result": "unchanged", "reason": f"observed {minutes} min ago"}
+                )
+                continue
             try:
                 insights = self._threads.media_insights(row.threads_media_id, MEDIA_METRICS)
             except ThreadsError as exc:
@@ -542,6 +553,17 @@ class ThreadsInsightsService:
             .order_by(ThreadsInsightSnapshot.observed_at.desc())
             .limit(1)
         ).first()
+
+    def _last_observed_at(self, publication_id: int) -> datetime | None:
+        """最後に観測を試みた時刻 (失敗も含む。失敗直後に連打しないため)。"""
+
+        moment = self._session.scalars(
+            select(ThreadsInsightSnapshot.observed_at)
+            .where(ThreadsInsightSnapshot.threads_publication_id == publication_id)
+            .order_by(ThreadsInsightSnapshot.observed_at.desc())
+            .limit(1)
+        ).first()
+        return ensure_aware(moment) if moment is not None else None
 
     def _snapshot_count(self, publication_id: int) -> int:
         return len(

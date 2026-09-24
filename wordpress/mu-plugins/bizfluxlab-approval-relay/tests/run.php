@@ -294,6 +294,11 @@ eq( array( $reason, $status ), array( 'session_not_pending', 409 ), 'a revoked s
 /* -- the plugin wires the cookie to the same base as the routes ----------- */
 $plugin_src = (string) file_get_contents( __DIR__ . '/../../bizfluxlab-approval-relay.php' );
 contains( $plugin_src, "'path'     => bfl_approval_rest_base()", 'the cookie path is derived from the REST base' );
+// T4.2: one digest email carries several review links. The review nonce must be
+// stored and looked up per relay session, so a review opened for proposal B can
+// never decide proposal A (a stale tab fails safely instead of mis-deciding).
+contains( $plugin_src, "set_transient( 'bfl_approval_nonce_' . \$sid,", 'the review nonce is stored per relay session' );
+contains( $plugin_src, "get_transient( 'bfl_approval_nonce_' . \$sid ),", 'the decision guard reads the nonce of the session being decided' );
 contains( $plugin_src, 'bfl_approval_review_routes( bfl_approval_rest_base() )', 'the page routes come from the same base' );
 lacks( $plugin_src, "'path'     => BFL_APPROVAL_PAGE_PREFIX", 'the cookie is no longer scoped to the review page prefix' );
 

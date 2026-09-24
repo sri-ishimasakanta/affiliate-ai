@@ -206,6 +206,9 @@ class OperationsLock(Base):
     #: ロックを保持している operations run の id。
     owner_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     owner_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: 取得ごとに発行する乱数の所有者証明 (T4.2)。heartbeat と解放はこれが一致したときだけ
+    #: 効く。別の worker が誤って他人のロックを延長・解放できないようにするため。
+    owner_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

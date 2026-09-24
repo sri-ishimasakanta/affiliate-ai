@@ -161,6 +161,8 @@ def test_all_tables_registered() -> None:
         "threads_publications",
         "threads_publication_attempts",
         "threads_insight_snapshots",
+        "threads_approval_digests",
+        "threads_queue_control_events",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

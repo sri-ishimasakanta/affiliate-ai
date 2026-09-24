@@ -146,6 +146,10 @@ def test_reason_vocabulary_is_small_and_fixed() -> None:
         REASON_STALE,
         REASON_CONTENT_INTEGRITY,
         REASON_UNCERTAIN_PUBLICATION,
+        # T4.2: 人の queue 操作と時刻の制約。
+        "held",
+        "not_before",
+        "expired",
     }
     assert len(GLOBAL_BLOCKERS) == 7
 

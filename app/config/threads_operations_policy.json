@@ -1,24 +1,40 @@
 {
-  "policy_version": "t4.1",
+  "policy_version": "t4.2",
   "notes": [
     "Threads operating choices for the resident worker. These are our own editorial/operational choices, not Meta limits.",
     "Timezone is NOT defined here. It is read from operations_policy.json (the same setting C8 and C9.5 use).",
     "Windows are [start, end) in the operations timezone. They say when something MAY happen, never when it MUST happen: 07:00 means publication may become eligible from 07:00, not that a post goes out at 07:00.",
     "The daily activity target is ADVISORY. It is not a quota, a health condition, a hard minimum or a hard maximum. More than the upper bound is not an error; there is deliberately no hard daily cap.",
     "Human approval means 'this content may be published'. It does not mean 'publish now'. Selection and timing are separate decisions.",
-    "T4.1 is PLAN-only: automatic publication is disabled in code, not only here."
+    "T4.1 is PLAN-only: automatic publication is disabled in code, not only here.",
+    "T4.2: approval requests are batched into ONE digest email. Each proposal in a digest keeps its own review session and its own approve/reject decision; there is no approve-all.",
+    "T4.2: approval TTL starts when the request is actually sent, never when the proposal was generated. Nighttime generation does not consume the TTL."
   ],
-  "publication_window": {"start": "07:00", "end": "23:00"},
-  "approval_notification_window": {"start": "08:00", "end": "21:00"},
+  "publication_window": {
+    "start": "07:00",
+    "end": "23:00"
+  },
+  "approval_notification_window": {
+    "start": "08:00",
+    "end": "21:00"
+  },
   "soft_min_gap_minutes": 120,
-  "daily_activity_target": {"low": 3, "high": 5, "advisory": true},
+  "daily_activity_target": {
+    "low": 3,
+    "high": 5,
+    "advisory": true
+  },
   "worker": {
     "heartbeat_max_seconds": 300,
     "stale_lock_after_minutes": 15,
     "idle_publication_reevaluation_minutes": 30,
     "subsystems": {
-      "health": {"interval_minutes": 5},
-      "queue_observation": {"interval_minutes": 10},
+      "health": {
+        "interval_minutes": 5
+      },
+      "queue_observation": {
+        "interval_minutes": 5
+      },
       "insights_refresh": {
         "interval_minutes_by_maturity": {
           "just_published": 30,
@@ -29,11 +45,30 @@
         "idle_interval_minutes": 60,
         "stop_refresh_after_hours": 336
       },
-      "approval_notification_flush": {"enabled": false, "deferred_to": "T4.2", "cooldown_minutes": 60}
+      "approval_notification_flush": {
+        "enabled": true,
+        "idle_interval_minutes": 30,
+        "note": "Evaluates whether a digest is due. Sending also requires the worker to be started with --send-approval-digests."
+      }
     }
   },
   "queue": {
     "starvation_guard_hours": 48,
     "evidence": "ordering uses explicit facts only; insight metrics are not ranking evidence in T4.1"
+  },
+  "approval_digest": {
+    "max_items": 5,
+    "min_items": 1,
+    "cooldown_minutes": 60,
+    "gather_minutes": 60,
+    "ttl_hours": 24,
+    "preview_characters": 80,
+    "note": "cooldown = minimum spacing between digests; gather = how long the first request-worthy proposal may wait so later ones can join the same email. A full digest (max_items ready) does not wait for gather, only for cooldown."
+  },
+  "stock": {
+    "advisory": true,
+    "approved_days_low": 1,
+    "approved_days_high": 3,
+    "note": "Advisory coverage of approved-but-unpublished proposals, in days of the advisory daily target. Not a quota: above the high mark new approval requests are deferred, never deleted."
   }
 }

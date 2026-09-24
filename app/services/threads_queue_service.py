@@ -23,12 +23,10 @@ from app.models import (
     SNAPSHOT_FAILED,
     TP_APPROVED,
     TP_OPEN_STATES,
-    MobileApprovalSession,
     ThreadsInsightSnapshot,
     ThreadsPostProposal,
     ThreadsPublication,
 )
-from app.models.mobile_approval import DECISION_APPROVED, SUBJECT_THREADS_POST
 from app.operations.policy import get_policy as get_operations_policy
 from app.services.threads_publication_service import ThreadsPublicationService
 from app.social.threads.measurement import classify_maturity
@@ -206,28 +204,30 @@ class ThreadsQueueService:
                     integrity_reasons=assessment.integrity_reasons,
                     already_published=assessment.already_published,
                     in_flight=assessment.in_flight,
+                    held=proposal.held_at is not None,
+                    not_before=_aware_or_none(proposal.not_before),
+                    expires_at=_aware_or_none(proposal.expires_at),
+                    preferred_at=_aware_or_none(proposal.preferred_at),
                 )
             )
         return out
 
-    def _approved_at(self, proposal: ThreadsPostProposal) -> datetime | None:
-        """承認された時刻。携帯承認の決定時刻を優先し、無ければ行の更新時刻。"""
+    @staticmethod
+    def _approved_at(proposal: ThreadsPostProposal) -> datetime | None:
+        """承認をシステムが受理した時刻 (T4.2 で永続化した権威ある値)。
+
+        T4.1 は携帯承認の決定時刻、無ければ ``updated_at`` から推測していた。
+        ``updated_at`` は無関係な変更でも動くので、もう使わない。権威ある値が無い
+        過去の行は ``None`` のまま (承認順では最後に並ぶ)。
+        """
 
         if proposal.status != TP_APPROVED:
             return None
-        decided = self._session.scalars(
-            select(MobileApprovalSession.decided_at)
-            .where(
-                MobileApprovalSession.subject_type == SUBJECT_THREADS_POST,
-                MobileApprovalSession.subject_id == proposal.id,
-                MobileApprovalSession.decision == DECISION_APPROVED,
-                MobileApprovalSession.decided_at.is_not(None),
-            )
-            .order_by(MobileApprovalSession.decided_at.desc())
-            .limit(1)
-        ).first()
-        moment = decided or proposal.updated_at
-        return ensure_aware(moment) if moment else None
+        return _aware_or_none(proposal.approved_at)
+
+
+def _aware_or_none(moment: datetime | None) -> datetime | None:
+    return ensure_aware(moment) if moment is not None else None
 
 
 __all__ = ["ThreadsQueueService"]

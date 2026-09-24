@@ -299,3 +299,84 @@ def render_approval_request_html(*, snapshot: dict, review_url: str, expires_at_
         f'<p style="font-size:12px;color:#555">リンクが開けない場合: {e(review_url)}</p>'
         "</div>"
     )
+
+
+# == T4.2: approval digest =====================================================
+def render_approval_digest_text(*, items: list[dict], expires_at_local: str) -> str:
+    """承認依頼のまとめ送り (text/plain)。
+
+    ``items`` は提案ごとに ``proposal_id`` / ``article_title`` / ``angle`` /
+    ``preview`` / ``timing`` / ``review_url`` を持つ。
+
+    **一括承認のリンクは載せない。** 提案ごとに自分のレビューページがあり、
+    承認・却下はそのページで 1 件ずつ明示的に操作したときだけ記録される。
+    """
+
+    out = [
+        f"BizFluxLab の Threads 投稿案 {len(items)} 件について、確認をお願いします。",
+        "",
+        "1 件ずつ別々に判断できます (一括承認はありません)。",
+        "承認しても、すぐには投稿されません。承認済みの queue に入るだけです。",
+        "",
+    ]
+    for index, item in enumerate(items, start=1):
+        out += [
+            f"[{index}] 提案 #{item['proposal_id']}  ({item['angle']})",
+            f"    記事   : {item['article_title']}",
+            f"    内容   : {item['preview']}",
+        ]
+        if item.get("timing"):
+            out.append(f"    時期   : {item['timing']}")
+        out += [f"    確認   : {item['review_url']}", ""]
+    out += [
+        f"有効期限      : {expires_at_local}",
+        "",
+        "リンクは内容を表示するだけで、開いても承認にはならない。",
+        "承認・却下はページ上で明示的に操作したときだけ記録される。",
+        "リンクは 1 件につき 1 回限りで、期限を過ぎると使えなくなる。他人に転送しないこと。",
+        "1 件を却下しても、他の提案には影響しない。",
+    ]
+    return "\n".join(out)
+
+
+def render_approval_digest_html(*, items: list[dict], expires_at_local: str) -> str:
+    """承認依頼のまとめ送り (text/html)。動的な値はすべてエスケープする。"""
+
+    from html import escape
+
+    def e(value) -> str:
+        return escape(str(value if value is not None else "-"), quote=True)
+
+    rows = []
+    for index, item in enumerate(items, start=1):
+        timing = (
+            f'<div style="font-size:13px;color:#8a4b00">時期: {e(item["timing"])}</div>'
+            if item.get("timing")
+            else ""
+        )
+        rows.append(
+            '<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0">'
+            f'<div style="font-size:13px;color:#555">[{index}] 提案 '
+            f"<strong>#{e(item['proposal_id'])}</strong> / {e(item['angle'])}</div>"
+            f'<div style="font-size:14px;margin:4px 0">{e(item["article_title"])}</div>'
+            '<div style="font-size:14px;color:#222;white-space:pre-wrap">'
+            f"{e(item['preview'])}</div>"
+            f"{timing}"
+            f'<p style="margin:10px 0 0"><a href="{e(item["review_url"])}" '
+            'style="display:inline-block;padding:10px 16px;background:#1a4d8f;color:#fff;'
+            'text-decoration:none;border-radius:6px;font-size:15px">この提案を確認</a></p>'
+            "</div>"
+        )
+    return (
+        '<div style="font-family:sans-serif;max-width:560px;line-height:1.6">'
+        f'<h2 style="font-size:18px">BizFluxLab: Threads 投稿案 {len(items)} 件の確認</h2>'
+        '<p style="font-size:14px">1 件ずつ別々に判断できます (一括承認はありません)。'
+        "承認しても、すぐには投稿されません。</p>"
+        + "".join(rows)
+        + f'<p style="font-size:13px">有効期限: {e(expires_at_local)}</p>'
+        '<p style="font-size:12px;color:#555">開くだけでは承認になりません。'
+        "承認・却下はページ上で明示的に操作したときだけ記録されます。"
+        "リンクは 1 件につき 1 回限りで、期限を過ぎると使えません。"
+        "1 件を却下しても、他の提案には影響しません。</p>"
+        "</div>"
+    )

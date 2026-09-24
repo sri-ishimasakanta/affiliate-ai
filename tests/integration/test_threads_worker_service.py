@@ -371,7 +371,11 @@ def test_a_new_approval_pulls_the_publication_evaluation_forward(
     _proposal(session, article)
     later = _NOW + timedelta(minutes=10)
     second = handler(later)
-    assert second.wake == {SUBSYSTEM_PUBLICATION_EVALUATION: later}
+    # T4.2: 提案・承認の変化は、公開の評価とまとめ送りの評価の両方を前倒しする。
+    assert second.wake == {
+        SUBSYSTEM_PUBLICATION_EVALUATION: later,
+        "approval_notification_flush": later,
+    }
     assert second.summary["changed_since_last_observation"] is True
 
 
@@ -505,3 +509,169 @@ def test_no_http_no_email_no_subprocess_in_any_mode(
     assert run.publications == 0
     assert [s.last_error for s in resident.schedule.states() if s.failures] == []
     assert sum(s.runs for s in resident.schedule.states()) > len(run.cycles)
+
+
+# == T4.2: real read-only insight refresh =====================================
+class _ReadOnlyThreads:
+    """読むだけの Threads。書き込み系メソッドは存在しない。"""
+
+    def __init__(self, *, values=None, error=None) -> None:
+        self.calls: list[str] = []
+        self._values = values if values is not None else {"views": 40, "likes": 0}
+        self._error = error
+
+    def describe(self):
+        from app.social.threads.service import ThreadsConnectionStatus
+
+        return ThreadsConnectionStatus(
+            enabled=True,
+            configured=True,
+            api_version="v1.0",
+            user_id_configured=True,
+            access_token_configured=True,
+        )
+
+    def media_insights(self, media_id, metrics=None):
+        from app.social.threads.models import ThreadsInsights
+
+        self.calls.append(f"insights:{media_id}")
+        if self._error:
+            raise self._error
+        return ThreadsInsights(
+            subject=f"media:{media_id}", values=dict(self._values), missing=("shares",)
+        )
+
+
+def _collecting_service(session: Session, threads, **kw) -> ThreadsWorkerService:
+    return ThreadsWorkerService(
+        _factory(session), settings=_Settings(), threads_service=threads, **kw
+    )
+
+
+def test_the_worker_reads_insights_only_when_asked(session: Session, article: Article) -> None:
+    publication = _publication(
+        session, _proposal(session, article), published_at=_NOW - timedelta(minutes=40)
+    )
+    threads = _ReadOnlyThreads()
+
+    plan_only = _collecting_service(session, threads).handlers()[SUBSYSTEM_INSIGHTS_REFRESH](_NOW)
+    assert threads.calls == []
+    assert plan_only.summary["network_calls"] == 0
+
+    result = _collecting_service(session, threads, collect_insights=True).handlers()[
+        SUBSYSTEM_INSIGHTS_REFRESH
+    ](_NOW)
+    assert threads.calls == ["insights:m1"]
+    assert result.summary["network_calls"] == 1
+    assert result.summary["threads_writes"] == 0
+    row = session.scalars(select(ThreadsInsightSnapshot)).one()
+    assert row.threads_publication_id == publication.id
+    assert row.views == 40
+    # 欠測は NULL のまま (C8 と同じ意味づけ)。
+    assert row.shares is None
+
+
+def test_the_worker_does_not_refetch_what_c8_just_observed(
+    session: Session, article: Article
+) -> None:
+    """C8 の日次取り込みが 3 分前に観測していれば、worker は取りに行かない。"""
+
+    from app.services.threads_insights_service import ThreadsInsightsService
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(hours=2))
+    c8_threads = _ReadOnlyThreads()
+    ThreadsInsightsService(session, settings=_Settings(), threads_service=c8_threads).collect(
+        execute=True, now=_NOW - timedelta(minutes=3)
+    )
+
+    worker_threads = _ReadOnlyThreads()
+    service = _collecting_service(session, worker_threads, collect_insights=True)
+    result = service.handlers()[SUBSYSTEM_INSIGHTS_REFRESH](_NOW)
+    assert worker_threads.calls == []
+    assert result.summary["would_refresh"] == []
+    assert session.scalar(select(func.count()).select_from(ThreadsInsightSnapshot)) == 1
+
+
+def test_the_shared_collector_skips_a_recent_observation_from_either_path(
+    session: Session, article: Article
+) -> None:
+    from app.services.threads_insights_service import ThreadsInsightsService
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(hours=2))
+    threads = _ReadOnlyThreads()
+    collector = ThreadsInsightsService(session, settings=_Settings(), threads_service=threads)
+    collector.collect(execute=True, now=_NOW)
+    second = collector.collect(execute=True, now=_NOW + timedelta(minutes=4))
+
+    assert threads.calls == ["insights:m1"]
+    assert second.unchanged == 1
+    assert "min ago" in second.details[0]["reason"]
+
+
+def test_a_collection_failure_is_recorded_and_isolated(session: Session, article: Article) -> None:
+    from app.social.threads.errors import ThreadsAuthError
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(minutes=40))
+    threads = _ReadOnlyThreads(error=ThreadsAuthError("token rejected"))
+    service = _collecting_service(session, threads, collect_insights=True)
+    worker = service.build_worker(now=_NOW, clock=lambda: _NOW)
+    worker.run_cycle()
+
+    # 失敗は失敗の観測として残る (C8 と同じ)。worker の他の仕事は動いている。
+    row = session.scalars(select(ThreadsInsightSnapshot)).one()
+    assert row.outcome == "failed" and row.error_category == "threads_auth"
+    assert worker.schedule.state("health").runs == 1
+    assert worker.schedule.state(SUBSYSTEM_INSIGHTS_REFRESH).failures == 0
+
+
+def test_low_views_from_the_worker_raise_no_alert(session: Session, article: Article) -> None:
+    from app.services.threads_insights_service import ThreadsInsightsService
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(minutes=40))
+    threads = _ReadOnlyThreads(values={"views": 0, "likes": 0})
+    _collecting_service(session, threads, collect_insights=True).handlers()[
+        SUBSYSTEM_INSIGHTS_REFRESH
+    ](_NOW)
+    drafts = ThreadsInsightsService(
+        session, settings=_Settings(), threads_service=threads
+    ).alert_drafts()
+    assert drafts == []
+
+
+# == T4.2: approval notification flush ========================================
+def test_the_flush_is_enabled_but_sends_nothing_without_the_flag(
+    session: Session, article: Article
+) -> None:
+    from app.models import TP_AWAITING_APPROVAL
+
+    proposal = _proposal(session, article)
+    proposal.status = TP_AWAITING_APPROVAL
+    proposal.created_at = _NOW - timedelta(hours=3)
+    session.commit()
+
+    service = _service(session)
+    handler = service.handlers()["approval_notification_flush"]
+    result = handler(_NOW)
+
+    assert result.summary["would_send"] is True
+    assert result.summary["emails_sent"] == 0
+    assert session.scalar(select(func.count()).select_from(NotificationDelivery)) == 0
+    # 送れる状態でも PLAN なら、heartbeat ごとに空回りしない。
+    assert result.next_run_at >= _NOW + timedelta(minutes=30)
+
+
+def test_the_flush_does_not_run_every_heartbeat(session: Session, article: Article) -> None:
+    clock = {"now": _NOW}
+
+    def sleep(seconds: float) -> None:
+        clock["now"] += timedelta(seconds=seconds)
+
+    service = _service(session)
+    worker = service.build_worker(now=_NOW, clock=lambda: clock["now"], sleep=sleep)
+    worker.run(max_cycles=13)  # 1 時間
+    flush = worker.schedule.state("approval_notification_flush")
+    health = worker.schedule.state("health")
+    queue = worker.schedule.state("queue_observation")
+    assert health.runs == 13
+    assert queue.runs == 13  # 5 分おき
+    assert flush.runs <= 3

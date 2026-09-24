@@ -8,12 +8,15 @@
 - ``publication_evaluation``: queue を評価し、**次に評価すべき時刻ちょうど** を
   返す (間隔が明ける時刻・公開窓が開く時刻)。5 分の枠には丸めない。
 - ``insights_refresh``: 投稿の若さに応じて 30〜60 分おき、成熟後はまれに。
-  **T4.1 では取得しない。** 期限が来た投稿を「取得するなら今」と報告するだけ
-  (実際の取得は C8 の ``import_threads_insights`` ステップが行う)。
-- ``approval_notification_flush``: T4.2 の仕事。登録はするが無効。
+  ``collect_insights=True`` のときだけ、期限が来た投稿を **読むだけ** で取得する
+  (T4.2)。取得は C8 と同じ :class:`ThreadsInsightsService` を通るので、欠測の扱いも
+  失敗の記録も同じ。直前にどちらかが観測していれば取りに行かない。
+- ``approval_notification_flush``: 承認依頼のまとめ送りが「いま送るべきか」を評価する
+  (T4.2)。送るのは ``send_approval_digests=True`` のときだけ。
 
-T4.1 の worker が書き込むのは **自分のロック行だけ** である。Threads へも、
-メールへも、WordPress へも、タスクスケジューラへも一切触れない。
+既定 (どちらのフラグも False) の worker が書き込むのは **自分のロック行だけ**。
+どのモードでも **公開はしない** (Threads への書き込みは 0 件)。WordPress にも
+タスクスケジューラにも触れない。
 """
 
 from __future__ import annotations
@@ -24,7 +27,6 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from app.article.fact_freshness import ensure_aware
 from app.models import (
@@ -77,42 +79,55 @@ class ThreadsWorkerLock:
         self._factory = session_factory
         self._stale = stale_after_minutes
         self._label = owner_label[:128]
-        self._held = False
+        #: 取得時に DB が発行した所有者証明。**ログにも出力にも出さない。**
+        self._token: str | None = None
 
     def acquire(self, now: datetime) -> dict:
         with self._factory() as session:
-            try:
-                outcome = OperationsLockService(session).acquire(
-                    lock_name=WORKER_LOCK_NAME,
-                    owner_label=self._label,
-                    stale_after_minutes=self._stale,
-                    now=now,
-                )
-            except IntegrityError:
-                # 同時に起動した別の worker が先に行を作った。
-                session.rollback()
-                return {"acquired": False, "lock_name": WORKER_LOCK_NAME, "race": True}
-        self._held = outcome.acquired
+            outcome = OperationsLockService(session).acquire(
+                lock_name=WORKER_LOCK_NAME,
+                owner_label=self._label,
+                stale_after_minutes=self._stale,
+                now=now,
+            )
+        self._token = outcome.owner_token if outcome.acquired else None
         return {
             "acquired": outcome.acquired,
             "lock_name": WORKER_LOCK_NAME,
             "owner_label": self._label if outcome.acquired else None,
             "blocking_owner_label": outcome.blocking_owner_label,
             "reclaimed_stale": outcome.reclaimed_stale,
+            "lost_race": outcome.lost_race,
         }
 
-    def heartbeat(self, now: datetime) -> None:
-        if not self._held:
-            return
-        with self._factory() as session:
-            OperationsLockService(session).heartbeat(lock_name=WORKER_LOCK_NAME, now=now)
+    @property
+    def held(self) -> bool:
+        return self._token is not None
 
-    def release(self, now: datetime) -> None:
-        if not self._held:
-            return
+    def heartbeat(self, now: datetime) -> bool:
+        """所有権がまだあれば True。**False なら worker は仕事を止める。**"""
+
+        if self._token is None:
+            return False
         with self._factory() as session:
-            OperationsLockService(session).release(lock_name=WORKER_LOCK_NAME, now=now)
-        self._held = False
+            alive = OperationsLockService(session).heartbeat(
+                lock_name=WORKER_LOCK_NAME, owner_token=self._token, now=now
+            )
+        if not alive:
+            self._token = None
+        return alive
+
+    def release(self, now: datetime) -> bool:
+        """自分のロックだけを解放する。他人が回収したロックには触れない。"""
+
+        if self._token is None:
+            return False
+        with self._factory() as session:
+            released = OperationsLockService(session).release(
+                lock_name=WORKER_LOCK_NAME, owner_token=self._token, now=now
+            )
+        self._token = None
+        return released
 
 
 def default_owner_label() -> str:
@@ -129,6 +144,10 @@ class ThreadsWorkerService:
         policy: ThreadsOperationsPolicy | None = None,
         measurement_policy: ThreadsMeasurementPolicy | None = None,
         timezone: ZoneInfo | None = None,
+        collect_insights: bool = False,
+        send_approval_digests: bool = False,
+        notifier=None,
+        relay_client=None,
     ) -> None:
         self._factory = session_factory
         self._settings = settings
@@ -137,6 +156,22 @@ class ThreadsWorkerService:
         self._measurement = measurement_policy or get_measurement_policy()
         self._tz = timezone or get_operations_policy().timezone
         self._last_fingerprint: tuple | None = None
+        #: 読むだけの Meta 呼び出しを許すか (T4.2)。既定は許さない。
+        self._collect_insights = collect_insights
+        #: 承認依頼メールを実際に送るか (T4.2)。既定は送らない。**人が明示したときだけ。**
+        self._send_digests = send_approval_digests
+        self._notifier = notifier
+        self._relay = relay_client
+        #: この worker が実際に行った外部への作用 (固定の 0 ではなく数えた値)。
+        self._counters = {"network_calls": 0, "approval_emails": 0}
+
+    @property
+    def capabilities(self) -> dict:
+        return {
+            "collect_insights": self._collect_insights,
+            "send_approval_digests": self._send_digests,
+            "publish": False,
+        }
 
     # -- construction ------------------------------------------------------------
     def _queue(self, session) -> ThreadsQueueService:
@@ -159,13 +194,12 @@ class ThreadsWorkerService:
         ):
             schedule.register(name, first_run_at=now)
         flush = self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH)
+        enabled = bool(flush.get("enabled", False))
         schedule.register(
             SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
-            first_run_at=None,
-            enabled=False,
-            disabled_reason=(
-                f"approval notification batching is deferred to {flush.get('deferred_to', 'T4.2')}"
-            ),
+            first_run_at=now if enabled else None,
+            enabled=enabled,
+            disabled_reason=None if enabled else "disabled by policy",
         )
         return schedule
 
@@ -175,6 +209,7 @@ class ThreadsWorkerService:
             SUBSYSTEM_QUEUE_OBSERVATION: self._queue_observation,
             SUBSYSTEM_PUBLICATION_EVALUATION: self._publication_evaluation,
             SUBSYSTEM_INSIGHTS_REFRESH: self._insights_refresh,
+            SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: self._approval_notification_flush,
         }
 
     def build_worker(self, *, now: datetime, clock=None, sleep=None, lock=None) -> ThreadsWorker:
@@ -220,10 +255,15 @@ class ThreadsWorkerService:
         changed = self._last_fingerprint is not None and fingerprint != self._last_fingerprint
         self._last_fingerprint = fingerprint
         return SubsystemResult(
-            next_run_at=now + self._interval(SUBSYSTEM_QUEUE_OBSERVATION, 10),
+            next_run_at=now + self._interval(SUBSYSTEM_QUEUE_OBSERVATION, 5),
             summary={**counts, "changed_since_last_observation": changed},
-            # 承認が増えた・状態が変わったら、公開の評価を定期時刻まで待たせない。
-            wake={SUBSYSTEM_PUBLICATION_EVALUATION: now} if changed else {},
+            # 承認が増えた・提案が増えた・状態が変わったら、公開の評価と
+            # まとめ送りの評価を、それぞれの定期時刻まで待たせない。
+            wake=(
+                {SUBSYSTEM_PUBLICATION_EVALUATION: now, SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: now}
+                if changed
+                else {}
+            ),
         )
 
     def _publication_evaluation(self, now: datetime) -> SubsystemResult:
@@ -285,18 +325,107 @@ class ThreadsWorkerService:
                 tracked.append(
                     {"publication_id": row.id, "maturity": stage, "due_at": due_at.isoformat()}
                 )
-        # PLAN なので取得はしない。期限が来たものが「期限のまま」空回りしないよう、
-        # 次の確認は最も短い間隔ぶん先にする。
+        # 取得してもしなくても、次の確認は最も短い間隔ぶん先にする
+        # (期限が来たものが「期限のまま」空回りしないように)。
         next_at = now + (min(intervals) if intervals else idle)
+        if not self._collect_insights or not due:
+            return SubsystemResult(
+                next_run_at=next_at,
+                summary={
+                    "tracked": tracked,
+                    "would_refresh": due,
+                    "refreshed": [],
+                    "network_calls": 0,
+                    "note": (
+                        "PLAN only; start the worker with --collect-insights to read, "
+                        "or rely on the C8 import_threads_insights step"
+                    )
+                    if not self._collect_insights
+                    else None,
+                },
+            )
+
+        from app.services.threads_insights_service import ThreadsInsightsService
+
+        refreshed: list[dict] = []
+        calls = 0
+        with self._factory() as session:
+            collector = ThreadsInsightsService(
+                session,
+                settings=self._settings,
+                threads_service=self._threads,
+                policy=self._measurement,
+                timezone=self._tz,
+            )
+            for publication_id in due:
+                # 読むだけ。欠測は NULL のまま、失敗は失敗の観測として残る (C8 と同じ)。
+                result = collector.collect(publication_id=publication_id, execute=True, now=now)
+                calls += result.imported + result.failed
+                refreshed.extend(result.details)
+        self._counters["network_calls"] += calls
         return SubsystemResult(
             next_run_at=next_at,
             summary={
                 "tracked": tracked,
                 "would_refresh": due,
-                "network_calls": 0,
-                "note": "PLAN only; the C8 import_threads_insights step performs real reads",
+                "refreshed": [
+                    {"publication_id": d.get("publication_id"), "result": d.get("result")}
+                    for d in refreshed
+                ],
+                "network_calls": calls,
+                "threads_writes": 0,
             },
         )
+
+    def _approval_notification_flush(self, now: datetime) -> SubsystemResult:
+        """まとめ送りが「いま送るべきか」を評価する。送るのはフラグが立っているときだけ。
+
+        時刻は digest の計画が決める (cooldown / gather / 通知窓)。heartbeat のたびには
+        走らず、固定の毎時 :00 にも合わせない。
+        """
+
+        from app.services.threads_approval_digest_service import ThreadsApprovalDigestService
+
+        with self._factory() as session:
+            digests = ThreadsApprovalDigestService(
+                session,
+                settings=self._settings,
+                notifier=self._notifier,
+                relay_client=self._relay,
+                policy=self._policy,
+                timezone=self._tz,
+            )
+            plan = digests.plan(now=now)
+            summary = {
+                "would_send": plan.would_send,
+                "waiting_for": list(plan.waiting_for),
+                "selected": [i.candidate.proposal_id for i in plan.selected],
+                "deferred": [i.candidate.proposal_id for i in plan.deferred],
+                "suppressed": [
+                    {"proposal_id": i.candidate.proposal_id, "reason": i.reason}
+                    for i in plan.suppressed
+                ],
+                "emails_sent": 0,
+            }
+            if plan.would_send and self._send_digests:
+                outcome = digests.send(now=now, execute=True)
+                summary["emails_sent"] = 1 if outcome.sent else 0
+                self._counters["approval_emails"] += summary["emails_sent"]
+                summary["digest"] = outcome.as_dict()
+                # 送った (または送れなかった) 後の状態で、次の機会を計算し直す。
+                plan = digests.plan(now=now)
+        idle = timedelta(
+            minutes=int(
+                self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH).get(
+                    "idle_interval_minutes", 30
+                )
+            )
+        )
+        next_at = plan.next_run_at
+        if next_at <= now:
+            # 送れる状態なのに送らない (PLAN) とき、heartbeat ごとに空回りしない。
+            next_at = now + idle
+        return SubsystemResult(next_run_at=max(next_at, now + _MIN_RESCHEDULE), summary=summary)
 
     # -- status ------------------------------------------------------------------
     def status(self, *, now: datetime, schedule: WorkerSchedule | None = None) -> dict:
@@ -373,8 +502,7 @@ class ThreadsWorkerService:
                 "open_now": window_is_open(
                     self._policy.approval_notification_window, now, self._tz
                 ),
-                "delivery_enabled": False,
-                "deferred_to": "T4.2",
+                "delivery_enabled": self._send_digests,
             },
             "latest_publication": latest_view,
             "soft_gap": {
@@ -387,10 +515,11 @@ class ThreadsWorkerService:
             "hard_blockers": list(evaluation.blockers),
             "problems": list(evaluation.problems),
             "subsystems": [self._subsystem_view(s) for s in schedule.states()] if schedule else [],
+            "capabilities": self.capabilities,
             "side_effects": {
                 "threads_writes": 0,
-                "network_calls": 0,
-                "approval_emails": 0,
+                "network_calls": self._counters["network_calls"],
+                "approval_emails": self._counters["approval_emails"],
                 "wordpress_writes": 0,
                 "go_probes": 0,
                 "scheduler_changes": 0,

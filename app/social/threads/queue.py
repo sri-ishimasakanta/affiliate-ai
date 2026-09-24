@@ -19,6 +19,14 @@
 
 T4.1 では自動公開そのものが無効 (``AUTOMATIC_PUBLICATION_ENABLED = False``)。
 評価結果の ``would_publish_now`` は常に False になる。
+
+T4.2 で人の queue 操作と時刻の制約が加わった:
+
+- **保留 (hold)** は強いブロッカー。解除 (release) するまで選ばれない。
+- **not_before** より前は資格が無い。**expires_at** を過ぎたら資格が無い (消さない)。
+- **次に優先 (prefer_next)** は並び順の先頭に来るだけ。**安全の条件を 1 つも飛ばさない。**
+  優先した提案がブロックされていれば、その理由を示し、他の候補を通常どおり評価する。
+- 常緑の提案には期限が無い。古いというだけで期限切れにはしない。
 """
 
 from __future__ import annotations
@@ -43,6 +51,12 @@ REASON_ALREADY_PUBLISHED = "already_published"
 REASON_STALE = "stale"
 REASON_CONTENT_INTEGRITY = "content_integrity"
 REASON_UNCERTAIN_PUBLICATION = "uncertain_publication"
+#: T4.2: 人が保留にしている。
+REASON_HELD = "held"
+#: T4.2: not_before より前。
+REASON_NOT_BEFORE = "not_before"
+#: T4.2: expires_at を過ぎた。**消さない。** 理由を残して資格だけを失う。
+REASON_EXPIRED = "expired"
 CANDIDATE_REASONS = (
     REASON_ELIGIBLE,
     REASON_NOT_APPROVED,
@@ -50,6 +64,9 @@ CANDIDATE_REASONS = (
     REASON_STALE,
     REASON_CONTENT_INTEGRITY,
     REASON_UNCERTAIN_PUBLICATION,
+    REASON_HELD,
+    REASON_NOT_BEFORE,
+    REASON_EXPIRED,
 )
 
 # -- global blockers (queue 全体を止める) ---------------------------------------
@@ -97,6 +114,10 @@ class CandidateFacts:
     integrity_reasons: tuple[str, ...] = ()
     already_published: bool = False
     in_flight: bool = False
+    held: bool = False
+    not_before: datetime | None = None
+    expires_at: datetime | None = None
+    preferred_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +146,11 @@ class CandidateVerdict:
     repeats_last_angle: bool = False
     repeats_last_article: bool = False
     starvation_guard_active: bool = False
+    #: 人が「次に優先」を指定している (安全の条件は飛ばさない)。
+    preferred: bool = False
+    preferred_at: datetime | None = None
+    not_before: datetime | None = None
+    expires_at: datetime | None = None
 
     @property
     def eligible(self) -> bool:
@@ -141,6 +167,9 @@ class CandidateVerdict:
             "repeats_last_angle": self.repeats_last_angle,
             "repeats_last_article": self.repeats_last_article,
             "starvation_guard_active": self.starvation_guard_active,
+            "preferred": self.preferred,
+            "not_before": self.not_before.isoformat() if self.not_before else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
         }
 
 
@@ -206,7 +235,12 @@ def _verdict(
         "angle": facts.angle,
         "source_article_id": facts.source_article_id,
         "approved_at": _aware(facts.approved_at),
+        "preferred": facts.preferred_at is not None,
+        "preferred_at": _aware(facts.preferred_at),
+        "not_before": _aware(facts.not_before),
+        "expires_at": _aware(facts.expires_at),
     }
+    now = _aware(queue.now)
     # 強い理由から順に 1 つだけ採る (理由の優先順位は固定)。
     if facts.already_published:
         return CandidateVerdict(reason=REASON_ALREADY_PUBLISHED, **base)
@@ -220,6 +254,18 @@ def _verdict(
         )
     if facts.stale_reasons:
         return CandidateVerdict(reason=REASON_STALE, details=facts.stale_reasons, **base)
+    expires_at = _aware(facts.expires_at)
+    if expires_at is not None and expires_at <= now:
+        return CandidateVerdict(
+            reason=REASON_EXPIRED, details=(f"expired at {expires_at.isoformat()}",), **base
+        )
+    if facts.held:
+        return CandidateVerdict(reason=REASON_HELD, **base)
+    not_before = _aware(facts.not_before)
+    if not_before is not None and now < not_before:
+        return CandidateVerdict(
+            reason=REASON_NOT_BEFORE, details=(f"not before {not_before.isoformat()}",), **base
+        )
 
     approved_at = _aware(facts.approved_at)
     guard = approved_at is not None and queue.now - approved_at >= timedelta(
@@ -244,6 +290,10 @@ def _verdict(
 def _order_key(verdict: CandidateVerdict) -> tuple:
     """並び順。**スコアではなく、名前の付いた事実の辞書式比較。**
 
+    この関数に来るのは **資格のある候補だけ**。だから「優先」が安全の条件を
+    飛ばすことは構造上ありえない。
+
+    0. 人が「次に優先」を指定したか (指定した順)
     1. 直前と同じ記事か (弱い信号。starvation guard 中は無視)
     2. 直前と同じ切り口か (弱い信号。starvation guard 中は無視)
     3. 承認が古い順 (編集上の順序。何も変わらなければ順序も変わらない)
@@ -251,8 +301,11 @@ def _order_key(verdict: CandidateVerdict) -> tuple:
     """
 
     soft = not verdict.starvation_guard_active
-    approved = verdict.approved_at or datetime.max.replace(tzinfo=UTC)
+    far = datetime.max.replace(tzinfo=UTC)
+    approved = verdict.approved_at or far
     return (
+        not verdict.preferred,
+        verdict.preferred_at or far,
         soft and verdict.repeats_last_article,
         soft and verdict.repeats_last_angle,
         approved,
@@ -296,7 +349,14 @@ def evaluate_queue(
             f"{queue.mature_post_count} mature post(s); {queue.minimum_mature_posts} needed "
             "before performance can inform ordering"
         )
-    notes.append("T4.1 ordering never uses insight metrics; it uses explicit editorial facts")
+    notes.append("ordering never uses insight metrics; it uses explicit editorial facts")
+    for verdict in others:
+        if verdict.preferred:
+            # 優先した提案が止まっているなら、なぜかを説明し、他の候補で評価を続ける。
+            notes.append(
+                f"preferred proposal {verdict.proposal_id} is blocked ({verdict.reason}); "
+                "the normal order is used for the remaining candidates"
+            )
 
     return QueueEvaluation(
         now=now,
@@ -304,11 +364,24 @@ def evaluate_queue(
         candidates=tuple(eligible + others),
         next_candidate=eligible[0] if eligible else None,
         timing=timing,
-        next_evaluation_at=_next_evaluation_at(now, blockers, timing, policy),
+        next_evaluation_at=_next_evaluation_at(
+            now, blockers, timing, policy, _earliest_not_before(others, now)
+        ),
         evidence_state=evidence,
         ordering_basis="diversity_then_approval_order",
         notes=tuple(notes),
     )
+
+
+def _earliest_not_before(verdicts, now: datetime) -> datetime | None:
+    """not_before だけで止まっている候補のうち、最も早く資格が生まれる時刻。"""
+
+    moments = [
+        v.not_before
+        for v in verdicts
+        if v.reason == REASON_NOT_BEFORE and v.not_before is not None and v.not_before > now
+    ]
+    return min(moments) if moments else None
 
 
 def _next_evaluation_at(
@@ -316,6 +389,7 @@ def _next_evaluation_at(
     blockers: list[str],
     timing: PublicationTiming,
     policy: ThreadsOperationsPolicy,
+    earliest_not_before: datetime | None = None,
 ) -> datetime:
     """次に公開を評価し直す時刻。**固定の枠 (5 分刻み等) には合わせない。**
 
@@ -325,6 +399,9 @@ def _next_evaluation_at(
     """
 
     idle = now + timedelta(minutes=policy.idle_publication_reevaluation_minutes)
+    if earliest_not_before is not None and BLOCKER_NO_ELIGIBLE_CANDIDATE in blockers:
+        # 候補が not_before を待っているだけなら、その時刻ちょうどに見直す。
+        idle = min(idle, earliest_not_before)
     waiting_on_humans = {
         BLOCKER_THREADS_DISABLED,
         BLOCKER_THREADS_MISCONFIGURED,

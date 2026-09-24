@@ -306,3 +306,42 @@ def test_plan_worker_reports_zero_publications() -> None:
     clock = _Clock(START)
     run = _worker(_Handlers(), clock).run(max_cycles=10)
     assert run.publications == 0
+
+
+# == T4.2 =====================================================================
+def test_policy_cadence_matches_the_approved_semantics() -> None:
+    """queue/承認の観測は 5 分以内。heartbeat も 5 分以内。他の仕事は独立。"""
+
+    from app.social.threads.policy import get_operations_policy
+
+    policy = get_operations_policy()
+    assert policy.subsystem("queue_observation")["interval_minutes"] <= 5
+    assert policy.heartbeat_max_seconds <= 300
+    refresh = policy.subsystem("insights_refresh")["interval_minutes_by_maturity"]
+    assert min(refresh.values()) >= 30
+    assert policy.digest_cooldown_minutes >= 60
+
+
+def test_a_lost_lock_stops_the_worker() -> None:
+    """heartbeat が所有権を失ったと返したら、それ以上の仕事をしない。"""
+
+    from app.social.threads.worker import EXIT_LOCK_LOST
+
+    class _LosingLock(_Lock):
+        def __init__(self) -> None:
+            super().__init__(acquired=True)
+            self.beats = 0
+
+        def heartbeat(self, now):
+            self.beats += 1
+            self.events.append("heartbeat")
+            return self.beats < 2
+
+    clock = _Clock(START)
+    handlers = _Handlers()
+    lock = _LosingLock()
+    run = _worker(handlers, clock, lock=lock).run(max_cycles=10)
+
+    assert run.exit_code == EXIT_LOCK_LOST
+    assert len(run.cycles) == 2
+    assert run.cycles[-1].lock_lost is True

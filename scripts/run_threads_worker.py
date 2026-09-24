@@ -1,19 +1,24 @@
-"""管理用 CLI: 常駐 Threads worker (T4.1、**PLAN 専用**)。
+"""管理用 CLI: 常駐 Threads worker (T4.1 / T4.2)。
 
-    # 既定: 1 回だけ評価して状態を出す (ロックも取らない。DB に何も書かない)
+    # 既定: 1 回だけ評価して状態を出す (ロックも取らない。DB に何も書かない。外に出ない)
     uv run python scripts/run_threads_worker.py
-
-    # 同じく 1 回だけ (明示)
-    uv run python scripts/run_threads_worker.py --once
 
     # 常駐 PLAN ループ (ロックを取る。2 つ目の worker は何もせずに終わる)
     uv run python scripts/run_threads_worker.py --resident
 
-**T4.1 では投稿しない。** 自動公開の経路はコードで無効にしてあり、この CLI に
-``--execute`` は無い。Threads への書き込み・承認メール・WordPress への書き込み・
+    # 読むだけの Threads 指標取得を有効にする (T4.2)
+    uv run python scripts/run_threads_worker.py --resident --collect-insights
+
+    # 承認依頼のまとめ送りを有効にする (T4.2、**本番では人の確認を経てから**)
+    uv run python scripts/run_threads_worker.py --resident --send-approval-digests
+
+**投稿はしない。** 自動公開の経路はコードで無効にしてあり、この CLI に
+``--execute`` は無い。Threads への書き込み・WordPress への書き込み・
 タスクスケジューラの変更は、どのモードでも 0 件。
 
-``--resident`` が書き込むのは worker 自身のロック行だけである。
+外に作用するフラグ (``--collect-insights`` / ``--send-approval-digests``) を付けた
+ときは、``--once`` でも worker のロックを取る。2 つのプロセスが同時に digest を
+送ることはない。
 
 **承認は公開ではない。** 承認済みの提案は queue に入るだけで、いつ・どれを出すかは
 別の判定である (T4.3)。
@@ -36,7 +41,9 @@ from app.services.threads_worker_service import ThreadsWorkerService  # noqa: E4
 from app.social.threads.worker import EXIT_ALREADY_RUNNING, EXIT_OK  # noqa: E402
 
 
-def main(argv: list[str] | None = None, *, session_factory=None, settings=None) -> int:
+def main(
+    argv: list[str] | None = None, *, session_factory=None, settings=None, overrides=None
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--once", action="store_true", help="1 回だけ評価する (既定)")
@@ -44,17 +51,42 @@ def main(argv: list[str] | None = None, *, session_factory=None, settings=None) 
     parser.add_argument(
         "--max-cycles", type=int, default=None, help="--resident のサイクル上限 (検証用)"
     )
+    parser.add_argument(
+        "--collect-insights",
+        action="store_true",
+        help="期限が来た投稿の指標を読むだけで取得する (Threads への書き込みはしない)",
+    )
+    parser.add_argument(
+        "--send-approval-digests",
+        action="store_true",
+        help="期限が来たら承認依頼のまとめ送りを 1 通送る (人が明示したときだけ)",
+    )
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
     args = parser.parse_args(argv)
 
     service = ThreadsWorkerService(
-        session_factory or SessionLocal, settings=settings or get_settings()
+        session_factory or SessionLocal,
+        settings=settings or get_settings(),
+        collect_insights=args.collect_insights,
+        send_approval_digests=args.send_approval_digests,
+        **(overrides or {}),
     )
     now = datetime.now(UTC)
+    external = args.collect_insights or args.send_approval_digests
 
     if not args.resident:
-        worker = service.build_worker(now=now, clock=lambda: now)
-        cycle = worker.run_cycle()
+        lock = service.build_lock() if external else None
+        worker = service.build_worker(now=now, clock=lambda: now, lock=lock)
+        if lock is not None:
+            acquired = lock.acquire(now)
+            if not acquired.get("acquired"):
+                print("another Threads worker is already running; exiting without doing any work")
+                return EXIT_ALREADY_RUNNING
+        try:
+            cycle = worker.run_cycle()
+        finally:
+            if lock is not None:
+                lock.release(datetime.now(UTC))
         status = service.status(now=now, schedule=worker.schedule)
         status["cycle"] = cycle.as_dict()
         _print_status(status, mode="once")
@@ -107,7 +139,12 @@ def _print_status(status: dict, *, mode: str) -> None:
     print(f"publication window    = {pw['start']}-{pw['end']} open={pw['open_now']}")
     print(
         f"approval notify window= {aw['start']}-{aw['end']} open={aw['open_now']} "
-        f"(delivery deferred to {aw['deferred_to']})"
+        f"(sending enabled: {aw['delivery_enabled']})"
+    )
+    caps = status["capabilities"]
+    print(
+        f"capabilities          = collect_insights={caps['collect_insights']} "
+        f"send_approval_digests={caps['send_approval_digests']} publish={caps['publish']}"
     )
 
     latest = status["latest_publication"]
@@ -155,7 +192,7 @@ def _print_status(status: dict, *, mode: str) -> None:
 
     effects = status["side_effects"]
     print("\nside effects: " + ", ".join(f"{name}={value}" for name, value in effects.items()))
-    print("PLAN のみ。投稿もメールも WordPress もスケジューラも触っていない。")
+    print("投稿はしていない。WordPress にもスケジューラにも触れていない。")
 
 
 if __name__ == "__main__":

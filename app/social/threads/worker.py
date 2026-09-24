@@ -52,6 +52,8 @@ WORKER_MODES = (MODE_PLAN,)
 
 EXIT_OK = 0
 EXIT_ALREADY_RUNNING = 4
+#: 実行中にロックの所有権を失った (古いと判定されて別の worker が回収した)。
+EXIT_LOCK_LOST = 5
 
 
 class AutomaticPublicationUnavailable(RuntimeError):
@@ -171,6 +173,7 @@ class CycleReport:
     skipped_not_due: list[str]
     publications: int
     next_wake_at: datetime
+    lock_lost: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -179,6 +182,7 @@ class CycleReport:
             "skipped_not_due": list(self.skipped_not_due),
             "publications": self.publications,
             "next_wake_at": self.next_wake_at.isoformat(),
+            "lock_lost": self.lock_lost,
         }
 
 
@@ -262,9 +266,13 @@ class ThreadsWorker:
                 raise RuntimeError("a worker cycle attempted more than one publication")
             self._schedule.record(name, now, result)
             ran.append(name)
-        if self._lock is not None:
-            self._lock.heartbeat(now)
+        lock_lost = False
+        if self._lock is not None and self._lock.heartbeat(now) is False:
+            # 所有権を失った。これ以上この worker が仕事をしてはいけない。
+            lock_lost = True
+            self._stop = True
         return CycleReport(
+            lock_lost=lock_lost,
             started_at=now,
             ran=ran,
             skipped_not_due=not_due,
@@ -289,6 +297,10 @@ class ThreadsWorker:
                 report = self.run_cycle()
                 run.cycles.append(report)
                 cycles += 1
+                if report.lock_lost:
+                    run.exit_code = EXIT_LOCK_LOST
+                    run.notes.append("lost the worker lock; stopping without further work")
+                    break
                 if max_cycles is not None and cycles >= max_cycles:
                     break
                 if self._sleep is None:
@@ -303,6 +315,7 @@ class ThreadsWorker:
 
 __all__ = [
     "EXIT_ALREADY_RUNNING",
+    "EXIT_LOCK_LOST",
     "EXIT_OK",
     "MODE_PLAN",
     "SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH",

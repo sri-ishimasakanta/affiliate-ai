@@ -111,6 +111,29 @@ class ThreadsPostProposal(Base):
     superseded_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # -- T4.2: 承認の時刻 (権威ある記録) -----------------------------------------
+    #: 人の承認がシステムに **受理された** 時刻。updated_at から推測しない。
+    #: 過去の行は、同じ意味を持つ既存の記録 (携帯承認の decided_at) がある場合だけ埋める。
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 承認依頼が **実際に届けられた** 時刻 (メール送信が成功した時刻)。最新の依頼。
+    #: NULL = まだ依頼していない (在庫で待っている)。承認の期限はここから数える。
+    approval_request_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # -- T4.2: 時刻の制約 (任意) ---------------------------------------------------
+    #: この時刻より前には公開の資格を持たない。
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: この時刻を過ぎたら公開に適さない。**常緑の提案には付けない** (古いだけで期限にしない)。
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # -- T4.2: 人の queue 操作 (現在の状態。履歴は threads_queue_control_events) -----
+    #: 保留中なら保留を始めた時刻。NULL = 保留していない。
+    held_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hold_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 「次に優先」を指定した時刻。NULL = 指定なし。**安全の条件は一切飛ばさない。**
+    preferred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

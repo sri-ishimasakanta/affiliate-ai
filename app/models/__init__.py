@@ -160,6 +160,7 @@ from app.models.notification_delivery import (
     DELIVERY_SENT,
     DELIVERY_SKIPPED,
     NOTIFICATION_ALERT,
+    NOTIFICATION_APPROVAL_DIGEST,
     NOTIFICATION_APPROVAL_REQUEST,
     NOTIFICATION_DAILY_INCIDENT,
     NOTIFICATION_TEST,
@@ -198,6 +199,19 @@ from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.seo_improvement_candidate import SeoImprovementCandidate
 from app.models.seo_improvement_run import SeoImprovementRun
 from app.models.source import Source
+from app.models.threads_approval import (
+    DIGEST_FAILED,
+    DIGEST_OUTCOMES,
+    DIGEST_SENT,
+    QC_ACTIONS,
+    QC_CLEAR_PREFERENCE,
+    QC_HOLD,
+    QC_PREFER_NEXT,
+    QC_RELEASE,
+    QC_SET_TIMING,
+    ThreadsApprovalDigest,
+    ThreadsQueueControlEvent,
+)
 from app.models.threads_insight_snapshot import (
     SNAPSHOT_EMPTY,
     SNAPSHOT_FAILED,
@@ -269,6 +283,17 @@ __all__ = [
     "SNAPSHOT_OBSERVED",
     "SNAPSHOT_OUTCOMES",
     "ThreadsInsightSnapshot",
+    "DIGEST_FAILED",
+    "DIGEST_OUTCOMES",
+    "DIGEST_SENT",
+    "QC_ACTIONS",
+    "QC_CLEAR_PREFERENCE",
+    "QC_HOLD",
+    "QC_PREFER_NEXT",
+    "QC_RELEASE",
+    "QC_SET_TIMING",
+    "ThreadsApprovalDigest",
+    "ThreadsQueueControlEvent",
     "PUB_CONTAINER_CREATED",
     "PUB_CREATING",
     "PUB_FAILED",
@@ -292,6 +317,7 @@ __all__ = [
     "TP_SUPERSEDED",
     "ThreadsPostProposal",
     "threads_proposal_transition_allowed",
+    "NOTIFICATION_APPROVAL_DIGEST",
     "NOTIFICATION_APPROVAL_REQUEST",
     "DECIDED_BY_MOBILE",
     "DECISIONS",
