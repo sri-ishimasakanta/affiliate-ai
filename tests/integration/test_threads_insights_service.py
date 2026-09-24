@@ -460,3 +460,33 @@ def test_text_drift_from_the_approved_copy_alerts(session: Session, article: Art
     drafts = _service(session, _FakeThreads()).alert_drafts()
     assert len(drafts) == 1
     assert drafts[0].severity == "error"
+
+
+# -- T4.1: JST-derived dimensions ----------------------------------------------
+def test_publication_hour_and_weekday_use_the_operations_timezone(
+    session: Session, article: Article
+) -> None:
+    """2026-09-23 18:24 UTC は JST で 09-24 (木) 03 時。UTC の 18 時・水曜ではない。"""
+
+    _publication(
+        session,
+        _proposal(session, article),
+        published_at=datetime(2026, 9, 23, 18, 24, tzinfo=UTC),
+    )
+    report = _service(session, _FakeThreads()).report(now=_NOW)
+    post = report["publications"][0]
+
+    assert report["local_timezone"] == "Asia/Tokyo"
+    assert post["published_local_hour"] == 3
+    assert post["published_local_weekday"] == "Thu"
+    assert post["published_local_at"].startswith("2026-09-24T03:24")
+    # 生の時刻は UTC のまま (保存値を書き換えない)。
+    assert post["published_at"].startswith("2026-09-23T18:24")
+    assert "published_hour_utc" not in post
+
+
+def test_timezone_conversion_does_not_change_maturity(session: Session, article: Article) -> None:
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(minutes=20))
+    post = _service(session, _FakeThreads()).report(now=_NOW)["publications"][0]
+    assert post["maturity"]["age_hours"] == pytest.approx(0.33, abs=0.01)
+    assert post["maturity"]["stage"] == "just_published"

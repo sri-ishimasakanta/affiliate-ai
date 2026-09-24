@@ -67,6 +67,39 @@ class ThreadsPublicationError(ApplicationError):
         self.reason = reason
 
 
+@dataclass(frozen=True)
+class ProposalAssessment:
+    """1 件の提案の **中身** について、公開を止める事実 (T4.1 で切り出し)。
+
+    設定や時刻には触れない。T3 の ``plan()`` と T4.1 の queue 評価が同じ判定を
+    使うための共通部分で、ここを二重に実装しない。
+    """
+
+    stale_reasons: tuple[str, ...]
+    integrity_reasons: tuple[str, ...]
+    existing: ThreadsPublication | None
+
+    @property
+    def stale(self) -> bool:
+        return bool(self.stale_reasons)
+
+    @property
+    def already_published(self) -> bool:
+        existing = self.existing
+        return existing is not None and (
+            existing.status == PUB_PUBLISHED or bool(existing.threads_media_id)
+        )
+
+    @property
+    def in_flight(self) -> bool:
+        existing = self.existing
+        return (
+            existing is not None
+            and not self.already_published
+            and existing.status in PUB_IN_FLIGHT_STATES
+        )
+
+
 @dataclass
 class PublishPlan:
     """公開前に人が読む計画。**外部呼び出しは 1 度も行わない。**"""
@@ -167,7 +200,8 @@ class ThreadsPublicationService:
         proposal = self._require_proposal(proposal_id)
         article = self._session.get(Article, proposal.source_article_id)
         status = self._threads.describe()
-        stale, reasons = self._staleness(proposal, article)
+        assessment = self.assess(proposal, article=article)
+        stale, reasons = assessment.stale, list(assessment.stale_reasons)
 
         plan = PublishPlan(
             proposal_id=proposal.id,
@@ -198,27 +232,22 @@ class ThreadsPublicationService:
             )
         if stale:
             plan.blocked_reasons.extend(reasons)
-        if proposal.character_count != len(proposal.content_text):
-            plan.blocked_reasons.append("the stored character count does not match the text")
-        if not (0 < len(proposal.content_text) <= TEXT_MAX_LENGTH):
-            plan.blocked_reasons.append(
-                f"the text must be between 1 and {TEXT_MAX_LENGTH} characters"
-            )
+        plan.blocked_reasons.extend(assessment.integrity_reasons)
         if not status.configured:
             plan.blocked_reasons.append(
                 "Threads is not enabled/configured; set THREADS_ENABLED, "
                 "THREADS_USER_ID and THREADS_ACCESS_TOKEN"
             )
 
-        existing = self._existing(proposal.id)
+        existing = assessment.existing
         if existing is not None:
             plan.existing_publication = _publication_summary(existing)
-            if existing.status == PUB_PUBLISHED or existing.threads_media_id:
+            if assessment.already_published:
                 plan.blocked_reasons.append(
                     f"this proposal is already published (media {existing.threads_media_id}); "
                     "a proposal is never published twice"
                 )
-            elif existing.status in PUB_IN_FLIGHT_STATES:
+            elif assessment.in_flight:
                 plan.blocked_reasons.append(
                     f"a previous attempt is {existing.status!r}; reconcile it before retrying "
                     "(publish_threads_post.py --reconcile)"
@@ -503,6 +532,23 @@ class ThreadsPublicationService:
             return None
         self._session.refresh(row)
         return row
+
+    def assess(self, proposal: ThreadsPostProposal, *, article=None) -> ProposalAssessment:
+        """提案の中身だけを判定する。**外部にも DB の書き込みにも触れない。**"""
+
+        if article is None:
+            article = self._session.get(Article, proposal.source_article_id)
+        _stale, stale_reasons = self._staleness(proposal, article)
+        integrity: list[str] = []
+        if proposal.character_count != len(proposal.content_text):
+            integrity.append("the stored character count does not match the text")
+        if not (0 < len(proposal.content_text) <= TEXT_MAX_LENGTH):
+            integrity.append(f"the text must be between 1 and {TEXT_MAX_LENGTH} characters")
+        return ProposalAssessment(
+            stale_reasons=tuple(stale_reasons),
+            integrity_reasons=tuple(integrity),
+            existing=self._existing(proposal.id),
+        )
 
     def _existing(self, proposal_id: int) -> ThreadsPublication | None:
         return self._session.scalars(

@@ -336,3 +336,38 @@ def test_different_angles_produce_different_campaigns() -> None:
     assert build_campaign(article_id=21, angle="insight") != build_campaign(
         article_id=21, angle="comparison"
     )
+
+
+# -- T4.1: disabled vs misconfigured -------------------------------------------
+def test_disabled_is_a_state_of_its_own() -> None:
+    status = _service(threads_enabled=False, threads_user_id=None, threads_access_token=None)
+    described = status.describe()
+    assert described.state == "disabled"
+    # 無効なら、欠けている設定は「問題」ではない。
+    assert described.config_issues == []
+
+
+def test_enabled_with_missing_config_is_misconfigured() -> None:
+    described = _service(threads_access_token=None).describe()
+    assert described.state == "misconfigured"
+    assert described.config_issues == ["THREADS_ACCESS_TOKEN is missing"]
+
+
+def test_enabled_with_a_non_numeric_user_id_is_misconfigured() -> None:
+    described = _service(threads_user_id="bizfluxlab").describe()
+    assert described.state == "misconfigured"
+    assert described.config_issues == ["THREADS_USER_ID must be the numeric Threads user id"]
+    assert "bizfluxlab" not in repr(described.as_dict())
+
+
+def test_enabled_with_a_token_containing_whitespace_is_misconfigured() -> None:
+    described = _service(threads_access_token="abc def").describe()
+    assert described.state == "misconfigured"
+    assert "abc def" not in repr(described.as_dict())
+
+
+def test_enabled_and_complete_is_ready() -> None:
+    described = _service().describe()
+    assert described.state == "ready"
+    assert described.configured is True
+    assert described.config_issues == []

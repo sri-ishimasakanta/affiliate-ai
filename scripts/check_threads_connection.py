@@ -48,6 +48,10 @@ def main(argv: list[str] | None = None) -> int:
     payload = status.as_dict()
 
     print("=== threads connection ===")
+    # disabled は意図した停止 (健全)。misconfigured は有効なのに設定が欠けている (障害)。
+    print(f"threads_state                    = {payload['threads_state']}")
+    for issue in payload["threads_config_issues"]:
+        print(f"  CONFIG PROBLEM: {issue}")
     print(f"threads_enabled                  = {payload['threads_enabled']}")
     print(f"threads_user_id_configured       = {payload['threads_user_id_configured']}")
     print(f"threads_access_token_configured  = {payload['threads_access_token_configured']}")

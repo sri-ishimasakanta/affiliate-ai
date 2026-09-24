@@ -565,21 +565,39 @@ class OperationsRunner:
         """
 
         from app.services.threads_insights_service import ThreadsInsightsService
-        from app.social.threads.service import ThreadsService
+        from app.social.threads.service import (
+            THREADS_STATE_DISABLED,
+            THREADS_STATE_MISCONFIGURED,
+            ThreadsService,
+        )
 
         status = ThreadsService(self._settings).describe()
-        if not (status.enabled and status.configured):
-            # Threads を使っていないことは障害ではない。ここで SKIPPED を返すと run が
-            # partial に落ち、毎日「異常」メールが飛ぶ。取り込むものが無いと分かった
-            # のだから、事実としては成功である。
+        if status.state == THREADS_STATE_DISABLED:
+            # THREADS_ENABLED=false は **意図した停止** であって障害ではない。
+            # SKIPPED を返すと run が partial に落ち、毎日「異常」メールが飛ぶ。
             return StepOutcome(
                 step_name=STEP_THREADS_INSIGHTS,
                 status=OPS_SUCCEEDED,
                 rows_received=0,
                 rows_changed=0,
                 result={
-                    "configured": False,
-                    "reason": "threads integration is not configured; nothing to import",
+                    "threads_state": THREADS_STATE_DISABLED,
+                    "reason": "THREADS_ENABLED is false; nothing to import",
+                    "threads_writes": 0,
+                },
+            )
+        if status.state == THREADS_STATE_MISCONFIGURED:
+            # 有効なのに設定が欠けている/不正。**静かに成功扱いにしない。**
+            # 失敗ステップは evaluate_import_failures() が IMPORT_FAILURE として拾う。
+            # 設定の値は出さず、問題のある設定の名前だけを出す。
+            return StepOutcome(
+                step_name=STEP_THREADS_INSIGHTS,
+                status=OPS_FAILED,
+                error_category=THREADS_STATE_MISCONFIGURED,
+                error_message="; ".join(status.config_issues)[:500],
+                result={
+                    "threads_state": THREADS_STATE_MISCONFIGURED,
+                    "config_issues": list(status.config_issues),
                     "threads_writes": 0,
                 },
             )

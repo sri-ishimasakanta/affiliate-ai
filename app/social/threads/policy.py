@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -187,3 +188,116 @@ def load_measurement_policy(path: Path | str | None = None) -> ThreadsMeasuremen
 @lru_cache
 def get_measurement_policy() -> ThreadsMeasurementPolicy:
     return load_measurement_policy()
+
+
+# == T4.1: Threads operations policy =========================================
+@dataclass(frozen=True)
+class DailyWindowSpec:
+    """``[start, end)`` の壁時計の範囲。日付をまたぐ窓は V1 では扱わない。"""
+
+    start: time
+    end: time
+
+
+@dataclass(frozen=True)
+class ThreadsOperationsPolicy:
+    """常駐 worker の運用上の選択 (T4.1)。**Meta の制限ではない。**
+
+    タイムゾーンはここに持たない。``operations_policy.json`` の ``timezone`` を
+    使う (C8 / C9.5 と同じ設定を 1 つだけ持つ)。
+    """
+
+    policy_version: str
+    raw: dict[str, Any]
+    publication_window: DailyWindowSpec
+    approval_notification_window: DailyWindowSpec
+    soft_min_gap_minutes: int
+    daily_target_low: int
+    daily_target_high: int
+
+    def section(self, name: str) -> dict[str, Any]:
+        value = self.raw.get(name)
+        return value if isinstance(value, dict) else {}
+
+    @property
+    def worker(self) -> dict[str, Any]:
+        return self.section("worker")
+
+    @property
+    def heartbeat_max_seconds(self) -> int:
+        return int(self.worker.get("heartbeat_max_seconds", 300))
+
+    @property
+    def stale_lock_after_minutes(self) -> int:
+        return int(self.worker.get("stale_lock_after_minutes", 15))
+
+    @property
+    def idle_publication_reevaluation_minutes(self) -> int:
+        return int(self.worker.get("idle_publication_reevaluation_minutes", 30))
+
+    def subsystem(self, name: str) -> dict[str, Any]:
+        subsystems = self.worker.get("subsystems")
+        value = subsystems.get(name) if isinstance(subsystems, dict) else None
+        return value if isinstance(value, dict) else {}
+
+    @property
+    def starvation_guard_hours(self) -> float:
+        return float(self.section("queue").get("starvation_guard_hours", 48))
+
+
+def _parse_window(document: dict, key: str) -> DailyWindowSpec:
+    raw = document.get(key)
+    if not isinstance(raw, dict):
+        raise ValueError(f"threads operations policy must declare {key}")
+    try:
+        start = time.fromisoformat(str(raw["start"]))
+        end = time.fromisoformat(str(raw["end"]))
+    except (KeyError, ValueError) as exc:
+        raise ValueError(f"{key} must have HH:MM start and end") from exc
+    if not start < end:
+        # 日付をまたぐ窓を黙って受け付けると、境界の意味が曖昧になる。
+        raise ValueError(f"{key} must start before it ends (overnight windows are not supported)")
+    return DailyWindowSpec(start=start, end=end)
+
+
+_OPERATIONS_PATH = Path(__file__).resolve().parents[2] / "config" / "threads_operations_policy.json"
+
+
+def load_operations_policy(path: Path | str | None = None) -> ThreadsOperationsPolicy:
+    target = Path(path) if path is not None else _OPERATIONS_PATH
+    document = json.loads(target.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("threads operations policy must be a JSON object")
+    version = document.get("policy_version")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("threads operations policy must declare a policy_version")
+    if "timezone" in document:
+        raise ValueError(
+            "threads operations policy must not declare its own timezone; "
+            "the operations timezone lives in operations_policy.json"
+        )
+    target_range = document.get("daily_activity_target") or {}
+    low = int(target_range.get("low", 3))
+    high = int(target_range.get("high", 5))
+    if not 0 <= low <= high:
+        raise ValueError("daily_activity_target must satisfy 0 <= low <= high")
+    if target_range.get("advisory") is not True:
+        # 目安を「上限」や「ノルマ」として読ませない。
+        raise ValueError("daily_activity_target must be advisory")
+    gap = int(document.get("soft_min_gap_minutes", 120))
+    if gap <= 0:
+        raise ValueError("soft_min_gap_minutes must be positive")
+    return ThreadsOperationsPolicy(
+        policy_version=version,
+        raw=document,
+        publication_window=_parse_window(document, "publication_window"),
+        approval_notification_window=_parse_window(document, "approval_notification_window"),
+        soft_min_gap_minutes=gap,
+        daily_target_low=low,
+        daily_target_high=high,
+    )
+
+
+@lru_cache
+def get_operations_policy() -> ThreadsOperationsPolicy:
+    return load_operations_policy()

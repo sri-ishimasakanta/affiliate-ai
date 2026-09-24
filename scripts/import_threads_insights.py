@@ -133,8 +133,8 @@ def _print_report(report: dict) -> dict:
         ("角度", "by_angle"),
         ("リンク有無", "by_link_mode"),
         ("長さ", "by_length_bucket"),
-        ("公開時刻(UTC)", "by_published_hour_utc"),
-        ("曜日", "by_published_weekday"),
+        (f"公開時刻({report['local_timezone']})", "by_published_local_hour"),
+        (f"曜日({report['local_timezone']})", "by_published_local_weekday"),
     ):
         groups = report[key]
         print(f"\n  --- {label} ---")

@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +42,8 @@ from app.models import (
     ThreadsPostProposal,
     ThreadsPublication,
 )
+from app.operations.local_time import local_hour, local_weekday, to_local
+from app.operations.policy import get_policy as get_operations_policy
 from app.operations.threads_health import ThreadsHealthInput, build_threads_alert_drafts
 from app.social.threads.errors import ThreadsError
 from app.social.threads.measurement import (
@@ -110,11 +113,14 @@ class ThreadsInsightsService:
         settings,
         threads_service: ThreadsService | None = None,
         policy: ThreadsMeasurementPolicy | None = None,
+        timezone: ZoneInfo | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
         self._threads = threads_service or ThreadsService(settings)
         self._policy = policy or get_measurement_policy()
+        # 運用タイムゾーンは C8 と同じ設定から取る (Threads 専用の設定を作らない)。
+        self._tz = timezone or get_operations_policy().timezone
 
     # -- collection -----------------------------------------------------------
     def plan(self, *, publication_id: int | None = None, now: datetime | None = None) -> dict:
@@ -238,12 +244,19 @@ class ThreadsInsightsService:
                     "length_bucket": (
                         length_bucket(proposal.character_count, self._policy) if proposal else None
                     ),
+                    # 生の時刻は UTC のまま。時刻・曜日は **運用タイムゾーンの壁時計** で出す
+                    # (人が投稿を読む生活時間で意味を持つ値だから)。
                     "published_at": _iso(row.published_at),
-                    "published_hour_utc": (
-                        ensure_aware(row.published_at).hour if row.published_at else None
+                    "published_local_at": (
+                        to_local(row.published_at, self._tz).isoformat()
+                        if row.published_at
+                        else None
                     ),
-                    "published_weekday": (
-                        ensure_aware(row.published_at).strftime("%a") if row.published_at else None
+                    "published_local_hour": (
+                        local_hour(row.published_at, self._tz) if row.published_at else None
+                    ),
+                    "published_local_weekday": (
+                        local_weekday(row.published_at, self._tz) if row.published_at else None
                     ),
                     "permalink": row.permalink,
                     "maturity": maturity.as_dict(),
@@ -269,8 +282,9 @@ class ThreadsInsightsService:
             "by_angle": self._aggregate(mature, "angle"),
             "by_link_mode": self._aggregate(mature, "link_mode"),
             "by_length_bucket": self._aggregate(mature, "length_bucket"),
-            "by_published_hour_utc": self._aggregate(mature, "published_hour_utc"),
-            "by_published_weekday": self._aggregate(mature, "published_weekday"),
+            "local_timezone": self._tz.key,
+            "by_published_local_hour": self._aggregate(mature, "published_local_hour"),
+            "by_published_local_weekday": self._aggregate(mature, "published_local_weekday"),
             "website_attribution": self._attribution(per_post),
             "recommendations": self._recommendations(per_post, mature),
             "caveats": [

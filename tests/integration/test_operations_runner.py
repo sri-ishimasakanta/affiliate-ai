@@ -431,16 +431,71 @@ def test_threads_insights_plan_declares_zero_writes(session: Session) -> None:
     assert step.result == {"read_only": True, "threads_writes": 0}
 
 
-def test_unconfigured_threads_is_not_an_incident(session: Session) -> None:
-    """Threads を使っていないことは障害ではない。**毎日の異常メールを出さない。**"""
+def _threads_runner(session: Session, **settings) -> OperationsRunner:
+    """Threads ステップだけ本体を動かす runner。他は成功で差し替える。"""
 
     overrides = _all_ok()
-    # このステップだけ本体を動かす。_Settings には Threads の設定が無い。
     overrides.pop(STEP_THREADS_INSIGHTS)
-    outcome = _runner(session, overrides=overrides).execute(profile="daily", now=_NOW)
+    return OperationsRunner(
+        _factory(session),
+        settings=type("S", (_Settings,), settings)(),
+        policy=_policy(),
+        step_overrides=overrides,
+    )
+
+
+def test_disabled_threads_is_a_healthy_no_op(session: Session) -> None:
+    """THREADS_ENABLED=false は意図した停止。**毎日の異常メールを出さない。**"""
+
+    outcome = _threads_runner(session).execute(profile="daily", now=_NOW)
     step = outcome.step(STEP_THREADS_INSIGHTS)
 
     assert step.status == "succeeded"
-    assert step.result["configured"] is False
+    assert step.result["threads_state"] == "disabled"
     assert step.result["threads_writes"] == 0
     assert outcome.status == "succeeded"
+
+
+def test_disabled_threads_with_missing_config_is_still_healthy(session: Session) -> None:
+    """無効なら、token や user id が無いことは問題ではない。"""
+
+    outcome = _threads_runner(
+        session, threads_enabled=False, threads_user_id=None, threads_access_token=None
+    ).execute(profile="daily", now=_NOW)
+
+    assert outcome.step(STEP_THREADS_INSIGHTS).status == "succeeded"
+    assert outcome.status == "succeeded"
+
+
+def test_enabled_threads_with_missing_token_is_a_configuration_error(session: Session) -> None:
+    """有効なのに設定が欠けている = 障害。**静かに成功扱いにしない。**
+
+    T4 では「未設定」をひとまとめにして成功扱いにしており、これは実際の不具合だった。
+    """
+
+    outcome = _threads_runner(
+        session, threads_enabled=True, threads_user_id="9876543210", threads_access_token=None
+    ).execute(profile="daily", now=_NOW)
+    step = outcome.step(STEP_THREADS_INSIGHTS)
+
+    assert step.status == "failed"
+    assert step.error_category == "misconfigured"
+    assert step.result["config_issues"] == ["THREADS_ACCESS_TOKEN is missing"]
+    assert outcome.status == "partial"
+
+
+def test_misconfiguration_raises_an_immediate_alert(session: Session) -> None:
+    from app.operations.monitoring import evaluate_import_failures
+
+    outcome = _threads_runner(
+        session, threads_enabled=True, threads_user_id="not-a-number", threads_access_token="t"
+    ).execute(profile="daily", now=_NOW)
+    drafts = evaluate_import_failures(
+        step_results=[s.as_dict() for s in outcome.steps], policy=_policy()
+    )
+
+    threads = [d for d in drafts if d.source == STEP_THREADS_INSIGHTS]
+    assert len(threads) == 1
+    assert threads[0].evidence["error_category"] == "misconfigured"
+    # 設定の **名前** は出すが、値は出さない。
+    assert "not-a-number" not in str(threads[0].evidence)

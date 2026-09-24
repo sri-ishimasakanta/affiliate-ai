@@ -44,6 +44,18 @@ PUBLISH_REQUIRES = (
 )
 
 
+#: 設定の状態 (T4.1)。**「使っていない」と「壊れている」を同じ語で呼ばない。**
+#:
+#: - ``disabled``: THREADS_ENABLED=false。意図した停止であり、健全な no-op。
+#: - ``misconfigured``: THREADS_ENABLED=true なのに必要な設定が欠けている/不正。
+#:   **運用上の障害** であり、すぐ人に知らせる。
+#: - ``ready``: 有効で、必要な設定がそろっている。
+THREADS_STATE_DISABLED = "disabled"
+THREADS_STATE_MISCONFIGURED = "misconfigured"
+THREADS_STATE_READY = "ready"
+THREADS_STATES = (THREADS_STATE_DISABLED, THREADS_STATE_MISCONFIGURED, THREADS_STATE_READY)
+
+
 @dataclass
 class ThreadsConnectionStatus:
     """接続確認の結果。**token は含めない。**"""
@@ -57,9 +69,19 @@ class ThreadsConnectionStatus:
     profile: dict | None = None
     error: dict | None = None
     notes: list[str] = field(default_factory=list)
+    #: 欠けている/不正な設定の **名前だけ**。値は決して入れない。
+    config_issues: list[str] = field(default_factory=list)
+
+    @property
+    def state(self) -> str:
+        if not self.enabled:
+            return THREADS_STATE_DISABLED
+        return THREADS_STATE_READY if self.configured else THREADS_STATE_MISCONFIGURED
 
     def as_dict(self) -> dict:
         return {
+            "threads_state": self.state,
+            "threads_config_issues": list(self.config_issues),
             "threads_enabled": self.enabled,
             "threads_configured": self.configured,
             "threads_api_version": self.api_version,
@@ -117,22 +139,40 @@ class ThreadsService:
         """設定状況だけを返す (外部に触れない)。**token は出さない。**"""
 
         settings = self._settings
-        user_id = bool(str(getattr(settings, "threads_user_id", "") or "").strip())
-        token = bool((getattr(settings, "threads_access_token", "") or "").strip())
+        raw_user_id = str(getattr(settings, "threads_user_id", "") or "").strip()
+        raw_token = (getattr(settings, "threads_access_token", "") or "").strip()
+        user_id = bool(raw_user_id)
+        token = bool(raw_token)
         enabled = bool(getattr(settings, "threads_enabled", False))
+
+        # 値そのものは見せない。問題のある設定の **名前** だけを集める。
+        issues: list[str] = []
+        if not user_id:
+            issues.append("THREADS_USER_ID is missing")
+        elif not raw_user_id.isdigit():
+            issues.append("THREADS_USER_ID must be the numeric Threads user id")
+        if not token:
+            issues.append("THREADS_ACCESS_TOKEN is missing")
+        elif any(ch.isspace() for ch in raw_token):
+            issues.append("THREADS_ACCESS_TOKEN contains whitespace")
+
         status = ThreadsConnectionStatus(
             enabled=enabled,
-            configured=bool(enabled and user_id and token),
+            configured=bool(enabled and not issues),
             api_version=(getattr(settings, "threads_api_version", "") or DEFAULT_API_VERSION),
             user_id_configured=user_id,
             access_token_configured=token,
+            # 無効なときに欠けている設定は「問題」ではない (使っていないだけ)。
+            config_issues=issues if enabled else [],
         )
         if not enabled:
             status.notes.append("THREADS_ENABLED is false; no Threads call will be made")
-        if not user_id:
-            status.notes.append("THREADS_USER_ID is missing")
-        if not token:
-            status.notes.append("THREADS_ACCESS_TOKEN is missing")
+            # 無効なうちは問題ではないが、有効にするとき何が要るかは見せておく。
+            status.notes.extend(
+                f"{issue} (needed only when THREADS_ENABLED=true)" for issue in issues
+            )
+        else:
+            status.notes.extend(issues)
         return status
 
     def check_connection(self) -> ThreadsConnectionStatus:
