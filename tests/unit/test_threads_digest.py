@@ -319,3 +319,124 @@ def test_the_plan_is_deterministic() -> None:
     assert [i.candidate.proposal_id for i in first.selected] == [
         i.candidate.proposal_id for i in second.selected
     ]
+
+
+# == manual notification-window override (T4.2 follow-up) =====================
+from app.social.threads.digest import (  # noqa: E402
+    ManualWindowOverride,
+    WindowOverrideError,
+)
+
+_OVERRIDE = ManualWindowOverride(reason="T4.2 production approval-digest pilot")
+
+
+def _plan_override(candidates, *, now, override=_OVERRIDE, **kw):
+    return plan_digest(
+        list(candidates),
+        now=now,
+        last_sent_at=kw.get("last_sent_at"),
+        queued_identities=set(kw.get("queued", ())),
+        approved_unpublished=kw.get("approved", 0),
+        policy=POLICY,
+        tz=JST,
+        window_override=override,
+    )
+
+
+def test_outside_the_window_without_override_nothing_is_sent() -> None:
+    now = _jst(25, 23, 30)
+    plan = _plan([_candidate(1, ready=now - timedelta(hours=3))], now=now)
+    assert plan.would_send is False
+    assert plan.manual_override_requested is False
+
+
+def test_an_explicit_override_allows_sending_outside_the_window() -> None:
+    now = _jst(25, 23, 30)
+    plan = _plan_override([_candidate(1, ready=now - timedelta(hours=3))], now=now)
+    view = plan.as_dict(JST)
+    assert view["notification_window_open"] is False
+    assert view["manual_override_requested"] is True
+    assert view["override_reason"] == "T4.2 production approval-digest pilot"
+    assert view["would_send"] is True
+    assert plan.window_overridden is True
+    # 期限は送信時刻 (23:30) から 24 時間。翌朝 08:00 からではない。
+    assert plan.planned_ttl_start == now
+    assert plan.planned_expires_at == now + timedelta(hours=24)
+
+
+def test_an_override_needs_a_reason() -> None:
+    for reason in ("", "   ", None):
+        with pytest.raises(WindowOverrideError):
+            ManualWindowOverride(reason=reason)
+
+
+def test_only_a_human_cli_source_can_override() -> None:
+    with pytest.raises(WindowOverrideError):
+        ManualWindowOverride(reason="scheduled", source="resident-worker")
+
+
+def test_the_planner_rejects_anything_but_a_manual_override() -> None:
+    with pytest.raises(WindowOverrideError):
+        plan_digest(
+            [],
+            now=_jst(25, 23, 0),
+            last_sent_at=None,
+            queued_identities=set(),
+            approved_unpublished=0,
+            policy=POLICY,
+            tz=JST,
+            window_override="please",  # type: ignore[arg-type]
+        )
+
+
+def test_the_override_bypasses_only_the_window() -> None:
+    """保留・stale・期限切れ・中身の不整合・依頼中・重複はすべてそのまま見送られる。"""
+
+    now = _jst(25, 23, 30)
+    ready = now - timedelta(hours=3)
+    plan = _plan_override(
+        [
+            _candidate(1, ready=ready, held=True),
+            _candidate(2, ready=ready, stale_reasons=("the source article changed",)),
+            _candidate(3, ready=ready, expires_at=now - timedelta(minutes=1)),
+            _candidate(4, ready=ready, integrity_reasons=("character count mismatch",)),
+            _candidate(5, ready=ready, has_active_request=True),
+            _candidate(6, ready=ready, identity="approved-text"),
+        ],
+        now=now,
+        queued={"approved-text"},
+    )
+    assert plan.selected == ()
+    assert plan.would_send is False
+    assert {i.reason for i in plan.suppressed} == {
+        "held",
+        "stale",
+        "expired",
+        "content_integrity",
+        "already_requested",
+        "duplicate",
+    }
+
+
+def test_the_override_does_not_bypass_the_cooldown_or_gather() -> None:
+    now = _jst(25, 23, 30)
+    cooling = _plan_override(
+        [_candidate(1, ready=now - timedelta(hours=3))],
+        now=now,
+        last_sent_at=now - timedelta(minutes=10),
+    )
+    assert cooling.would_send is False
+    assert "cooldown" in cooling.waiting_for
+
+    gathering = _plan_override([_candidate(1, ready=now - timedelta(minutes=5))], now=now)
+    assert gathering.would_send is False
+    assert "gathering" in gathering.waiting_for
+
+
+def test_the_override_changes_nothing_inside_the_window() -> None:
+    now = _jst(25, 10, 0)
+    candidates = [_candidate(1, ready=now - timedelta(hours=3))]
+    normal = _plan(candidates, now=now)
+    overridden = _plan_override(candidates, now=now)
+    assert normal.would_send == overridden.would_send is True
+    assert overridden.window_overridden is False

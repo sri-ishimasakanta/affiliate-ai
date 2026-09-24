@@ -67,6 +67,13 @@ class ThreadsApprovalDigest(Base):
     #: 見送った提案と理由 (在庫には残る)。
     suppressed_json: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 人が CLI で通知窓 (08:00-21:00) を明示的に上書きして送った場合の理由。
+    #: NULL = 上書きなし (通常の送信)。飛ばしたのは窓だけで、他の規則はすべて効いている。
+    window_override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 上書きを伴う送信の操作をした時刻 (上書きなしなら NULL)。
+    window_override_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -14,6 +14,18 @@
 
 ``--execute`` は常駐 worker と同じロックを取る。worker が動いていれば何もせず終わる
 (2 つのプロセスが同時に digest を送らないように)。
+
+本番パイロット・試験のためだけに、人が明示すれば **通知窓 (08:00-21:00) だけ** を
+上書きできる::
+
+    uv run python scripts/plan_threads_approval_digest.py --execute \
+        --override-notification-window \
+        --override-reason "T4.2 production approval-digest pilot"
+
+上書きが飛ばすのは通知窓だけ。stale / 期限切れ / 保留 / 重複 / cooldown / gather /
+capability / セッションの期限 / CSRF / 1 件ずつの決定 は、すべてそのまま効く。
+理由は必須で、digest の記録と配送記録に残る。期限は実際に送った時刻から 24 時間。
+常駐 worker にはこの上書きの経路が無い。
 """
 
 from __future__ import annotations
@@ -30,8 +42,10 @@ from app.config.database import SessionLocal  # noqa: E402
 from app.config.settings import get_settings  # noqa: E402
 from app.services.threads_approval_digest_service import ThreadsApprovalDigestService  # noqa: E402
 from app.services.threads_worker_service import ThreadsWorkerService  # noqa: E402
+from app.social.threads.digest import ManualWindowOverride, WindowOverrideError  # noqa: E402
 
 EXIT_OK = 0
+EXIT_REFUSED = 2
 EXIT_NOT_SENT = 3
 EXIT_ALREADY_RUNNING = 4
 
@@ -46,8 +60,22 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true", help="実際に 1 通送る (既定は PLAN)")
+    parser.add_argument(
+        "--override-notification-window",
+        action="store_true",
+        help="人が明示した試験のためだけに、通知窓 (08:00-21:00) だけを上書きする",
+    )
+    parser.add_argument(
+        "--override-reason", default=None, help="上書きの理由 (上書きするときは必須)"
+    )
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
     args = parser.parse_args(argv)
+
+    try:
+        window_override = _window_override(args)
+    except WindowOverrideError as exc:
+        print(f"refused: {exc}")
+        return EXIT_REFUSED
 
     factory = session_factory or SessionLocal
     settings = settings or get_settings()
@@ -57,7 +85,7 @@ def main(
         service = ThreadsApprovalDigestService(
             session, settings=settings, notifier=notifier, relay_client=relay_client
         )
-        plan = service.plan(now=now)
+        plan = service.plan(now=now, window_override=window_override)
         payload = {"plan": plan.as_dict(service.timezone)}
         _print_plan(payload["plan"], executed=args.execute)
         housekeeping = service.housekeeping(now=now, execute=False)
@@ -80,7 +108,9 @@ def main(
             service = ThreadsApprovalDigestService(
                 session, settings=settings, notifier=notifier, relay_client=relay_client
             )
-            outcome = service.send(now=datetime.now(UTC), execute=True)
+            outcome = service.send(
+                now=datetime.now(UTC), execute=True, window_override=window_override
+            )
     finally:
         lock.release(datetime.now(UTC))
 
@@ -97,9 +127,26 @@ def main(
     if outcome.expired_session_ids:
         print(f"expired sessions   = {outcome.expired_session_ids}")
     print(f"reason             = {outcome.reason}")
+    if window_override is not None:
+        print(f"window override    = {window_override.reason}")
     print(f"threads writes     = {outcome.threads_writes}")
     _write(args.json_path, payload)
     return EXIT_OK if outcome.sent else EXIT_NOT_SENT
+
+
+def _window_override(args) -> ManualWindowOverride | None:
+    """フラグと理由がそろったときだけ上書きを作る。片方だけなら拒否する。"""
+
+    reason = args.override_reason
+    if not args.override_notification_window:
+        if reason is not None:
+            raise WindowOverrideError(
+                "--override-reason was given without --override-notification-window"
+            )
+        return None
+    if not (reason or "").strip():
+        raise WindowOverrideError("--override-notification-window requires --override-reason")
+    return ManualWindowOverride(reason=reason)
 
 
 def _write(path: str | None, payload: dict) -> None:
@@ -116,13 +163,19 @@ def _print_plan(plan: dict, *, executed: bool) -> None:
     print(f"=== threads approval digest ({mode}) ===")
     print(f"now                = {plan['now_local']}")
     print(f"policy_version     = {plan['policy_version']}")
-    print(f"notification window open = {plan['notification_window_open']} (08:00-21:00)")
+    window_open = str(plan["notification_window_open"]).lower()
+    print(f"notification_window_open  = {window_open} (08:00-21:00)")
+    print(f"manual_override_requested = {str(plan['manual_override_requested']).lower()}")
+    print(f"override_reason           = {plan['override_reason'] or '-'}")
     print(f"last digest sent   = {plan['last_sent_local'] or '(never)'}")
     print(f"cooldown until     = {plan['cooldown_until_local'] or '-'}")
     print(f"gather until       = {plan['gather_until_local'] or '-'}")
     print(f"due                = {plan['due_local'] or '-'}")
     print(f"waiting for        = {', '.join(plan['waiting_for']) or '(nothing)'}")
-    print(f"would send email   = {plan['would_send']} (emails: {plan['emails_if_sent']})")
+    print(
+        f"would_send_email          = {str(plan['would_send']).lower()} "
+        f"(emails: {plan['emails_if_sent']})"
+    )
     print(f"approval TTL       = {plan['ttl_hours']}h from the send time")
     print(f"planned TTL start  = {plan['planned_ttl_start_local'] or '-'}")
     print(f"planned expiry     = {plan['planned_expires_local'] or '-'}")

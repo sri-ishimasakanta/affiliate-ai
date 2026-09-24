@@ -45,7 +45,12 @@ from app.operations.policy import get_policy as get_c8_policy
 from app.services.mobile_approval_service import MobileApprovalError, MobileApprovalService
 from app.services.threads_proposal_service import ThreadsProposalService
 from app.services.threads_publication_service import ThreadsPublicationService
-from app.social.threads.digest import DigestCandidate, DigestPlan, plan_digest
+from app.social.threads.digest import (
+    DigestCandidate,
+    DigestPlan,
+    ManualWindowOverride,
+    plan_digest,
+)
 from app.social.threads.policy import ThreadsOperationsPolicy
 from app.social.threads.policy import get_operations_policy as get_threads_operations_policy
 from app.social.threads.proposal import canonical_identity
@@ -108,8 +113,16 @@ class ThreadsApprovalDigestService:
         return self._tz
 
     # -- plan ------------------------------------------------------------------
-    def plan(self, *, now: datetime | None = None) -> DigestPlan:
-        """いま送るなら何を送るか。**何も書かず、何も送らない。**"""
+    def plan(
+        self,
+        *,
+        now: datetime | None = None,
+        window_override: ManualWindowOverride | None = None,
+    ) -> DigestPlan:
+        """いま送るなら何を送るか。**何も書かず、何も送らない。**
+
+        ``window_override`` は人が CLI で明示したときだけ渡される。飛ばすのは通知窓だけ。
+        """
 
         now = ensure_aware(now or datetime.now(UTC))
         return plan_digest(
@@ -120,6 +133,7 @@ class ThreadsApprovalDigestService:
             approved_unpublished=self._approved_unpublished(),
             policy=self._policy,
             tz=self._tz,
+            window_override=window_override,
         )
 
     def housekeeping(self, *, now: datetime | None = None, execute: bool = False) -> dict:
@@ -153,13 +167,23 @@ class ThreadsApprovalDigestService:
         return {"executed": execute, "expired_session_ids": lapsed, "revoke": invalid}
 
     # -- send ------------------------------------------------------------------
-    def send(self, *, now: datetime | None = None, execute: bool = False) -> DigestOutcome:
-        """期限が来ていれば、1 通だけ送る。``execute=False`` では何もしない。"""
+    def send(
+        self,
+        *,
+        now: datetime | None = None,
+        execute: bool = False,
+        window_override: ManualWindowOverride | None = None,
+    ) -> DigestOutcome:
+        """期限が来ていれば、1 通だけ送る。``execute=False`` では何もしない。
+
+        ``window_override`` を渡せるのは人が明示した CLI だけ (常駐 worker は渡さない)。
+        上書きは記録に残る (理由と時刻)。期限はそれでも **実際の送信時刻** から数える。
+        """
 
         now = ensure_aware(now or datetime.now(UTC))
         outcome = DigestOutcome(executed=execute, sent=False)
         if not execute:
-            plan = self.plan(now=now)
+            plan = self.plan(now=now, window_override=window_override)
             outcome.reason = "plan only" if plan.would_send else ",".join(plan.waiting_for)
             outcome.proposal_ids = [i.candidate.proposal_id for i in plan.selected]
             return outcome
@@ -168,10 +192,11 @@ class ThreadsApprovalDigestService:
         outcome.expired_session_ids = list(cleanup["expired_session_ids"])
         outcome.revoked_session_ids = [item["session_id"] for item in cleanup["revoke"]]
 
-        plan = self.plan(now=now)
+        plan = self.plan(now=now, window_override=window_override)
         if not plan.would_send:
             outcome.reason = ",".join(plan.waiting_for) or "nothing is due"
             return outcome
+        overridden = plan.window_overridden
 
         digest = ThreadsApprovalDigest(
             outcome=DIGEST_FAILED,
@@ -186,6 +211,8 @@ class ThreadsApprovalDigestService:
                 for i in (*plan.suppressed, *plan.deferred)
             ]
             or None,
+            window_override_reason=plan.override_reason if overridden else None,
+            window_override_at=to_storage_utc(now) if overridden else None,
         )
         self._session.add(digest)
         self._session.commit()
@@ -231,7 +258,12 @@ class ThreadsApprovalDigestService:
 
         delivery = OperationsNotificationService(
             self._session, settings=self._settings, notifier=self._mobile.notifier
-        ).send_approval_digest(digest_id=digest.id, items=items, expires_at=expires_at)
+        ).send_approval_digest(
+            digest_id=digest.id,
+            items=items,
+            expires_at=expires_at,
+            window_override_reason=plan.override_reason if overridden else None,
+        )
         for row in rows:
             row.notification_delivery_id = delivery.delivery_id
         self._session.commit()

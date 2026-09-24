@@ -504,3 +504,194 @@ def test_a_second_send_within_the_cooldown_sends_nothing(session: Session, artic
     assert again.sent is False
     assert "cooldown" in again.reason
     assert len(notifier.sent) == 1
+
+
+# == manual notification-window override (T4.2 follow-up) =====================
+_NIGHT = datetime(2026, 9, 25, 14, 30, tzinfo=UTC)  # 23:30 JST
+
+
+def _override():
+    from app.social.threads.digest import ManualWindowOverride
+
+    return ManualWindowOverride(reason="T4.2 production approval-digest pilot")
+
+
+def test_an_explicit_override_sends_at_night_and_is_audited(session: Session, articles) -> None:
+    _proposal(session, articles[0], seed="a", created_at=_NIGHT - timedelta(hours=3))
+    notifier = _Notifier()
+    outcome = _service(session, _FakeRelay(), notifier).send(
+        now=_NIGHT, execute=True, window_override=_override()
+    )
+
+    assert outcome.sent is True
+    assert len(notifier.sent) == 1
+    digest = session.scalars(select(ThreadsApprovalDigest)).one()
+    assert digest.window_override_reason == "T4.2 production approval-digest pilot"
+    assert digest.window_override_at.replace(tzinfo=UTC) == _NIGHT
+    delivery = session.scalars(select(NotificationDelivery)).one()
+    assert delivery.detail_json["notification_window_overridden"] is True
+    assert delivery.detail_json["window_override_reason"] == (
+        "T4.2 production approval-digest pilot"
+    )
+    # 期限は実際の送信時刻 (23:30) から 24 時間。
+    row = session.scalars(select(MobileApprovalSession)).one()
+    assert row.expires_at.replace(tzinfo=UTC) == _NIGHT + timedelta(hours=24)
+
+
+def test_without_the_override_nothing_is_sent_at_night(session: Session, articles) -> None:
+    _proposal(session, articles[0], seed="a", created_at=_NIGHT - timedelta(hours=3))
+    notifier = _Notifier()
+    outcome = _service(session, _FakeRelay(), notifier).send(now=_NIGHT, execute=True)
+    assert outcome.sent is False
+    assert notifier.sent == []
+    assert _count(session, ThreadsApprovalDigest) == 0
+
+
+def test_a_normal_daytime_digest_records_no_override(session: Session, articles) -> None:
+    _proposal(session, articles[0], seed="a")
+    _service(session, _FakeRelay(), _Notifier()).send(
+        now=_NOW, execute=True, window_override=_override()
+    )
+    digest = session.scalars(select(ThreadsApprovalDigest)).one()
+    # 窓の中なら上書きは何も飛ばしていない。記録にも上書きとして残さない。
+    assert digest.window_override_reason is None
+    assert digest.window_override_at is None
+
+
+def test_the_override_keeps_every_other_rule(session: Session, articles) -> None:
+    from app.services.threads_queue_control_service import ThreadsQueueControlService
+
+    held = _proposal(session, articles[0], seed="h", created_at=_NIGHT - timedelta(hours=3))
+    ThreadsQueueControlService(session).hold(held.id, reason="not yet", now=_NIGHT)
+    stale = _proposal(session, articles[1], seed="s", created_at=_NIGHT - timedelta(hours=3))
+    articles[1].body = "書き換わった本文。"
+    session.commit()
+    _proposal(
+        session,
+        articles[2],
+        seed="e",
+        created_at=_NIGHT - timedelta(hours=3),
+        expires_at=_NIGHT - timedelta(minutes=5),
+    )
+    notifier = _Notifier()
+    outcome = _service(session, _FakeRelay(), notifier).send(
+        now=_NIGHT, execute=True, window_override=_override()
+    )
+    assert outcome.sent is False
+    assert notifier.sent == []
+    assert _count(session, MobileApprovalSession) == 0
+    assert stale.id  # 在庫には残っている
+
+
+def test_decisions_stay_individual_after_an_override(session: Session, articles) -> None:
+    a = _proposal(session, articles[0], seed="a", created_at=_NIGHT - timedelta(hours=3))
+    b = _proposal(session, articles[1], seed="b", created_at=_NIGHT - timedelta(hours=3))
+    relay = _FakeRelay()
+    mobile = MobileApprovalService(
+        session, settings=_Settings(), relay_client=relay, notifier=_Notifier()
+    )
+    ThreadsApprovalDigestService(session, settings=_Settings(), mobile_approval=mobile).send(
+        now=_NIGHT, execute=True, window_override=_override()
+    )
+    rows = {s.subject_id: s for s in session.scalars(select(MobileApprovalSession))}
+    assert len({s.capability_digest for s in rows.values()}) == 2
+    relay.decisions = [_decision(rows[a.id], "rejected")]
+    mobile.sync(execute=True, now=_NIGHT + timedelta(minutes=5))
+    session.refresh(a)
+    session.refresh(b)
+    assert a.status == TP_REJECTED
+    assert b.status == TP_AWAITING_APPROVAL
+
+
+# -- the CLI is the only way in -----------------------------------------------
+def _factory(session: Session):
+    class _Scoped:
+        def __call__(self):
+            return self
+
+        def __enter__(self):
+            return session
+
+        def __exit__(self, *_exc):
+            return False
+
+    return _Scoped()
+
+
+def test_the_cli_refuses_an_override_without_a_reason(session: Session, articles, capsys) -> None:
+    from scripts.plan_threads_approval_digest import EXIT_REFUSED, main
+
+    _proposal(session, articles[0], seed="a")
+    notifier = _Notifier()
+    for argv in (
+        ["--execute", "--override-notification-window"],
+        ["--execute", "--override-notification-window", "--override-reason", "   "],
+        ["--execute", "--override-reason", "a reason but no flag"],
+    ):
+        code = main(
+            argv,
+            session_factory=_factory(session),
+            settings=_Settings(),
+            notifier=notifier,
+            relay_client=_FakeRelay(),
+        )
+        assert code == EXIT_REFUSED
+        assert "refused" in capsys.readouterr().out
+    assert notifier.sent == []
+    assert _count(session, ThreadsApprovalDigest) == 0
+    assert _count(session, MobileApprovalSession) == 0
+
+
+def test_the_cli_plan_shows_the_override_fields(session: Session, articles, capsys) -> None:
+    from scripts.plan_threads_approval_digest import EXIT_OK, main
+
+    _proposal(session, articles[0], seed="a")
+    code = main(
+        ["--override-notification-window", "--override-reason", "pilot"],
+        session_factory=_factory(session),
+        settings=_Settings(),
+        notifier=_Notifier(),
+        relay_client=_FakeRelay(),
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_OK
+    assert "manual_override_requested = true" in out
+    assert "override_reason           = pilot" in out
+    assert "notification_window_open" in out
+    assert "would_send_email" in out
+    assert _count(session, ThreadsApprovalDigest) == 0  # PLAN は何も書かない
+
+
+def test_the_resident_worker_cannot_override_the_window(session: Session, articles) -> None:
+    """worker には上書きの経路そのものが無い。送信フラグを立てても夜は送らない。"""
+
+    import inspect
+
+    from app.services.threads_worker_service import ThreadsWorkerService
+
+    for signature in (
+        inspect.signature(ThreadsWorkerService.__init__),
+        inspect.signature(ThreadsWorkerService.build_worker),
+    ):
+        assert not any("override" in name for name in signature.parameters)
+
+    _proposal(session, articles[0], seed="a", created_at=_NIGHT - timedelta(hours=3))
+    notifier = _Notifier()
+    worker = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        send_approval_digests=True,
+        notifier=notifier,
+        relay_client=_FakeRelay(),
+    )
+    result = worker.handlers()["approval_notification_flush"](_NIGHT)
+    assert result.summary["emails_sent"] == 0
+    assert "outside_notification_window" in result.summary["waiting_for"]
+    assert notifier.sent == []
+
+
+def test_the_worker_cli_has_no_override_flag() -> None:
+    from scripts.run_threads_worker import main
+
+    with pytest.raises(SystemExit):
+        main(["--once", "--override-notification-window"])

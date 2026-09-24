@@ -67,6 +67,36 @@ WAIT_REASONS = (
 )
 
 
+#: 手動の上書きを行える唯一の主体。常駐 worker や自動の送信には使わせない。
+OVERRIDE_SOURCE_HUMAN_CLI = "human-cli"
+
+
+class WindowOverrideError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class ManualWindowOverride:
+    """人が CLI で明示した **通知窓だけ** の上書き (本番パイロット・試験用)。
+
+    飛ばすのは 08:00-21:00 の通知窓だけ。stale / 期限切れ / 保留 / 重複 /
+    cooldown / gather / capability / セッションの期限 / CSRF / 1 件ずつの決定 —
+    それ以外の規則はすべてそのまま効く。
+
+    常駐 worker と自動の送信はこれを作らない (作る経路が無い)。理由は必須。
+    """
+
+    reason: str
+    source: str = OVERRIDE_SOURCE_HUMAN_CLI
+
+    def __post_init__(self) -> None:
+        if self.source != OVERRIDE_SOURCE_HUMAN_CLI:
+            raise WindowOverrideError("only an explicit human CLI run may override the window")
+        if not (self.reason or "").strip():
+            raise WindowOverrideError("a notification-window override needs a non-empty reason")
+        object.__setattr__(self, "reason", self.reason.strip()[:500])
+
+
 @dataclass(frozen=True)
 class DigestCandidate:
     """在庫にある 1 件の提案について、DB から集めた事実だけ。"""
@@ -160,6 +190,18 @@ class DigestPlan:
     next_run_at: datetime
     policy_version: str
     notes: tuple[str, ...] = field(default_factory=tuple)
+    #: 人が明示した通知窓の上書き (あれば理由)。窓以外の規則には影響しない。
+    override_reason: str | None = None
+
+    @property
+    def manual_override_requested(self) -> bool:
+        return self.override_reason is not None
+
+    @property
+    def window_overridden(self) -> bool:
+        """窓の外なのに、上書きによって送れる状態か。"""
+
+        return self.manual_override_requested and not self.window_open and self.would_send
 
     @property
     def planned_ttl_start(self) -> datetime | None:
@@ -182,6 +224,9 @@ class DigestPlan:
             "now_local": local(self.now),
             "policy_version": self.policy_version,
             "notification_window_open": self.window_open,
+            "manual_override_requested": self.manual_override_requested,
+            "override_reason": self.override_reason,
+            "window_overridden": self.window_overridden,
             "last_sent_local": local(self.last_sent_at),
             "cooldown_until_local": local(self.cooldown_until),
             "gather_until_local": local(self.gather_until),
@@ -266,8 +311,11 @@ def plan_digest(
     approved_unpublished: int,
     policy: ThreadsOperationsPolicy,
     tz: ZoneInfo,
+    window_override: ManualWindowOverride | None = None,
 ) -> DigestPlan:
     now = _aware(now)
+    if window_override is not None and not isinstance(window_override, ManualWindowOverride):
+        raise WindowOverrideError("the window override must be a ManualWindowOverride")
     last_sent_at = _aware(last_sent_at)
     window = policy.approval_notification_window
     window_open = window_is_open(window, now, tz)
@@ -324,17 +372,21 @@ def plan_digest(
         oldest = min(_aware(c.ready_at) for c in chosen)
         gather_until = None if full else oldest + timedelta(minutes=policy.digest_gather_minutes)
         earliest = max(m for m in (now, cooldown_until, gather_until) if m is not None)
-        due_at = next_window_open_at(window, earliest, tz)
+        # 上書きが飛ばすのは通知窓だけ。cooldown と gather はそのまま効く。
+        due_at = (
+            earliest if window_override is not None else next_window_open_at(window, earliest, tz)
+        )
         if cooldown_until is not None and cooldown_until > now:
             waiting.append(WAIT_COOLDOWN)
         if gather_until is not None and gather_until > now:
             waiting.append(WAIT_GATHERING)
-        if not window_open:
+        if not window_open and window_override is None:
             # 夜間 (21:00-08:00) は依頼も催促も送らない。窓が開いたら評価し直す。
             waiting.append(WAIT_OUTSIDE_NOTIFICATION_WINDOW)
         next_run_at = due_at if due_at > now else now
 
-    would_send = bool(selected) and window_open and due_at is not None and due_at <= now
+    window_ok = window_open or window_override is not None
+    would_send = bool(selected) and window_ok and due_at is not None and due_at <= now
 
     notes: list[str] = []
     if stock.below_low:
@@ -344,6 +396,11 @@ def plan_digest(
         )
     if deferred:
         notes.append(f"{len(deferred)} proposal(s) stay in stock for a later digest")
+    if window_override is not None and not window_open:
+        notes.append(
+            "the notification window is overridden by an explicit human CLI run "
+            f"({window_override.reason}); every other rule still applies"
+        )
     return DigestPlan(
         now=now,
         window_open=window_open,
@@ -361,6 +418,7 @@ def plan_digest(
         next_run_at=next_run_at,
         policy_version=policy.policy_version,
         notes=tuple(notes),
+        override_reason=window_override.reason if window_override is not None else None,
     )
 
 
@@ -374,7 +432,10 @@ __all__ = [
     "WAIT_NOTHING_TO_REQUEST",
     "WAIT_OUTSIDE_NOTIFICATION_WINDOW",
     "WAIT_REASONS",
+    "OVERRIDE_SOURCE_HUMAN_CLI",
     "DigestCandidate",
+    "ManualWindowOverride",
+    "WindowOverrideError",
     "DigestItem",
     "DigestPlan",
     "StockSummary",

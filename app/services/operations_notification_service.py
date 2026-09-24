@@ -240,7 +240,14 @@ class OperationsNotificationService:
             now=datetime.now(UTC),
         )
 
-    def send_approval_digest(self, *, digest_id: int, items: list[dict], expires_at: datetime):
+    def send_approval_digest(
+        self,
+        *,
+        digest_id: int,
+        items: list[dict],
+        expires_at: datetime,
+        window_override_reason: str | None = None,
+    ):
         """複数の承認依頼を **1 通** で送る (T4.2)。
 
         ``items`` の各要素は ``session`` (MobileApprovalSession) と、メールに載せる
@@ -261,6 +268,9 @@ class OperationsNotificationService:
             "proposal_ids": [item["proposal_id"] for item in items],
             "mobile_approval_session_ids": [item["session"].id for item in items],
             "expires_at_local": expires_local,
+            # 通知窓を人が明示的に上書きして送ったか (理由は人の書いた文。秘密は入らない)。
+            "notification_window_overridden": window_override_reason is not None,
+            "window_override_reason": window_override_reason,
         }
         title = f"Review {len(items)} Threads proposal(s)"
         public_items = [
