@@ -184,3 +184,8 @@ Threads には無い** (Facebook の `debug_token` に相当するものが用�
 運用としては、失効すれば取り込みが `threads_auth` で失敗し、その場で error
 アラートが出る。そこで人が更新する。トークンは `.env` にのみ置き、DB にも
 ログにも例外にも出さない。prefix も出さない。
+
+## 学習 (T5)
+
+成熟した投稿の比較は `docs/operations/threads-learning.md` (T5) が担当する。
+この文書の成熟・本数・views の規則をそのまま使う。

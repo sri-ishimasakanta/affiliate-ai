@@ -1,5 +1,5 @@
 {
-  "policy_version": "t4.2",
+  "policy_version": "t5.0",
   "rationale": [
     "公開直後の 0 を「成績が悪い」と読まないための境界を、コードではなくここに置く。",
     "Threads はフィードの流れが速く、配信の大半は最初の 1 日に起きる。",
@@ -20,6 +20,48 @@
     "minimum_mature_posts_per_dimension": 3,
     "minimum_views_for_ratio": 30,
     "note": "母数が小さいうちは平均も比率も出さない。件数だけを示す。"
+  },
+  "learning": {
+    "note": "T5 の学習 (説明できる記述統計だけ)。成熟の境界は maturity_hours.initial_sample、本数と views の下限は comparison をそのまま使う。",
+    "canonical_snapshot": {
+      "rule": "成熟の境界 (initial_sample 時間) から comparable_window_hours 以内に観測できた最初の observed snapshot。views の取れた snapshot があれば、その最初のものを優先する。",
+      "comparable_window_hours": 24
+    },
+    "comparison_metric": "interaction_rate",
+    "minimum_relative_difference": 0.2,
+    "retain_relative_difference": 0.1,
+    "outlier_ratio_to_median": 5,
+    "change_baseline_hours": 24,
+    "diagnostic_dimensions": [
+      "trigger"
+    ],
+    "dayparts": [
+      {
+        "name": "morning",
+        "start_hour": 5,
+        "end_hour": 10
+      },
+      {
+        "name": "midday",
+        "start_hour": 10,
+        "end_hour": 14
+      },
+      {
+        "name": "afternoon",
+        "start_hour": 14,
+        "end_hour": 18
+      },
+      {
+        "name": "evening",
+        "start_hour": 18,
+        "end_hour": 22
+      },
+      {
+        "name": "night",
+        "start_hour": 22,
+        "end_hour": 5
+      }
+    ]
   },
   "length_buckets": [
     {

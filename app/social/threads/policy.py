@@ -174,6 +174,61 @@ class ThreadsMeasurementPolicy:
 
         return int(self.section("collection").get("min_observation_spacing_minutes", 10))
 
+    # -- T5: learning (成熟の境界と本数・views の下限は上の値をそのまま使う) --------
+    @property
+    def mature_after_hours(self) -> float:
+        """比較してよい成熟の境界。T4 の ``initial_sample`` と同じ値。
+
+        別の成熟の仕組みを作らないため、ここで新しい値を持たない。
+        """
+
+        return self.maturity_hours["initial_sample"]
+
+    @property
+    def comparable_window_hours(self) -> float:
+        section = self.section("learning").get("canonical_snapshot")
+        section = section if isinstance(section, dict) else {}
+        return float(section.get("comparable_window_hours", 24))
+
+    @property
+    def canonical_snapshot_rule(self) -> str:
+        section = self.section("learning").get("canonical_snapshot")
+        return str(section.get("rule", "")) if isinstance(section, dict) else ""
+
+    @property
+    def minimum_relative_difference(self) -> float:
+        return float(self.section("learning").get("minimum_relative_difference", 0.2))
+
+    @property
+    def retain_relative_difference(self) -> float:
+        return float(self.section("learning").get("retain_relative_difference", 0.1))
+
+    @property
+    def outlier_ratio_to_median(self) -> float:
+        return float(self.section("learning").get("outlier_ratio_to_median", 5))
+
+    @property
+    def change_baseline_hours(self) -> float:
+        return float(self.section("learning").get("change_baseline_hours", 24))
+
+    @property
+    def diagnostic_dimensions(self) -> tuple[str, ...]:
+        value = self.section("learning").get("diagnostic_dimensions", ["trigger"])
+        return tuple(str(v) for v in value) if isinstance(value, list) else ("trigger",)
+
+    @property
+    def dayparts(self) -> list[dict[str, Any]]:
+        value = self.section("learning").get("dayparts")
+        return list(value) if isinstance(value, list) else list(_DEFAULT_DAYPARTS)
+
+
+_DEFAULT_DAYPARTS = (
+    {"name": "morning", "start_hour": 5, "end_hour": 10},
+    {"name": "midday", "start_hour": 10, "end_hour": 14},
+    {"name": "afternoon", "start_hour": 14, "end_hour": 18},
+    {"name": "evening", "start_hour": 18, "end_hour": 22},
+    {"name": "night", "start_hour": 22, "end_hour": 5},
+)
 
 _MEASUREMENT_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "threads_measurement_policy.json"
