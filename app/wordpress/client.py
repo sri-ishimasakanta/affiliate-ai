@@ -11,7 +11,16 @@ scope:
 - 既存 (published 済み) post の content を update する POST 1 種のみ (D-D5D)
   (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"content": <tracked_html>}``)
 
-generic update / delete / bulk / media upload / 任意 status 設定 / title・category
+- W1.4 (featured image): 画像 1 枚の media upload POST 1 種のみ
+  (``POST /wp-json/wp/v2/media``, body は画像の生バイト、MIME は webp / png のみ)、
+  その media の alt_text / title を設定する POST 1 種のみ
+  (``POST /wp-json/wp/v2/media/{id}``, body は必ず exact ``{"alt_text","title"}``)、
+  既存 post の featured image を設定する POST 1 種のみ
+  (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"featured_media": <int>}``)、
+  と、その確認のための read-only GET (slug で published post を探す / media の read-back /
+  post の状態一覧)
+
+generic update / delete / bulk / 任意の media 操作 / 任意 status 設定 / title・category
 変更は一切実装しない。``update_post_content_exact`` は ``content`` 以外のキーを構造的に
 拒否する -- ``publish_existing_post_exact`` (status-only) とは完全に別の凍結契約。
 
@@ -46,6 +55,11 @@ _PROVIDER = "wordpress"
 _TIMEOUT_SECONDS = 10.0
 _USERS_ME_PATH = "/wp-json/wp/v2/users/me"
 _POSTS_PATH = "/wp-json/wp/v2/posts"
+_MEDIA_PATH = "/wp-json/wp/v2/media"
+#: featured image として受け付ける画像の MIME (W1.4)。これ以外は送らない。
+_FEATURED_IMAGE_MIME_TYPES = {"image/webp": ".webp", "image/png": ".png"}
+#: post の状態の一覧で数える status (公開済み以外も「変わっていない」ことを確かめるため)。
+_POST_STATE_STATUSES = "publish,future,draft,pending,private"
 _DRAFT_STATUS = "draft"
 _PUBLISH_STATUS = "publish"
 
@@ -96,6 +110,16 @@ class WordPressUpdatedPost(BaseModel):
     id: int
     status: str
     link: str | None
+
+
+class WordPressUploadedMedia(BaseModel):
+    """upload_featured_image_exact() の安全な戻り値。"""
+
+    id: int
+    source_url: str
+    mime_type: str
+    width: int | None
+    height: int | None
 
 
 class WordPressClient:
@@ -174,6 +198,78 @@ class WordPressClient:
         response = self._send(
             "GET",
             f"{self._base_url}{_POSTS_PATH}/{post_id}",
+            params={"context": "edit"},
+            ambiguous_on_no_response=False,
+        )
+        return _expect_json_object(_check_status(response, expected_status=200))
+
+    def find_published_posts_by_slug(self, slug: str) -> list[dict]:
+        """指定 slug の **公開済み** post を返す read-only GET (W1.4 の対象確認専用)。
+
+        書き込みは一切行わない。呼び出し側は 1 件であること・タイトルの完全一致を確かめる。
+        """
+
+        response = _check_status(
+            self._send(
+                "GET",
+                f"{self._base_url}{_POSTS_PATH}",
+                params={"slug": slug, "status": _PUBLISH_STATUS, "context": "edit"},
+                ambiguous_on_no_response=False,
+            ),
+            expected_status=200,
+        )
+        try:
+            items = response.json()
+        except ValueError as exc:
+            raise ExternalProviderError(_PROVIDER, "response was not valid JSON") from exc
+        if not isinstance(items, list):
+            raise ExternalProviderError(_PROVIDER, "unexpected response shape")
+        return [item for item in items if isinstance(item, dict)]
+
+    def list_post_states(self) -> list[dict]:
+        """全 post (公開・予約・下書き・保留・非公開) を read-only GET で列挙する。
+
+        W1.4 の前後比較 (他の post が変わっていないこと) のためだけに使う。ページを順に
+        読むだけで、書き込みは一切行わない。
+        """
+
+        items: list[dict] = []
+        page = 1
+        while True:
+            response = _check_status(
+                self._send(
+                    "GET",
+                    f"{self._base_url}{_POSTS_PATH}",
+                    params={
+                        "status": _POST_STATE_STATUSES,
+                        "context": "edit",
+                        "per_page": "100",
+                        "page": str(page),
+                        "orderby": "id",
+                        "order": "asc",
+                    },
+                    ambiguous_on_no_response=False,
+                ),
+                expected_status=200,
+            )
+            try:
+                batch = response.json()
+            except ValueError as exc:
+                raise ExternalProviderError(_PROVIDER, "response was not valid JSON") from exc
+            if not isinstance(batch, list):
+                raise ExternalProviderError(_PROVIDER, "unexpected response shape")
+            items.extend(item for item in batch if isinstance(item, dict))
+            total_pages = int(response.headers.get("X-WP-TotalPages", "1") or "1")
+            if page >= total_pages or not batch:
+                return items
+            page += 1
+
+    def get_media(self, media_id: int) -> dict:
+        """upload 後の read-back 専用 read-only GET。"""
+
+        response = self._send(
+            "GET",
+            f"{self._base_url}{_MEDIA_PATH}/{media_id}",
             params={"context": "edit"},
             ambiguous_on_no_response=False,
         )
@@ -324,6 +420,95 @@ class WordPressClient:
             link=str(link) if isinstance(link, str) else None,
         )
 
+    # -- W1.4: featured image (exact contracts) -----------------------------
+    def upload_featured_image_exact(
+        self, image_bytes: bytes, *, filename: str, mime_type: str
+    ) -> WordPressUploadedMedia:
+        """画像 1 枚を media library へ upload する。``POST /wp-json/wp/v2/media`` を **1 回だけ**。
+
+        - body は画像の生バイト (``content=``)。MIME は ``image/webp`` / ``image/png`` のみ。
+        - filename は拡張子が MIME と一致し、パス区切り・引用符を含まないこと。
+        - リトライは一切しない。timeout / 接続断は :class:`WordPressAmbiguousOutcomeError`
+          (upload されたかどうか不明)。呼び出し側は media library を確認するまで再送しない。
+        """
+
+        extension = _FEATURED_IMAGE_MIME_TYPES.get(mime_type)
+        if extension is None:
+            raise ValueError(f"unsupported featured image MIME type {mime_type!r}")
+        if (
+            not filename.endswith(extension)
+            or any(ch in filename for ch in '/\\"\r\n')
+            or filename.startswith(".")
+        ):
+            raise ValueError("featured image filename must be a plain name matching its MIME")
+        if not image_bytes:
+            raise ValueError("featured image bytes must not be empty")
+
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_MEDIA_PATH}",
+            content=image_bytes,
+            headers={
+                "Content-Type": mime_type,
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+            ambiguous_on_no_response=True,
+        )
+        data = _expect_json_object(_check_status(response, expected_status=201))
+        media_id = data.get("id")
+        source_url = data.get("source_url")
+        if not isinstance(media_id, int) or media_id <= 0:
+            raise ExternalProviderError(_PROVIDER, "response did not include a valid media id")
+        if not (isinstance(source_url, str) and source_url.startswith(f"{self._base_url}/")):
+            raise ExternalProviderError(_PROVIDER, "media source_url is missing or not same-origin")
+        details = data.get("media_details") if isinstance(data.get("media_details"), dict) else {}
+        return WordPressUploadedMedia(
+            id=media_id,
+            source_url=source_url,
+            mime_type=str(data.get("mime_type") or ""),
+            width=details.get("width") if isinstance(details.get("width"), int) else None,
+            height=details.get("height") if isinstance(details.get("height"), int) else None,
+        )
+
+    def update_media_text_exact(self, media_id: int, payload_json: str) -> dict:
+        """upload した media の alt_text / title を設定する。``POST /media/{id}`` を 1 回だけ。
+
+        payload は logically ちょうど ``{"alt_text": <str>, "title": <str>}``
+        (caption / description / post など第 3 のキーがあれば ``ValueError``)。
+        """
+
+        _assert_exact_media_text_payload(payload_json)
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_MEDIA_PATH}/{media_id}",
+            content=payload_json.encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        data = _expect_json_object(_check_status(response, expected_status=200))
+        if data.get("id") != media_id:
+            raise ExternalProviderError(_PROVIDER, "media update response id mismatch")
+        return data
+
+    def set_featured_media_exact(self, wordpress_post_id: int, payload_json: str) -> dict:
+        """既存 post の featured image を設定する。``POST /posts/{id}`` を **1 回だけ**。
+
+        payload は logically ちょうど ``{"featured_media": <正の int>}``。title / content /
+        status / slug / categories / meta など第 2 のキーがあれば ``ValueError``
+        (本文・タイトル・公開状態・カテゴリをこの経路で変えられない)。
+        返り値の検証 (id と featured_media の一致) は呼び出し側が mandatory な read-back で行う。
+        """
+
+        _assert_exact_featured_media_payload(payload_json)
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_POSTS_PATH}/{wordpress_post_id}",
+            content=payload_json.encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        return _expect_json_object(_check_status(response, expected_status=200))
+
     # -- transport --------------------------------------------------------
     def _send(
         self,
@@ -401,6 +586,34 @@ def _assert_exact_content_update_payload(update_payload_json: str) -> None:
     ):
         raise ValueError(
             'update_post_content_exact only accepts an exact {"content": <str>} payload'
+        )
+
+
+def _assert_exact_media_text_payload(payload_json: str) -> None:
+    parsed = json.loads(payload_json)
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != {"alt_text", "title"}
+        or not all(isinstance(parsed[k], str) and parsed[k].strip() for k in parsed)
+    ):
+        raise ValueError(
+            'update_media_text_exact only accepts an exact {"alt_text": <str>, "title": <str>} '
+            "payload"
+        )
+
+
+def _assert_exact_featured_media_payload(payload_json: str) -> None:
+    parsed = json.loads(payload_json)
+    value = parsed.get("featured_media") if isinstance(parsed, dict) else None
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != {"featured_media"}
+        or not isinstance(value, int)
+        or isinstance(value, bool)
+        or value <= 0
+    ):
+        raise ValueError(
+            'set_featured_media_exact only accepts an exact {"featured_media": <int>} payload'
         )
 
 

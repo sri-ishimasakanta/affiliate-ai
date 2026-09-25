@@ -212,6 +212,13 @@ def test_client_exposes_only_approved_operations() -> None:
         "create_draft_post_exact",
         "publish_existing_post_exact",
         "update_post_content_exact",
+        # W1.4 featured image: exact contracts + read-only checks only.
+        "find_published_posts_by_slug",
+        "list_post_states",
+        "get_media",
+        "upload_featured_image_exact",
+        "update_media_text_exact",
+        "set_featured_media_exact",
         "target_base_url",
     }
     forbidden_names = (
