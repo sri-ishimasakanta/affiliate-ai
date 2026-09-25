@@ -21,6 +21,10 @@
   ときだけ (同じ問題を何度も通知しない)。
 
 PLAN (``execute=False``) は DB にもファイルにも書かない。
+
+**collect-only** (``collect_only=True``、T6.1): 既に出した依頼の答えを取り込むだけで、
+その呼び出しでは新しい生成の依頼を **一切出さない** (provider の submit を呼ばない)。
+在庫が下限より少なくても同じ。取り込みの検査・重複・保存・1 回 3 本の上限は通常と同じ。
 """
 
 from __future__ import annotations
@@ -212,8 +216,11 @@ class ThreadsProposalStockService:
         )
 
     # -- plan ----------------------------------------------------------------------
-    def plan(self, *, now: datetime | None = None) -> dict:
-        """在庫の保守の計画。**何も書かない** (DB にもファイルにも)。"""
+    def plan(self, *, now: datetime | None = None, collect_only: bool = False) -> dict:
+        """在庫の保守の計画。**何も書かない** (DB にもファイルにも)。
+
+        ``collect_only`` のときは、依頼を出さないこと (``would_request = 0``) を明示する。
+        """
 
         now = ensure_aware(now or datetime.now(UTC))
         guidance = self._proposals.learning_guidance(as_of=now)
@@ -227,19 +234,29 @@ class ThreadsProposalStockService:
             blocked.append(
                 "saving is blocked until the production migration (alembic upgrade head)"
             )
+        if collect_only:
+            blocked.append(
+                "collect-only: submitting new generation requests is suppressed for this invocation"
+            )
         would_request = (
             stock.requested_count
             if availability.available and can_save and not stock.blocked_by
             else 0
         )
+        if collect_only:
+            would_request = 0
+        pending = self._provider.pending()
         return {
             "schema": SCHEMA,
             "generated_at": now.isoformat(),
             "generated_at_local": to_local(now, self._tz).isoformat(timespec="minutes"),
             "policy_version": self._policy.policy_version,
             "stock": stock.as_dict(),
+            "mode": "collect_only" if collect_only else "maintain",
+            "submission_suppressed": collect_only,
             "blocked_by": blocked,
             "would_request": would_request,
+            "would_collect": sum(1 for r in pending if self._provider.collect(r) is not None),
             "max_new_proposals_per_cycle": self._policy.max_new_proposals_per_cycle,
             "learning": {
                 "mode": guidance.mode,
@@ -249,7 +266,7 @@ class ThreadsProposalStockService:
                 "learning_policy_version": guidance.source_policy_version,
             },
             "provider": availability.as_dict(),
-            "pending_requests": [self._describe_request(r, now) for r in self._provider.pending()],
+            "pending_requests": [self._describe_request(r, now) for r in pending],
             "migration": {
                 "learning_provenance_column": can_save,
                 "can_save": can_save,
@@ -260,16 +277,27 @@ class ThreadsProposalStockService:
         }
 
     # -- maintain ------------------------------------------------------------------
-    def maintain(self, *, now: datetime | None = None, execute: bool = False) -> dict:
-        """在庫を 1 回保守する。``execute=False`` は :meth:`plan` と同じ (何も書かない)。"""
+    def maintain(
+        self,
+        *,
+        now: datetime | None = None,
+        execute: bool = False,
+        collect_only: bool = False,
+    ) -> dict:
+        """在庫を 1 回保守する。``execute=False`` は :meth:`plan` と同じ (何も書かない)。
+
+        ``collect_only=True`` は、届いた答えの取り込みだけを行い、新しい依頼は出さない。
+        """
 
         now = ensure_aware(now or datetime.now(UTC))
         if not execute:
-            return {**self.plan(now=now), "executed": False}
+            return {**self.plan(now=now, collect_only=collect_only), "executed": False}
 
         per_cycle = self._policy.max_new_proposals_per_cycle
         outcome = {
             "executed": True,
+            "mode": "collect_only" if collect_only else "maintain",
+            "submission_suppressed": collect_only,
             "created": [],
             "skipped": [],
             "failures": [],
@@ -305,10 +333,11 @@ class ThreadsProposalStockService:
             self._ingest(request, output, now, room, outcome, alerts)
 
         # 2) まだ足りなければ、新しい依頼を出す (上限・待ち・migration を守る)。
-        plan = self.plan(now=now)
+        #    collect-only では、このブロックに入らない (submit を呼ぶ経路が無い)。
+        plan = self.plan(now=now, collect_only=collect_only)
         outcome["plan"] = plan
         room = per_cycle - len(outcome["created"])
-        if plan["would_request"] and room > 0:
+        if not collect_only and plan["would_request"] and room > 0:
             guidance_fp = plan["learning"]["fingerprint"]
             for planned in plan["stock"]["requests"][:room]:
                 request = self._build_request(planned, now, guidance_fp)
@@ -331,6 +360,7 @@ class ThreadsProposalStockService:
         status = {
             "schema": SCHEMA,
             "last_maintenance_at": now.isoformat(),
+            "mode": outcome["mode"],
             "needs_generation": plan["stock"]["needs_generation"],
             "usable": plan["stock"]["usable"],
             "created": list(outcome["created"]),

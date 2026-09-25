@@ -149,3 +149,49 @@ WordPress の記事には触れない。
 8. 承認 digest が通知窓の中で届き、個別に承認・却下できることを確かめる。
 9. 問題が無ければ、worker に `--maintain-proposal-stock` を足すかを人が決める
    (タスクのプロファイルの変更は別の判断)。
+
+## T6.1 の強化
+
+### 届いた答えを取り込むだけ (collect-only)
+
+T6 の試行では、答えが届いた依頼を取り込みたいだけなのに、在庫がまだ下限より少ないため
+通常の `--execute` が次の依頼まで出しうる状態だった (試行では submit を拒む仮の provider で
+回避した)。いまは明示の collect-only がある:
+
+```bash
+# PLAN: 取り込める答えの数と、依頼を出さないことを表示する (何も書かない)
+uv run python scripts/maintain_threads_proposal_stock.py --collect-only
+
+# 届いた答えを取り込むだけ。新しい生成の依頼は出さない
+uv run python scripts/maintain_threads_proposal_stock.py --collect-only --execute
+```
+
+**再送しない保証**: collect-only では、依頼を出す段階そのものに入らない
+(`ThreadsProposalStockService.maintain(collect_only=True)` は provider の `submit` を
+呼ぶ経路を持たない)。在庫が下限より少なくても、答えが 1 つも無くても同じ。PLAN は
+`mode = collect_only (submission suppressed ...)`・`would request = 0` と表示する。
+取り込みの検査・重複の判定・`awaiting_approval` での保存・1 回 3 本の上限・失敗の扱い・
+通知は通常と同じ。`status.json` には `mode` が残る。オプションを付けない既定の動作は変わらない。
+
+### 文体の警告は URL を数えない
+
+「問いかけの数」「60 文字を超える文」「文の数」「丁寧語の連続」「絵文字」は **助言の警告** で、
+URL の範囲を文章として数えない (`validators.style_analysis_text`)。URL の `?` は問いかけでは
+なく、長い URL は長い文ではない。URL の直後の句読点 (`。` や末尾の `?`) は文章として数える。
+**変えていないもの**: 公開される文字列、文字数の上限 (URL 込み)、リンク・ドメインの検査、
+禁止表現 (本文そのものを見る)、重複の判定。既に保存された提案の警告は作り直さない。
+
+### 承認ページは本文そのものを見せる
+
+携帯の承認ページは Threads の提案で本文の枠が空になっていた (中継の許可リストが
+`publish_text` を落とし、ページが C9 用の `inserted_paragraph` を描いていた)。修正後は
+「投稿される本文」に保存済みの `content_text` をそのまま表示し、本文が無い・空のときは
+承認ボタンを出さず、中継も承認を拒否する (fail closed)。**中継 (mu-plugin) の再配置は
+人の承認が要る別の作業で、T6.1 では行っていない** — 手順は
+`wordpress/mu-plugins/bizfluxlab-approval-relay.README.md` の「Redeploying after T6.1」。
+
+### 本番での有効化
+
+常駐 worker の在庫の保守 (`--maintain-proposal-stock`) は **まだ有効にしていない**
+(タスクのプロファイルにも入れていない)。有効にする前に、中継の再配置と、manual の
+依頼に人が答える運用の手順を決める。

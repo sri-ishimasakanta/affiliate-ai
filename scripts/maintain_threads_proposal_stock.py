@@ -6,6 +6,9 @@
     # 1 回だけ保守する: 届いた生成結果を取り込み、必要なら生成の依頼を出す
     uv run python scripts/maintain_threads_proposal_stock.py --execute
 
+    # 届いた生成結果を取り込むだけ (新しい依頼は絶対に出さない。T6.1)
+    uv run python scripts/maintain_threads_proposal_stock.py --collect-only --execute
+
 **承認も却下も公開もしない。** 保存される提案は ``awaiting_approval`` で、人への依頼は
 既存の承認 digest (T4.2) が通知の時間帯の中で送る。1 回で保存するのは最大 3 本。
 
@@ -39,6 +42,11 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true", help="1 回だけ保守する (既定は PLAN)")
+    parser.add_argument(
+        "--collect-only",
+        action="store_true",
+        help="届いた生成結果を取り込むだけ。新しい生成の依頼は出さない",
+    )
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
     args = parser.parse_args(argv)
 
@@ -53,7 +61,7 @@ def main(
 
     with session_factory() as session:
         service = ThreadsProposalStockService(session, settings=settings, **(overrides or {}))
-        result = service.maintain(now=now, execute=args.execute)
+        result = service.maintain(now=now, execute=args.execute, collect_only=args.collect_only)
     plan = result["plan"] if args.execute else result
     print(format_plan(plan, executed=args.execute))
     if args.execute:
@@ -76,6 +84,12 @@ def format_plan(plan: dict, *, executed: bool) -> str:
         f"=== threads proposal stock ({'EXECUTE' if executed else 'PLAN'}) ===",
         f"analysis time      = {plan['generated_at_local']}",
         f"policy             = {plan['policy_version']}",
+        f"mode               = {plan['mode']}"
+        + (
+            " (submission suppressed: no new generation request will be sent)"
+            if plan["submission_suppressed"]
+            else ""
+        ),
         f"usable stock       = {stock['usable']} (advisory floor {stock['target_low']}, "
         f"ceiling {stock['target_high']}; not a quota)",
         "  "
@@ -117,7 +131,10 @@ def format_plan(plan: dict, *, executed: bool) -> str:
         f"({'synchronous' if provider['synchronous'] else 'asynchronous'})"
     )
     lines.append(f"  {provider['reason']}")
-    lines.append(f"pending requests   = {len(plan['pending_requests'])}")
+    lines.append(
+        f"pending requests   = {len(plan['pending_requests'])} "
+        f"(with a response to collect: {plan['would_collect']})"
+    )
     for request in plan["pending_requests"]:
         lines.append(
             f"  {request['request_id']} article {request['article_id']} {request['angles']} "

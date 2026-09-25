@@ -611,3 +611,117 @@ def test_sufficient_evidence_flows_weakly_into_requests_and_provenance(
         assert row.learning_guidance_json["fingerprint"] == plan["learning"]["fingerprint"]
         assert row.learning_guidance_json["verified_against_prompt"] is True
         assert row.status == TP_AWAITING_APPROVAL
+
+
+# == T6.1: collect-only never submits ============================================
+class _NoSubmit(ManualFileProvider):
+    """submit が呼ばれたらテストを失敗させる (collect-only の保証)。"""
+
+    def submit(self, request):
+        raise AssertionError("collect-only must never submit a generation request")
+
+
+def _collect(session, tmp_path, **kwargs):
+    return _service(session, tmp_path, provider=_NoSubmit(tmp_path / "gen"), **kwargs)
+
+
+def test_collect_only_below_the_floor_submits_nothing(session, articles, tmp_path) -> None:
+    service = _collect(session, tmp_path)
+    plan = service.plan(now=_NOW, collect_only=True)
+    assert plan["stock"]["needs_generation"] is True  # 在庫は下限より少ない
+    assert plan["would_request"] == 0
+    assert plan["submission_suppressed"] is True
+    assert any("collect-only" in b for b in plan["blocked_by"])
+    outcome = service.maintain(now=_NOW, execute=True, collect_only=True)
+    assert outcome["requests_created"] == []
+    assert outcome["mode"] == "collect_only"
+    assert not (tmp_path / "gen" / "pending").exists()
+
+
+def test_collect_only_ingests_existing_responses_without_a_second_batch(
+    session, articles, tmp_path
+) -> None:
+    normal = _service(session, tmp_path)
+    assert len(normal.maintain(now=_NOW, execute=True)["requests_created"]) == 3
+    _answer(normal.provider)
+    outcome = _collect(session, tmp_path).maintain(
+        now=_NOW + timedelta(hours=1), execute=True, collect_only=True
+    )
+    assert len(outcome["created"]) == 3  # 届いた答えはすべて取り込む (1 回 3 本の上限内)
+    assert outcome["requests_created"] == []
+    rows = session.scalars(select(ThreadsPostProposal)).all()
+    assert {r.status for r in rows} == {TP_AWAITING_APPROVAL}
+    status = json.loads((tmp_path / "gen" / "status.json").read_text(encoding="utf-8"))
+    assert status["mode"] == "collect_only"
+
+
+def test_collect_only_keeps_the_normal_skip_and_fail_semantics(session, articles, tmp_path) -> None:
+    normal = _service(session, tmp_path)
+    normal.maintain(now=_NOW, execute=True)
+    _answer(normal.provider, body="まったく同じ本文。")  # 1 本目は保存、残りは重複
+    outcome = _collect(session, tmp_path).maintain(
+        now=_NOW + timedelta(hours=1), execute=True, collect_only=True
+    )
+    assert len(outcome["created"]) == 1
+    assert len(outcome["failures"]) == 2
+    assert outcome["requests_created"] == []
+
+
+def test_collect_only_with_no_response_yet_waits_and_submits_nothing(
+    session, articles, tmp_path
+) -> None:
+    normal = _service(session, tmp_path)
+    normal.maintain(now=_NOW, execute=True)
+    service = _collect(session, tmp_path)
+    plan = service.plan(now=_NOW + timedelta(hours=1), collect_only=True)
+    assert plan["would_collect"] == 0
+    outcome = service.maintain(now=_NOW + timedelta(hours=1), execute=True, collect_only=True)
+    assert outcome["created"] == [] and outcome["requests_created"] == []
+    assert len(service.provider.pending()) == 3  # 答えを待つ依頼はそのまま
+
+
+def test_collect_only_reports_provider_errors_normally(session, articles, tmp_path) -> None:
+    normal = _service(session, tmp_path)
+    normal.maintain(now=_NOW, execute=True)
+    for request in normal.provider.pending():
+        (normal.provider.directory / "pending" / f"{request.request_id}.response.json").write_text(
+            "not json", encoding="utf-8"
+        )
+    outcome = _collect(session, tmp_path).maintain(
+        now=_NOW + timedelta(hours=1), execute=True, collect_only=True
+    )
+    assert all("malformed output" in f["reason"] for f in outcome["failures"])
+    assert outcome["requests_created"] == []
+
+
+def test_the_default_mode_is_unchanged(session, articles, tmp_path) -> None:
+    outcome = _service(session, tmp_path).maintain(now=_NOW, execute=True)
+    assert outcome["mode"] == "maintain"
+    assert outcome["submission_suppressed"] is False
+    assert len(outcome["requests_created"]) == 3
+    assert outcome["plan"]["would_request"] == 3
+
+
+def test_the_collect_only_plan_cli_says_submission_is_suppressed(
+    session, articles, tmp_path, capsys
+) -> None:
+    from scripts.maintain_threads_proposal_stock import main
+
+    assert (
+        main(
+            ["--collect-only"],
+            session_factory=_factory(session),
+            settings=_Settings(),
+            overrides={
+                "threads_service": _ReadOnlyThreads(),
+                "provider": _NoSubmit(tmp_path / "gen"),
+                "alert_notifiers": [],
+            },
+            now=_NOW,
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "mode               = collect_only (submission suppressed" in out
+    assert "would request      = 0" in out
+    assert "collect-only: submitting new generation requests is suppressed" in out
