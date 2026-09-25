@@ -275,6 +275,19 @@ class WordPressClient:
         )
         return _expect_json_object(_check_status(response, expected_status=200))
 
+    def fetch_media_file(self, source_url: str) -> bytes:
+        """同一オリジンの uploads にある media の実ファイルを read-only GET で取る。
+
+        既存の media を再利用する前に、承認済みの画像と byte 単位で同じかを確かめるためだけに使う。
+        """
+
+        if not source_url.startswith(f"{self._base_url}/wp-content/uploads/"):
+            raise ValueError("media source_url must be a same-origin uploads URL")
+        response = self._send(
+            "GET", source_url, ambiguous_on_no_response=False
+        )
+        return _check_status(response, expected_status=200).content
+
     # -- the one write operation -----------------------------------------
     def create_draft_post_exact(self, payload_json: str) -> WordPressCreatedPost:
         """凍結済み ``payload_json`` の exact bytes をそのまま POST する。

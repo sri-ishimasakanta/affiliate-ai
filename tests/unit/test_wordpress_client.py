@@ -216,6 +216,7 @@ def test_client_exposes_only_approved_operations() -> None:
         "find_published_posts_by_slug",
         "list_post_states",
         "get_media",
+        "fetch_media_file",
         "upload_featured_image_exact",
         "update_media_text_exact",
         "set_featured_media_exact",

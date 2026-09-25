@@ -11,6 +11,10 @@
 6. post を read-back して、``featured_media`` が一致し、タイトル・slug・状態・本文・カテゴリ・
    タグが変わっていないことを確かめる。
 
+既に media library にある承認済みの画像を使う場合 (``existing_media_id``) は upload しない。
+その media の実ファイルの SHA-256 が manifest と一致し、MIME・寸法が合い、どの post にも
+添付されておらず、どの post の featured image にもなっていないときだけ使う。
+
 同じ slug で 2 回 upload しない: 結果の記録 (``applied/<slug>.json``) があれば止まる。
 upload の結果が不明 (timeout など) のときも記録して止まる (media library を人が確かめる)。
 記録には credential も署名付き URL も入れない。
@@ -152,7 +156,34 @@ def resolve_post(client, item: ApplyItem) -> dict:
     return post
 
 
-def apply_one(client, item: ApplyItem, directory: Path, record_dir: Path) -> dict:
+def verify_existing_media(client, item: ApplyItem, media_id: int) -> dict:
+    """再利用する既存の media が、承認済みの画像そのものであることを確かめる (読むだけ)。"""
+
+    media = client.get_media(media_id)
+    details = media.get("media_details") or {}
+    if media.get("id") != media_id or media.get("mime_type") != item.mime_type:
+        raise FeaturedImageError(f"media {media_id} is not {item.mime_type}")
+    if (details.get("width"), details.get("height")) != (item.width, item.height):
+        raise FeaturedImageError(f"media {media_id} is not {item.width}x{item.height}")
+    if media.get("post") not in (None, 0):
+        raise FeaturedImageError(f"media {media_id} is attached to post {media.get('post')}")
+    data = client.fetch_media_file(str(media.get("source_url") or ""))
+    if hashlib.sha256(data).hexdigest() != item.sha256:
+        raise FeaturedImageError(f"media {media_id} file does not match the approved SHA-256")
+    in_use = [p.get("id") for p in client.list_post_states() if p.get("featured_media") == media_id]
+    if in_use:
+        raise FeaturedImageError(f"media {media_id} is already the featured image of {in_use}")
+    return media
+
+
+def apply_one(
+    client,
+    item: ApplyItem,
+    directory: Path,
+    record_dir: Path,
+    *,
+    existing_media_id: int | None = None,
+) -> dict:
     """1 記事に適用する。途中で止まったら、そこまでの事実を記録して例外を上げる。"""
 
     record_path = record_dir / f"{item.slug}.json"
@@ -180,14 +211,22 @@ def apply_one(client, item: ApplyItem, directory: Path, record_dir: Path) -> dic
         record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", "utf-8")
 
     try:
-        uploaded = client.upload_featured_image_exact(
-            image, filename=item.file, mime_type=item.mime_type
-        )
-        record["media_id"] = uploaded.id
-        record["media_url"] = uploaded.source_url
-        record["steps"].append("uploaded")
+        if existing_media_id is not None:
+            existing = verify_existing_media(client, item, existing_media_id)
+            media_id = existing_media_id
+            record["media_url"] = existing.get("source_url")
+            record["steps"].append("existing_media_verified")
+        else:
+            uploaded = client.upload_featured_image_exact(
+                image, filename=item.file, mime_type=item.mime_type
+            )
+            media_id = uploaded.id
+            record["media_url"] = uploaded.source_url
+            record["steps"].append("uploaded")
+        record["media_id"] = media_id
+        record["media_reused"] = existing_media_id is not None
 
-        media = client.get_media(uploaded.id)
+        media = client.get_media(media_id)
         details = media.get("media_details") or {}
         if media.get("mime_type") != item.mime_type or (
             details.get("width"),
@@ -198,21 +237,21 @@ def apply_one(client, item: ApplyItem, directory: Path, record_dir: Path) -> dic
 
         media_title = f"{item.title} アイキャッチ"
         client.update_media_text_exact(
-            uploaded.id,
+            media_id,
             json.dumps({"alt_text": item.alt_text, "title": media_title}, ensure_ascii=False),
         )
-        text = client.get_media(uploaded.id)
+        text = client.get_media(media_id)
         if text.get("alt_text") != item.alt_text:
             raise FeaturedImageError("the media alt_text did not read back as set")
         record["media_title"] = media_title
         record["alt_text"] = item.alt_text
         record["steps"].append("media_text_set")
 
-        client.set_featured_media_exact(post["id"], json.dumps({"featured_media": uploaded.id}))
+        client.set_featured_media_exact(post["id"], json.dumps({"featured_media": media_id}))
         record["steps"].append("featured_media_set")
 
         after_post = client.get_post(post["id"])
-        if after_post.get("featured_media") != uploaded.id:
+        if after_post.get("featured_media") != media_id:
             raise FeaturedImageError("featured_media did not read back as the uploaded media")
         after = post_fingerprint(after_post)
         if after != before:
@@ -266,6 +305,7 @@ __all__ = [
     "apply_one",
     "compare_snapshots",
     "load_manifest",
+    "verify_existing_media",
     "post_fingerprint",
     "resolve_post",
     "snapshot_posts",

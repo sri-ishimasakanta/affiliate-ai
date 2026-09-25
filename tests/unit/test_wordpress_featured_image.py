@@ -344,3 +344,72 @@ def test_snapshots_report_only_changed_posts() -> None:
     ]
     after = [before[0], {**before[1], "featured_media": 501, "modified_gmt": "b"}]
     assert compare_snapshots(before, after)["changed"] == {2: ["featured_media", "modified_gmt"]}
+
+
+# == reuse an existing, byte-identical media (no upload) ========================
+class _ReuseWP(_FakeWP):
+    def __init__(self, post, *, file_bytes, attached=None, featured_elsewhere=False):
+        super().__init__(post)
+        self.file_bytes = file_bytes
+        self.media = {
+            "id": 98,
+            "mime_type": "image/webp",
+            "media_details": {"width": 1200, "height": 675},
+            "post": attached,
+            "alt_text": "",
+            "source_url": f"{_BASE}/wp-content/uploads/2026/09/f.webp",
+        }
+        self.featured_elsewhere = featured_elsewhere
+
+    def fetch_media_file(self, source_url):
+        self.calls.append("fetch")
+        return self.file_bytes
+
+    def list_post_states(self):
+        return [{"id": 99, "featured_media": 98 if self.featured_elsewhere else 0}]
+
+
+def test_reusing_an_identical_media_skips_the_upload(tmp_path: Path) -> None:
+    data = _vp8x(1200, 675)
+    item = _item(tmp_path, data)
+    wp = _ReuseWP(_post(), file_bytes=data)
+    record = apply_one(wp, item, tmp_path, tmp_path / "applied", existing_media_id=98)
+    assert "upload" not in wp.calls
+    assert wp.calls == ["find", "fetch", "media_text", "featured"]
+    assert (record["media_id"], record["media_reused"], record["final_featured_media"]) == (
+        98,
+        True,
+        98,
+    )
+    assert record["steps"][0] == "existing_media_verified"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"file_bytes": _vp8x(1200, 675) + b"x"}, "does not match the approved SHA-256"),
+        ({"file_bytes": None, "attached": 55}, "attached to post 55"),
+        ({"file_bytes": None, "featured_elsewhere": True}, "already the featured image"),
+    ],
+)
+def test_a_media_that_is_not_provably_the_approved_image_is_never_used(
+    tmp_path: Path, kwargs, message
+) -> None:
+    data = _vp8x(1200, 675)
+    item = _item(tmp_path, data)
+    if kwargs.get("file_bytes") is None:
+        kwargs["file_bytes"] = data
+    wp = _ReuseWP(_post(), **kwargs)
+    with pytest.raises(FeaturedImageError, match=message):
+        apply_one(wp, item, tmp_path, tmp_path / "applied", existing_media_id=98)
+    assert not {"upload", "media_text", "featured"} & set(wp.calls)
+
+
+def test_fetching_a_media_file_is_limited_to_same_origin_uploads() -> None:
+    def handler(request):  # pragma: no cover - must not be called
+        raise AssertionError("no request may be sent")
+
+    with pytest.raises(ValueError):
+        _client(handler).fetch_media_file("https://evil.example/wp-content/uploads/x.webp")
+    with pytest.raises(ValueError):
+        _client(handler).fetch_media_file(f"{_BASE}/wp-admin/x.webp")

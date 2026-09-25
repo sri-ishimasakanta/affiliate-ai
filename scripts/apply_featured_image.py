@@ -50,6 +50,12 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
     apply = commands.add_parser("apply")
     apply.add_argument("--slug", required=True)
     apply.add_argument("--execute", action="store_true")
+    apply.add_argument(
+        "--media-id",
+        type=int,
+        default=None,
+        help="upload せず、media library にある承認済みの画像 (SHA-256 一致) を使う",
+    )
     compare = commands.add_parser("compare")
     compare.add_argument("--before", type=Path, required=True)
     compare.add_argument("--after", type=Path, required=True)
@@ -101,7 +107,9 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
         print(f"would apply {item.file} to post {post['id']} ({item.slug}); add --execute")
         return EXIT_OK
     try:
-        record = apply_one(client, item, args.dir, args.dir / "applied")
+        record = apply_one(
+            client, item, args.dir, args.dir / "applied", existing_media_id=args.media_id
+        )
     except Exception as exc:
         print(f"STOPPED: {type(exc).__name__}: {exc}")
         print(f"record: {args.dir / 'applied' / (item.slug + '.json')}")
@@ -116,6 +124,7 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
                     "original_featured_media",
                     "media_id",
                     "media_url",
+                    "media_reused",
                     "final_featured_media",
                     "post_link",
                     "steps",
