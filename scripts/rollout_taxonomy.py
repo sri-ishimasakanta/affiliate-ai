@@ -160,6 +160,17 @@ def _next(state: Path, kind: str) -> object | None:
 
 
 # == categories ==================================================================
+def _exact_planned_children(categories, *, parent_id: int) -> dict[str, int]:
+    """計画の子とちょうど一致する既存のカテゴリ (key → ID)。衝突があれば止める。"""
+
+    found = {}
+    for other in CHILDREN:
+        term = resolve_child(categories, other, parent_id=parent_id)
+        if term is not None:
+            found[other["key"]] = term["id"]
+    return found
+
+
 def create_next_category(client, plan: dict, state: Path, *, execute: bool) -> dict:
     key = _next(state, "category")
     if key is None:
@@ -183,12 +194,12 @@ def create_next_category(client, plan: dict, state: Path, *, execute: bool) -> d
         check_parent(categories, parent_id=parent["id"], parent_slug=parent["slug"])
         known = resolved_child_ids(state)
         existing = resolve_child(categories, child, parent_id=parent["id"])
-        allowed_extra = {existing["id"]} if existing else set()
-        extra = [
-            c
-            for c in unexpected_categories(categories, parent_id=parent["id"], child_ids=known)
-            if c["id"] not in allowed_extra
-        ]
+        # 計画の子とちょうど同じ (名前・slug・親) カテゴリは、まだ採用していなくても想定の内
+        # (人が wp-admin で先に作った場合)。名前か slug だけが重なるものは resolve_child が止める。
+        planned = _exact_planned_children(categories, parent_id=parent["id"])
+        extra = unexpected_categories(
+            categories, parent_id=parent["id"], child_ids={**known, **planned}
+        )
         if extra:
             raise TaxonomyRolloutStop(f"unexpected categories exist: {extra}")
         if existing:
@@ -225,7 +236,9 @@ def create_next_category(client, plan: dict, state: Path, *, execute: bool) -> d
             problems.append(f"new category count is {term.get('count')}")
         check_parent(after, parent_id=parent["id"], parent_slug=parent["slug"])
         extra = unexpected_categories(
-            after, parent_id=parent["id"], child_ids={**known, key: created["id"]}
+            after,
+            parent_id=parent["id"],
+            child_ids={**known, **planned, key: created["id"]},
         )
         if extra:
             problems.append(f"unexpected categories after create: {extra}")

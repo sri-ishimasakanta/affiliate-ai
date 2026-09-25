@@ -537,3 +537,44 @@ def test_snapshot_and_compare_show_the_created_categories_and_changed_posts(worl
     assert [c["slug"] for c in result["categories_added"]] == [c["slug"] for c in CHILDREN]
     assert result["categories_removed"] == [] and result["categories_changed"] == {}
     assert result["posts_changed"] == {115: ["categories", "modified_gmt"]}
+
+
+def test_children_created_in_wp_admin_are_adopted_one_by_one_without_a_post(world) -> None:
+    """W2C: API の利用者は author でカテゴリを作れない (403)。人が wp-admin で 5 つを作った。"""
+
+    wp = world[0]
+    for offset, child in enumerate(CHILDREN):
+        cid = 5 + offset
+        wp.categories[cid] = {
+            "id": cid,
+            "name": child["name"],
+            "slug": child["slug"],
+            "parent": 4,
+            "link": f"{SITE}/category/gyomu-koritsuka/{child['slug']}/",
+        }
+    for key in CHILD_ORDER:
+        assert run(world, "create-next-category", "--execute")[0] == 0
+        assert record(world, "category", key)["result"] == "reused"
+    assert wp.writes == []  # カテゴリを作る POST は 0
+    assert {k: record(world, "category", k)["category_id"] for k in CHILD_ORDER} == {
+        "ai": 5,
+        "meeting": 6,
+        "automation": 7,
+        "crm": 8,
+        "task": 9,
+    }
+    assert run(world, "next", "--execute")[0] == 0  # canary は採用した ID を使う
+    assert wp.writes == [("set_categories", {"post": 115, "categories": [4, 9]})]
+
+
+def test_a_near_miss_manual_child_still_blocks_adoption(world) -> None:
+    wp = world[0]
+    wp.categories[6] = {
+        "id": 6,
+        "name": "会議・文字起こし",
+        "slug": "meeting",
+        "parent": 4,
+        "link": f"{SITE}/category/gyomu-koritsuka/meeting/",
+    }
+    assert run(world, "create-next-category", "--execute")[0] == 2
+    assert "collision" in record(world, "category", "ai")["reason"] and wp.writes == []
