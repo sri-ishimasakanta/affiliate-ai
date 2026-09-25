@@ -95,10 +95,11 @@ SEMANTIC_REASONS = {
     22: "AI ガバナンス。AI の子の中で扱う (ガバナンス専用の子は作らない)",
     23: "ChatGPT の法人プラン (法人向けの生成AI)",
     24: "AI エージェントの基礎知識",
-    25: "AI の業務利用 (AI に任せる範囲)。AI の子に入れる。ただし既存の cluster 定義では"
-    "「AI 業務効率化」は cluster B (業務効率化ツール) の supporting なので、人が確かめる",
+    25: "AI の業務利用 (AI に任せる範囲)。WordPress のカテゴリは話題で分けるので、AI・生成AI"
+    " に入れる (W2 の人の決定。content_clusters.json の cluster B に合わせる必要はない)",
 }
-HUMAN_REVIEW_ARTICLE_IDS = frozenset({25})
+# W2 の人の決定で、人が確かめる残りの記事は無い (article 25 は AI・生成AI に決まった)。
+HUMAN_REVIEW_ARTICLE_IDS: frozenset[int] = frozenset()
 
 _SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _FORBIDDEN_SLUG_PARTS = re.compile(r"(19|20)\d{2}|\bv\d+\b|\bversion\b|\bnew\b")

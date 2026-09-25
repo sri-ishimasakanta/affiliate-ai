@@ -19,6 +19,11 @@ scope:
   (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"featured_media": <int>}``)、
   と、その確認のための read-only GET (slug で published post を探す / media の read-back /
   post の状態一覧)
+- W2 (カテゴリ整理): カテゴリを 1 つ作る POST 1 種のみ
+  (``POST /wp-json/wp/v2/categories``, body は必ず exact ``{"name","slug","parent"}``)、
+  既存 post のカテゴリを設定する POST 1 種のみ
+  (``POST /wp-json/wp/v2/posts/{id}``, body は必ず exact ``{"categories": [<int>, ...]}``)、
+  と、その確認のための read-only GET (カテゴリ・タグの一覧)
 
 generic update / delete / bulk / 任意の media 操作 / 任意 status 設定 / title・category
 変更は一切実装しない。``update_post_content_exact`` は ``content`` 以外のキーを構造的に
@@ -37,6 +42,7 @@ credential・レスポンス本文・環境変数を含めない。
 from __future__ import annotations
 
 import json
+import re
 from urllib.parse import urlsplit
 
 import httpx
@@ -56,6 +62,7 @@ _TIMEOUT_SECONDS = 10.0
 _USERS_ME_PATH = "/wp-json/wp/v2/users/me"
 _POSTS_PATH = "/wp-json/wp/v2/posts"
 _MEDIA_PATH = "/wp-json/wp/v2/media"
+_CATEGORIES_PATH = "/wp-json/wp/v2/categories"
 #: featured image として受け付ける画像の MIME (W1.4)。これ以外は送らない。
 _FEATURED_IMAGE_MIME_TYPES = {"image/webp": ".webp", "image/png": ".png"}
 #: post の状態の一覧で数える status (公開済み以外も「変わっていない」ことを確かめるため)。
@@ -305,7 +312,7 @@ class WordPressClient:
     def list_categories(self) -> list[dict]:
         """カテゴリの全件を read-only GET で列挙する (W2 のカテゴリ整理の計画専用)。"""
 
-        return self._list_view_terms(f"{self._base_url}/wp-json/wp/v2/categories")
+        return self._list_view_terms(f"{self._base_url}{_CATEGORIES_PATH}")
 
     def list_tags(self) -> list[dict]:
         """タグの全件を read-only GET で列挙する (W2 のカテゴリ整理の計画専用)。"""
@@ -602,6 +609,48 @@ class WordPressClient:
         )
         return _expect_json_object(_check_status(response, expected_status=200))
 
+    def create_category_exact(self, payload_json: str, *, expected_parent_id: int) -> dict:
+        """カテゴリを 1 つ作る。``POST /wp-json/wp/v2/categories`` を **1 回だけ**。
+
+        payload は logically ちょうど ``{"name": <str>, "slug": <ASCII slug>, "parent": <int>}``。
+        description / meta など第 4 のキーがあれば ``ValueError``。``parent`` は
+        ``expected_parent_id`` と一致しなければならない。リトライは一切しない
+        (timeout / 接続断は :class:`WordPressAmbiguousOutcomeError`: 作られたか不明)。
+        返り値の検証 (name / slug / parent の一致) は呼び出し側が read-back で行う。
+        """
+
+        _assert_exact_category_create_payload(payload_json, expected_parent_id=expected_parent_id)
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_CATEGORIES_PATH}",
+            content=payload_json.encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        data = _expect_json_object(_check_status(response, expected_status=201))
+        if not isinstance(data.get("id"), int) or data["id"] <= 0:
+            raise ExternalProviderError(_PROVIDER, "response did not include a valid category id")
+        return data
+
+    def set_post_categories_exact(self, wordpress_post_id: int, payload_json: str) -> dict:
+        """既存 post のカテゴリを設定する。``POST /posts/{id}`` を **1 回だけ**。
+
+        payload は logically ちょうど ``{"categories": [<正の int>, ...]}`` (空でなく、重複なし)。
+        title / content / excerpt / slug / status / date / tags など第 2 のキーがあれば
+        ``ValueError`` (この経路ではカテゴリ以外を変えられない)。返り値の検証 (カテゴリの一致と
+        ほかの項目が変わっていないこと) は呼び出し側が mandatory な read-back で行う。
+        """
+
+        _assert_exact_post_categories_payload(payload_json)
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_POSTS_PATH}/{wordpress_post_id}",
+            content=payload_json.encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        return _expect_json_object(_check_status(response, expected_status=200))
+
     # -- transport --------------------------------------------------------
     def _send(
         self,
@@ -707,6 +756,40 @@ def _assert_exact_featured_media_payload(payload_json: str) -> None:
     ):
         raise ValueError(
             'set_featured_media_exact only accepts an exact {"featured_media": <int>} payload'
+        )
+
+
+_CATEGORY_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def _assert_exact_category_create_payload(payload_json: str, *, expected_parent_id: int) -> None:
+    parsed = json.loads(payload_json)
+    if not isinstance(parsed, dict) or set(parsed) != {"name", "slug", "parent"}:
+        raise ValueError(
+            'create_category_exact only accepts an exact {"name","slug","parent"} payload'
+        )
+    name, slug, parent = parsed["name"], parsed["slug"], parsed["parent"]
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("category name must be a non-empty string")
+    if not isinstance(slug, str) or not _CATEGORY_SLUG.fullmatch(slug):
+        raise ValueError("category slug must be lowercase ASCII words joined by hyphens")
+    if not isinstance(parent, int) or isinstance(parent, bool) or parent != expected_parent_id:
+        raise ValueError("category parent must be exactly the expected parent id")
+
+
+def _assert_exact_post_categories_payload(payload_json: str) -> None:
+    parsed = json.loads(payload_json)
+    value = parsed.get("categories") if isinstance(parsed, dict) else None
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != {"categories"}
+        or not isinstance(value, list)
+        or not value
+        or any(not isinstance(v, int) or isinstance(v, bool) or v <= 0 for v in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError(
+            'set_post_categories_exact only accepts an exact {"categories": [<int>, ...]} payload'
         )
 
 

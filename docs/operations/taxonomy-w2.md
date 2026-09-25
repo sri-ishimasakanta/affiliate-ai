@@ -1,7 +1,17 @@
-# W2 カテゴリ整理 (taxonomy) — 計画 (W2A)
+# W2 カテゴリ整理 (taxonomy) — 計画 (W2A) と道具 (W2B)
 
-**状態: 計画だけ (W2A)。WordPress には何も書いていない。** カテゴリを作っていない。記事の
+**状態: 道具まで (W2B)。WordPress には何も書いていない。** カテゴリを作っていない。記事の
 カテゴリを変えていない。本番に書くのは、W2 の本番の確認点で人の承認を受けてから。
+
+### 人の決定 (W2 で確定)
+
+1. article 25 は **AI・生成AI**。WordPress のカテゴリは話題で分けるので、`content_clusters.json`
+   の cluster B に合わせる必要はない (親の業務効率化には残る)。
+2. 方式は **親 + 子**: article 1 → `[業務効率化]`、article 2〜25 → `[業務効率化, 子 1 つ]`。
+3. 24 記事のカテゴリの書き込みで **`modified_gmt` が変わること・Cocoon の更新日が新しく
+   なること・サイトマップの `lastmod` が新しくなることを許容する**。隠さない・偽らない・
+   戻さない・日付を古くしない。
+4. canary は **article 15 / post 64 → タスク・プロジェクト管理**。
 
 - 計画を作る (読むだけ): `uv run python scripts/plan_taxonomy.py`
 - 出力 (git 管理外): `artifacts/taxonomy/w2-category-plan.json` と `.md`
@@ -78,11 +88,10 @@
 | 22 | 86 | AIガバナンス｜要点と実務上の注意点 | AI・生成AI | 同上 |
 | 23 | 74 | ChatGPT法人プラン｜プラン別の料金と選び方 | AI・生成AI | 法人向けの生成AI |
 | 24 | 76 | AIエージェント｜意味・種類・選び方の基礎知識 | AI・生成AI | AI エージェント |
-| 25 | 78 | AI業務効率化｜要点と実務上の注意点 | AI・生成AI (**人が確かめる**) | 内容は AI の業務利用。ただし既存の cluster 定義 (`app/config/content_clusters.json`) では「AI 業務効率化」は cluster B (業務効率化ツール) の supporting |
+| 25 | 78 | AI業務効率化｜要点と実務上の注意点 | AI・生成AI (**W2 で確定**) | 内容は AI の業務利用。cluster 定義では cluster B だが、カテゴリは話題で分ける (人の決定) |
 
 - 25 件がちょうど 1 回ずつ。article 1 は意図して親だけ。ほかの 24 件は子がちょうど 1 つ。
-- 意味の食い違いは article 25 だけ (上の表)。AI・生成AI に入れるのが自然だが、cluster B の
-  扱いと合わせて「親だけ」にする案もある。**W2 の本番の前に人が決める。**
+- 意味の食い違いは article 25 だけだった。**人が AI・生成AI に決めた** (W2 の決定 1)。
 
 ## 5. 親を残すか (割り当ての方式)
 
@@ -104,8 +113,8 @@ B (子だけ) との違い: 親の件数は 1 (article 1 だけ) になる。親
 記事のカテゴリの 1 つ目 (WordPress の既定では名前の順) とその親をパンくずに出すとみられる。
 子の名前はどれも「業務効率化」より前に並ぶ (英字・カタカナ・「会」は「業」より前) ので、A でも
 「ホーム › 業務効率化 › 子」と子のラベルになる見込み (推定。Cocoon の内部は読んでいない)。**読むだけでは確かめられない** ので、canary の記事で確かめ、パンくずや
-ラベルが親のままなら残りに進まず、B (子だけ) に切り替えるかを人が決める。Cocoon の設定は
-変えない。
+ラベルが親のままなら **止めて、見えたとおりを人に報告する**。子だけの方式に **自動で切り替え
+ない** (切り替えるかは人が決める)。Cocoon の設定は変えない。
 
 ## 6. URL・SEO への影響 (読んで確かめた)
 
@@ -117,17 +126,46 @@ B (子だけ) との違い: 親の件数は 1 (article 1 だけ) になる。親
 | 構造化データ | 記事の JSON-LD は `Article` (カテゴリの項目なし)。パンくずは Cocoon の microdata で、子が入れば 1 段増える見込み |
 | カテゴリのアーカイブ | `/category/<slug>/`。robots の指定なし (index される)。canonical は自分自身。`rel=next/prev` あり。タイトルは「<名前> \| BizFluxLab」、説明は「「<名前>」の記事一覧です。」(Cocoon の既定)。SEO のプラグインは無い |
 | サイトマップ | WordPress 本体の `wp-sitemap.xml`。カテゴリのサイトマップには記事のあるカテゴリだけが出る (いまは業務効率化だけ)。子は記事が入った時点で自動で出る。記事のサイトマップには `lastmod` がある |
-| 更新日 | **カテゴリを変えると post の更新日時 (`modified_gmt`) が変わる** (WordPress が post を更新として扱う)。Cocoon の更新日の表示と、サイトマップの `lastmod` も変わる。24 件ぶん。W2 の本番の確認点で人が許容するかを決める |
+| 更新日 | **カテゴリを変えると post の更新日時 (`modified_gmt`) が変わる** (WordPress が post を更新として扱う)。Cocoon の更新日の表示と、サイトマップの `lastmod` も変わる。24 件ぶん。**人が許容済み** (W2 の決定 3)。道具は変わったことを「書けた」ことの確認に使う |
+| 子のアーカイブの URL | WordPress は子のアーカイブを親の下に置く (`/category/gyomu-koritsuka/<子>/`)。道具は REST が返すカテゴリの `link` を使い、URL を組み立てない |
 
 子のアーカイブは 2〜7 件と少ない。いまの方針 (SEO のプラグインなし・全体の設定を変えない)
 のまま index させる。薄いアーカイブが気になる場合は、あとでカテゴリの説明文を足す
 (W2 の範囲外。全体の SEO の設定は変えない)。
 
-## 7. 本番の手順 (設計だけ。まだしない)
+## 7. 本番の手順 (道具は W2B で用意。まだしない)
 
-W2 の本番には、書き込みの契約を 2 つ足す必要がある (W2A では作っていない):
-カテゴリの作成 (ちょうど `{"name","slug","parent"}`) と、記事のカテゴリの設定
-(ちょうど `{"categories": [...]}`。本文・タイトル・slug・状態などは送れない)。
+### 7.1 書き込みの契約 (`app/wordpress/client.py`)
+
+- `create_category_exact(payload, expected_parent_id=)`: `POST /wp/v2/categories` を 1 回だけ。
+  body はちょうど `{"name","slug","parent"}` (説明文・meta などは送れない)。名前は空でない、
+  slug は小文字の ASCII のハイフン区切り、`parent` は指定の親の ID。再送しない
+  (timeout は「結果が不明」)。
+- `set_post_categories_exact(post_id, payload)`: `POST /wp/v2/posts/{id}` を 1 回だけ。body は
+  ちょうど `{"categories": [<正の int>, ...]}` (空・重複なし)。本文・タイトル・slug・抜粋・
+  日付・状態・タグは送れない。
+
+### 7.2 道具 (`scripts/rollout_taxonomy.py`、既定は読むだけ)
+
+```bash
+uv run python scripts/plan_taxonomy.py                              # 計画を作り直す (読むだけ)
+uv run python scripts/rollout_taxonomy.py status                    # 手元の記録の進み具合
+uv run python scripts/rollout_taxonomy.py plan                      # 次の 1 項目を今の状態で確かめる
+uv run python scripts/rollout_taxonomy.py snapshot --out <file>     # カテゴリと全 post を保存
+uv run python scripts/rollout_taxonomy.py create-next-category --execute   # 子を 1 つだけ作る
+uv run python scripts/rollout_taxonomy.py next --execute            # 1 記事だけ書く
+uv run python scripts/rollout_taxonomy.py compare --before <b> --after <a>
+```
+
+- 判定は `app/wordpress/taxonomy_rollout.py` (pure)。計画 (`w2-category-plan.json`) が ready で、
+  子と割り当てがコードと同じでなければ動かない。
+- 記録は `artifacts/taxonomy/rollout/` (git 管理外): `category-<key>.json`、
+  `article-<id>.json`。子の ID は作ったときの読み戻しだけから記録する (推測しない)。
+  計画とちょうど同じ名前・slug・親の子が既にあれば、作らずに使う (`reused`)。
+- 書く前に `in_progress` を記録する。止まった (`stopped`)・途中の項目が 1 つでもあれば、
+  次の項目に進まない。うまくいった項目は繰り返さない。再開のときは `plan` で今の WordPress
+  を確かめる (カテゴリ・記事の状態が計画からずれていれば止まる)。
+- 記事は 5 つの子がそろってから。article 1 は順番の表に無く、書けない。
 
 1. **事前**: `plan_taxonomy.py` を作り直して ready。全 post の状態を保存する
    (`apply_featured_image.py snapshot` と同じ形)。作業者は 1 つだけ (W1 と同じ)。
@@ -143,21 +181,29 @@ W2 の本番には、書き込みの契約を 2 つ足す必要がある (W2A �
 5. **事後**: 全 post の前後比較 (変わってよいのは 24 件の `categories` と `modified_gmt` だけ)、
    各カテゴリの件数 (親 25・子 7/7/5/3/2)、公開ページ。
 
-### 止める条件 (本番の道具が必ず確かめる)
+### 止める条件 (道具が確かめる)
 
 - 親カテゴリが変わった (名前で 1 件に決まらない・トップレベルでない・ID が計画と違う)
 - 子の slug・名前が既存のカテゴリやタグと重なる、子が 1 件に決まらない
 - 記事のタイトル・slug・URL・今のカテゴリが計画と違う (`drift_problems`)
 - 記事の URL にカテゴリが入っている (カテゴリの変更で URL が変わりうる)
 - 送るカテゴリが `[4, <子>]` 以外になる (関係のないカテゴリを外してしまう)
-- WordPress の返したカテゴリの状態が想定と違う (読み戻しが合わない)
+- WordPress の返したカテゴリの状態が想定と違う (読み戻しが合わない)。計画に無いカテゴリが
+  ある (未分類・親・計画の子のほか)
+- 書いたあと: カテゴリが `[4, <子>]` でない、`modified_gmt` が変わっていない (書けたことを
+  確かめられない)、タイトル・slug・本文・抜粋・公開日・状態・タグ・URL が変わった
+- 公開ページ (キャッシュを避けた URL で、数回まで待って確かめ直す): 記事が 200 でない、
+  canonical が記事の URL でない、パンくずに「業務効率化 › 子」が無い、ラベルに子が無い、
+  子のアーカイブ・親のアーカイブに記事が無い、カテゴリのサイトマップに親と子が無い。
+  **パンくず・ラベルが親だけのときも止める** (子だけの方式に自動で切り替えない)
 
 まとめて書く命令は作らない (1 記事ずつ、読み戻してから次へ)。
 
 ## 8. 巻き戻し
 
-- 記事: 元のカテゴリは 25 件とも `[4]` (計画に記録)。同じ契約で `{"categories": [4]}` を送れば
-  戻る。更新日 (`modified_gmt`) は戻らない (戻さない)。
+- 記事: 元のカテゴリは 25 件とも `[4]` (計画と、記事ごとの記録の `original_categories` に残す)。
+  人が承認したら、同じ契約で 1 記事ずつ `{"categories": [4]}` を送れば戻る。まとめて戻す命令は
+  作らない。更新日 (`modified_gmt`) は戻らない (戻さない)。
 - 子カテゴリ: 記事を戻したあと空になる。削除は取り消せない操作なので、消すなら人が wp-admin で
   行う (道具では消さない)。
 - Cocoon・SEO の設定は触らないので、戻すものは無い。

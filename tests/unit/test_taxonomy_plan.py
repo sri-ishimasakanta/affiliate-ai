@@ -109,8 +109,9 @@ def test_the_semantic_placements_that_matter() -> None:
     assert {mapping[i]["key"] for i in (4, 5, 14)} == {"crm"}
     assert {mapping[i]["key"] for i in (2, 3, 6, 7, 8, 9, 12)} == {"meeting"}
     rows = {r["article_id"]: r for r in _plan(_world())["articles"]}
-    assert rows[25]["human_review_required"] is True  # cluster B との食い違い
-    assert sum(r["human_review_required"] for r in rows.values()) == 1
+    # W2 の人の決定: article 25 は AI・生成AI (話題で分ける)。人が確かめる記事は残っていない。
+    assert rows[25]["planned_child_category"]["name"] == "AI・生成AI"
+    assert sum(r["human_review_required"] for r in rows.values()) == 0
 
 
 def test_a_duplicate_or_missing_assignment_is_refused(monkeypatch) -> None:

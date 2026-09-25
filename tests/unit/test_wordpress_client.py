@@ -220,6 +220,9 @@ def test_client_exposes_only_approved_operations() -> None:
         # W2: read-only category / tag listing for the taxonomy plan.
         "list_categories",
         "list_tags",
+        # W2: exact contracts (one category create / one post's categories).
+        "create_category_exact",
+        "set_post_categories_exact",
         "get_media",
         "fetch_media_file",
         "upload_featured_image_exact",
