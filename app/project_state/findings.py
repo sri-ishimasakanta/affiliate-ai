@@ -388,6 +388,29 @@ def build_known_issues(state: Mapping, warnings: list[dict]) -> list[dict]:
 
 
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+# 優先度の中の順 (T7C): 劣化 / 時刻の来た確認 → 携帯の表示の確認 → tracking → 診断 (due の
+# とき) → 在庫の運用の決定 (確認の後) → ドキュメント → N0 → N1–N3 → C10。
+ACTION_RANK = {
+    "resolve-blocking-warnings": 0,
+    "investigate-active-operations-alerts": 1,
+    "check-threads-worker": 2,
+    "check-daily-run": 3,
+    "confirm-next-daily-run": 4,
+    "t7-validate-project-state": 5,
+    "observe-mobile-approval-render": 10,
+    "set-up-missing-affiliate-programs": 20,
+    "rerun-threads-performance-diagnostic": 30,
+    "decide-proposal-stock-routine": 40,
+    "correct-stale-docs": 45,
+    "review-policy-note-text": 46,
+    "prepare-n0": 60,
+    "note-n1-n3": 70,
+    "c10-after-maturity": 80,
+}
+
+
+def action_sort_key(item: Mapping) -> tuple:
+    return (PRIORITY_ORDER[item["priority"]], ACTION_RANK.get(item["id"], 50), item["id"])
 
 
 def action(
@@ -512,15 +535,19 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 human_checkpoint_required=True,
             )
         )
-    out.append(
-        action(
-            "t7-validate-project-state",
-            "P2",
-            "project",
-            "T7B: review the drift report and documentation health against reality; close T7B",
-            why="T7B is the active phase; C10 depends on a trustworthy state report",
+    project = state.get("project") or {}
+    t7_done = "T7" in (project.get("completed_phases") or [])
+    if not t7_done:
+        out.append(
+            action(
+                "t7-validate-project-state",
+                "P2",
+                "project",
+                "T7: review the drift report and documentation health against reality; close T7",
+                why="T7 is not complete; C10 depends on a trustworthy state report",
+            )
         )
-    )
+    after_t7 = [] if t7_done else ["t7-validate-project-state"]
     diagnostic = _get(state, "timing", "diagnostic") or {}
     if diagnostic.get("state") in ("due", "overdue"):
         out.append(
@@ -577,9 +604,11 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
             "prepare-n0",
             "P3",
             "roadmap",
-            "prepare N0 (after T7)",
-            why="next roadmap phase",
-            prerequisites=["t7-validate-project-state"],
+            "start N0 — the next development phase (not started yet)"
+            if project.get("next_phase") == "N0"
+            else "prepare N0 (after T7)",
+            why="next roadmap phase (docs/project-roadmap.json next_phase)",
+            prerequisites=after_t7,
         )
     )
     out.append(
@@ -587,7 +616,7 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
             "note-n1-n3",
             "P3",
             "roadmap",
-            "note work N1/N2/N3 (after N0)",
+            "note work N1 / N2 / N3 (after N0; declared only)",
             why="roadmap",
             prerequisites=["prepare-n0"],
         )
@@ -599,12 +628,12 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
             "roadmap",
             "C10 only after T7 and N0 are done and the operations data has matured",
             why="C10 depends on stable operations and a trustworthy state report",
-            prerequisites=["t7-validate-project-state", "prepare-n0"],
+            prerequisites=[*after_t7, "prepare-n0"],
             blocking=True,
         )
     )
     seen, ordered = set(), []
-    for item in sorted(out, key=lambda a: (PRIORITY_ORDER[a["priority"]], a["id"])):
+    for item in sorted(out, key=action_sort_key):
         if item["id"] not in seen:
             seen.add(item["id"])
             ordered.append(item)

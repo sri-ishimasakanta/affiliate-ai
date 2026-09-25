@@ -2,6 +2,11 @@
 
 根拠のファイルがフェーズの ID を含むこと・commit があることを確かめる。確かめられなければ
 ``verified: False`` と理由を付ける (宣言を黙って信じない・書き換えない)。
+
+- ``current_phase``: 今進めているフェーズ (``active``)。進めているものが無ければ ``null``。
+- ``next_phase``: 次に始めるフェーズ (``planned``。まだ始めていない)。前提がすべて
+  ``complete`` であること。
+- ``last_completed_phase``: 最後に完了したフェーズ (``complete``)。
 """
 
 from __future__ import annotations
@@ -60,12 +65,33 @@ def verify_phases(
             problems.append(f"{phase['id']}: {issues}")
     by_status = {s: [p["id"] for p in phases if p["status"] == s] for s in STATUSES}
     active = by_status["active"]
-    if roadmap.get("current_phase") not in active:
-        problems.append(
-            f"current_phase {roadmap.get('current_phase')} is not the active phase {active}"
-        )
+    current = roadmap.get("current_phase")
+    if current is None:
+        if active:
+            problems.append(f"current_phase is null but {active} are active")
+    elif current not in active:
+        problems.append(f"current_phase {current} is not the active phase {active}")
+    next_phase = roadmap.get("next_phase")
+    next_unmet = []
+    if next_phase is not None:
+        by_id = {p["id"]: p for p in roadmap["phases"]}
+        if (by_id.get(next_phase) or {}).get("status") != "planned":
+            problems.append(f"next_phase {next_phase} is not a planned phase")
+        next_unmet = [
+            q
+            for q in (by_id.get(next_phase) or {}).get("prerequisites", [])
+            if q not in by_status["complete"]
+        ]
+        if next_unmet:
+            problems.append(f"next_phase {next_phase} has unmet prerequisites {next_unmet}")
+    last = roadmap.get("last_completed_phase")
+    if last is not None and last not in by_status["complete"]:
+        problems.append(f"last_completed_phase {last} is not complete")
     return {
-        "declared_current_phase": roadmap.get("current_phase"),
+        "declared_current_phase": current,
+        "next_phase": next_phase,
+        "next_phase_prerequisites_unmet": next_unmet,
+        "last_completed_phase": last,
         "completed": by_status["complete"],
         "active": active,
         "upcoming": by_status["planned"],

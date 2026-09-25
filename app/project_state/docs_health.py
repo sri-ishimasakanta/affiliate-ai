@@ -72,6 +72,17 @@ def _get(state: Mapping, *path):
     return node
 
 
+def note_contradicts_value(enabled, note) -> bool:
+    """policy の ``automatic_publication.note`` (説明の文だけ。動作を決めない) が値と食い違うか。"""
+
+    text = (note or "").lower()
+    if enabled is True:
+        return "disabled" in text or " is off" in text
+    if enabled is False:
+        return "enabled in production" in text
+    return False
+
+
 def check_claims(root: Path, state: Mapping) -> list[dict]:
     """食い違っている「今の状態」の文 → ``stale_doc`` の finding。"""
 
@@ -104,10 +115,11 @@ def check_claims(root: Path, state: Mapping) -> list[dict]:
                 ),
             )
         )
-    note = _get(state, "threads", "policy", "policy_note") or ""
-    if _get(state, "threads", "policy", "automatic_publication_enabled") is True and (
-        "disabled" in note.lower()
+    if note_contradicts_value(
+        _get(state, "threads", "policy", "automatic_publication_enabled"),
+        _get(state, "threads", "policy", "policy_note"),
     ):
+        note = _get(state, "threads", "policy", "policy_note")
         out.append(
             finding(
                 "config-note-threads-autopublish",

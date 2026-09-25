@@ -60,6 +60,16 @@ SECTIONS = (
 )
 REPORT_JSON = Path("reports/project_state_latest.json")
 REPORT_MD = Path("reports/project_state_latest.md")
+# 報告を作る時機 (T7C の決定。警告ではない)。
+GENERATION_POLICY = {
+    "mode": "on_demand",
+    "scheduled": False,
+    "reason": (
+        "the generator is reliable on demand; the C8 / scheduler topology is not changed just to "
+        "refresh a derived report; scheduling is reconsidered only for a concrete operational need"
+    ),
+    "decision": "project-state-on-demand",
+}
 
 
 @dataclass
@@ -175,6 +185,8 @@ def build_report(ctx: StateContext) -> dict:
         ),
         "repository_path": str(root),
         "current_phase": roadmap["declared_current_phase"],
+        "next_phase": roadmap["next_phase"],
+        "last_completed_phase": roadmap["last_completed_phase"],
         "completed_phases": roadmap["completed"],
         "active_phases": roadmap["active"],
         "upcoming_phases": roadmap["upcoming"],
@@ -182,6 +194,7 @@ def build_report(ctx: StateContext) -> dict:
         "phases": roadmap["phases"],
         "roadmap_problems": roadmap["problems"],
         "source_precedence": list(AUTHORITY_LEVELS),
+        "generation_policy": GENERATION_POLICY,
     }
     report = {
         "generated_at": now.isoformat(timespec="seconds"),
@@ -249,7 +262,7 @@ def _md_summary(report: dict) -> list[str]:
     return [
         "## Executive Summary",
         "",
-        f"- Phase: **{project['current_phase']}** active; "
+        f"- Phase: {_phase_line(project)}; "
         f"{len(project['completed_phases'])} phases complete; "
         f"upcoming: {_fmt(project['upcoming_phases'])}",
         f"- Git: `{(git.get('head') or '')[:7]}` on {git.get('branch')}, "
@@ -277,11 +290,24 @@ def _md_summary(report: dict) -> list[str]:
     ]
 
 
+def _phase_line(project: dict) -> str:
+    if project["current_phase"]:
+        return f"**{project['current_phase']}** active"
+    return (
+        f"no phase in progress (last complete: **{project['last_completed_phase']}**); "
+        f"next: **{project['next_phase']}** (not started)"
+    )
+
+
 def _md_phase(project: dict) -> list[str]:
+    policy = project["generation_policy"]
     lines = [
         "## Current Phase",
         "",
-        f"- Current: **{project['current_phase']}**",
+        f"- Current: {_phase_line(project)}",
+        f"- Next phase: {_fmt(project['next_phase'])}; last completed: "
+        f"{_fmt(project['last_completed_phase'])}",
+        f"- Project-state generation: {policy['mode']} (scheduled: {_fmt(policy['scheduled'])})",
         f"- Completed: {_fmt(project['completed_phases'])}",
         f"- Upcoming: {_fmt(project['upcoming_phases'])}",
         f"- Deferred: {_fmt(project['deferred_phases'])}",

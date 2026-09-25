@@ -186,6 +186,50 @@ DECISIONS = (
         "resulting_state": "報告は mode=plan を expected_difference として出す",
         "follow_up": None,
     },
+    {
+        "id": "t7-project-state-complete",
+        "area": "project-state",
+        "decision": "T7 (Autonomous Project State) は完了。次のフェーズは N0",
+        "rationale": (
+            "完了の条件 (live / offline・JSON と Markdown・provenance・drift・strict・伏せ字・"
+            "比較・決定の記録・roadmap・次の行動の順) がそろった。運用の警告は完了を止めない"
+        ),
+        "evidence": ["docs/operations/project-state.md", "7edc394", "85c40ce"],
+        "phrase": "T7 (Autonomous Project State) は完了",
+        "resulting_state": "roadmap: last_completed_phase T7、next_phase N0 (まだ始めていない)",
+        "follow_up": "N0 を始めるときに、報告を --strict で作り、前の報告と --compare で比べる",
+    },
+    {
+        "id": "project-state-on-demand",
+        "area": "project-state",
+        "decision": (
+            "プロジェクトの状態の報告は必要なときに作る (on-demand)。"
+            "自動のスケジュールにはまだ載せない"
+        ),
+        "rationale": (
+            "派生の報告を新しくするためだけに C8 / スケジューラの構成を変えない。"
+            "具体的な運用の必要が出たときに考え直す"
+        ),
+        "evidence": ["docs/operations/project-state.md"],
+        "phrase": "プロジェクトの状態の報告は必要なときに作る (on-demand)",
+        "resulting_state": (
+            "スケジュールされたタスクは作らない。報告は generation_policy を出すだけ"
+        ),
+        "follow_up": None,
+    },
+    {
+        "id": "runtime-policy-notes-match-values",
+        "area": "threads/policy",
+        "decision": "実行の設定の中の説明の文は、動作を決める値と食い違ってはいけない",
+        "rationale": (
+            "automatic_publication.note が「Committed disabled」のまま enabled=true と食い違って"
+            "いた。note は動作を決めないことを確かめてから、文だけを直した"
+        ),
+        "evidence": ["docs/operations/project-state.md"],
+        "phrase": "実行の設定の中の説明の文は、動作を決める値と食い違ってはいけない",
+        "resulting_state": "note は今の状態 (有効) を述べる。値は変えていない",
+        "follow_up": None,
+    },
 )
 
 

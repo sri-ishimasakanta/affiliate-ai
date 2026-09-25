@@ -60,6 +60,16 @@ def build_facts(state: Mapping, drift: list[dict]) -> dict:
             "current_phase",
             observed_at=_observed(state, "project"),
         ),
+        "next_phase": fact(
+            _get(state, "project", "next_phase"),
+            "current_phase",
+            observed_at=_observed(state, "project"),
+        ),
+        "last_completed_phase": fact(
+            _get(state, "project", "last_completed_phase"),
+            "current_phase",
+            observed_at=_observed(state, "project"),
+        ),
         "git_head": fact(_get(state, "git", "head"), "git", observed_at=_observed(state, "git")),
         "git_ahead_of_remote": fact(
             _get(state, "git", "ahead"),

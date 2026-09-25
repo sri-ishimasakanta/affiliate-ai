@@ -515,7 +515,7 @@ def test_next_actions_are_deterministic_and_never_jump_to_c10(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
     report = build_report(ctx)
     actions = report["next_actions"]
-    order = [(a["priority"], a["id"]) for a in actions]
+    order = [findings.action_sort_key(a) for a in actions]
     assert order == sorted(order)
     c10 = next(a for a in actions if a["id"] == "c10-after-maturity")
     assert c10["blocking"] is True and "prepare-n0" in c10["prerequisites"]
@@ -564,7 +564,8 @@ def test_markdown_and_json_describe_the_same_core_state(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
     report = build_report(ctx)
     md = render_markdown(report)
-    assert f"**{report['project']['current_phase']}** active" in md
+    assert report["project"]["current_phase"] is None
+    assert f"next: **{report['project']['next_phase']}** (not started)" in md
     assert "featured images 25/25" in md
     assert f"{report['git']['ahead']} ahead" in md
     for child in report["taxonomy"]["children"]:

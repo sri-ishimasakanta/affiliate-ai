@@ -85,7 +85,12 @@ def main(argv=None, *, context: StateContext | None = None) -> int:
             moment=context.now,
         )
     blocking = [w for w in report["warnings"] if w["blocking"]]
-    print(f"phase: {report['project']['current_phase']}  mode: {report['mode']}")
+    project = report["project"]
+    phase = project["current_phase"] or (
+        f"none in progress (last complete {project['last_completed_phase']}, "
+        f"next {project['next_phase']})"
+    )
+    print(f"phase: {phase}  mode: {report['mode']}")
     print(
         f"warnings: {len(report['warnings'])} ({len(blocking)} blocking); "
         f"drift: {len(report['drift'])}; next actions: {len(report['next_actions'])}"

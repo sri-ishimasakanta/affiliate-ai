@@ -1,10 +1,12 @@
-# プロジェクトの状態の報告 (T7A / T7B)
+# プロジェクトの状態の報告 (T7: T7A / T7B / T7C)
 
 1 つのコマンドで、今のプロジェクトの状態 (フェーズ・git・品質・DB・WordPress・featured
 image・カテゴリ・収益化・Threads・承認・C8・スケジューラ・警告・決定・次の行動) をまとめる。
 **読むだけ**: WordPress・Threads・スケジューラ・DB には書かない。`/go/` と Threads の API には
 問い合わせない。T7A で土台を作り、T7B で出どころの強さ (source precedence)・食い違いの検出
 (drift)・不変条件・時間で決まる状態・ドキュメントの健康・報告の比較・`--strict` の契約を足した。
+T7C で閉じた: **T7 (Autonomous Project State) は完了**。この報告が、次のフェーズ (N0) からの
+引き継ぎの正式な手段になる (下の「T7 の完了の条件」と「報告を作る時機」)。
 
 ```bash
 uv run python scripts/generate_project_state.py                # 手元 + 安全な読み取り
@@ -89,6 +91,13 @@ URL / DSN の `user:password@`・Bearer / Basic・Meta / Threads の token ら�
 フェーズが変わったらこのファイルを更新する (歴史を書き換えない)。`status` は `complete` /
 `active` / `planned` / `deferred`。根拠 (`evidence.files` / `evidence.commits`) を付ける。
 
+- `current_phase`: 進めているフェーズ (`active`)。進めているものが無ければ `null`。
+- `next_phase`: 次に始めるフェーズ (`planned`。**始めたとは言わない**)。前提がすべて `complete`。
+- `last_completed_phase`: 最後に完了したフェーズ。
+
+T7C の後: `current_phase = null`、`last_completed_phase = T7`、`next_phase = N0`。N0・N1・N2・
+N3・C10 はリポジトリに作業が無いので `declared_only` のまま。
+
 ## 出どころの強さ (T7B: source precedence)
 
 同じ事実について出どころが違うことを言うとき、上ほど強い (`app/project_state/precedence.py`):
@@ -153,9 +162,14 @@ T7B で見つけて直したもの (`<!-- state-corrected: ... -->` の印を残
 | `threads-proposal-stock.md` が「本番 DB は `33d93394f342` のまま」 / DB は `afc2f36bb3ca` (head) | `stale_doc` | ドキュメントだけ直した。migration はしない |
 | worker のロックの表示 `mode=plan` / `publish` プロファイルで自動公開 | `expected_difference` (正しいが紛らわしい表示) | `threads-worker.md` に意味を書いた。worker の再起動・ロックの書き換えはしない |
 
-残るもの: `threads_operations_policy.json` の `automatic_publication.note` ("Committed disabled…")
-は実行の設定の中の古い説明の文。値 (`enabled: true`) は正しい。T7 は実行の設定を書き換えない
-ので、`documentation_health.unresolved_mismatches` に出し、人が直す候補にする。
+T7B で残した `threads_operations_policy.json` の `automatic_publication.note` ("Committed
+disabled…") は、T7C で直した。先に、説明の文が動作を決めないことを確かめた: この note を読む
+コードは報告の `docs_health.py` だけで、公開の判断は `automatic_publication.enabled` (と
+`preflight_read`) を `ThreadsOperationsPolicy` 経由で読む。note の文で分かれる処理は無く、policy
+の file の hash を取るコードも無い。直したのは note の文だけで、動作を決める値 (enabled・窓・
+間隔・在庫など) は変えていない (テストで、note を除いた policy が同じであることを確かめる)。
+実行の設定の中の説明の文は、動作を決める値と食い違ってはいけない。食い違えば
+`config-note-threads-autopublish` (`stale_doc`) として出す。
 
 ## 不変条件 (`invariants`)
 
@@ -184,13 +198,22 @@ T7B で見つけて直したもの (`<!-- state-corrected: ... -->` の印を残
   7 日より古い) / `overdue` (6 本以上、または古くて新しい公開もある)。`not_due` の間は
   再実行を勧めない。
 
-## 次の行動の規則 (T7B)
+## 次の行動の規則 (T7B / T7C)
 
-止めるべき食い違い (P0) → 進行中の劣化 (P1: 未解決の alert・worker が止まっている・時刻の
-過ぎた daily の確認) → そのほか (P2 / P3)。時刻の来ていない確認は `due: false`。在庫の運用の
-決定は、実物の携帯表示を確かめた後にだけ出す。C10 は前提 (T7B・N0) が済むまで前提付きで
-止めておく。解決済みの alert、意図した状態 (在庫の保守 OFF・author の権限・media 99) を
-「直す」行動は出さない。
+優先度 (P0〜P3) の中は決まった順 (`findings.ACTION_RANK`) で並べる:
+
+1. 止めるべき食い違い (P0) / 進行中の劣化・時刻の来た確認 (P1: 未解決の alert・worker が
+   止まっている・時刻の過ぎた daily の確認) / まだ時刻の来ていない daily の確認 (P2、`due: false`)
+2. 実物の携帯表示の確認 (まだなら)
+3. アフィリエイトの tracking の用意
+4. Threads の成績の診断 (`due` / `overdue` のときだけ)
+5. 在庫の運用の決定 (実物の携帯表示を確かめた後だけ)
+6. N0 (roadmap の `next_phase`)
+7. N1 / N2 / N3
+8. C10 (前提の後だけ)
+
+時刻の来た本番の健康の確認より N0 を上に出さない。解決済みの alert、意図した状態 (在庫の保守
+OFF・author の権限・media 99) を「直す」行動は出さない。
 
 ## `--strict` の契約
 
@@ -217,3 +240,40 @@ media 99・在庫の保守 OFF・git の未 push・携帯の表示の確認待�
 今の状態を述べる文だけを確かめる (`docs_health.py` の一覧)。過去の出来事の記録は古くない。
 `stale_documents` (直すべきもの)・`corrected_documents` (`<!-- state-corrected: ... -->` の印の
 一覧)・`unresolved_mismatches` (実行の設定の中の説明の文など、T7 が直さないもの)。
+
+## 報告を作る時機 (T7C: on-demand)
+
+プロジェクトの状態の報告は必要なときに作る (on-demand)。**自動のスケジュールにはまだ載せない**
+(意図した決定であって、足りない機能の警告ではない。報告の `project.generation_policy` に
+`mode: on_demand`・`scheduled: false` と出るだけで、警告にはしない)。
+
+理由:
+
+- 今の generator は、必要なときに動かせば十分に信頼できる。
+- 派生の報告を新しくするためだけに、C8 / スケジューラの構成を変えない。
+- 具体的な運用の必要が出たときに、スケジュールを考え直す。
+
+しないこと: Windows のスケジュールされたタスクを作る・C8 の daily / weekly のタスクを変える・
+generator を既存のタスクにつなぐ・常駐の worker を再起動する。
+
+フェーズの始めと終わりに `uv run python scripts/generate_project_state.py --strict` を実行し、
+前の報告と `--compare` で比べる。
+
+## T7 の完了の条件 (T7C)
+
+T7 を完了とするのは次がすべて成り立つときだけ (テスト: `tests/unit/test_project_state*.py`):
+
+- live の読み取りだけのモードで動く / offline のモードで動く (WordPress を 1 度も呼ばない)
+- JSON と Markdown が同じ事実を述べる
+- 強い事実が出どころ (provenance) を持つ
+- 食い違いの検出が動いている
+- `--strict` の契約がテストされている / 秘密の伏せ字がテストされている
+- 報告の比較が動く
+- 週ごとの決定の記録が動き、重複しない
+- roadmap が機械で読める
+- 次の行動の順が決まっている
+- 報告を信頼できなくするような未解決の食い違いが無い
+
+運用の警告は T7 の完了を止めない: git の未 push・最後の daily の実行が partial・実物の携帯表示の
+確認待ち・アフィリエイトのプログラムの欠け・在庫の保守 OFF (意図)・media 99 (任意の片付け)・
+診断がまだ due でない・worker のロックの `mode=plan` (意図した違い)。

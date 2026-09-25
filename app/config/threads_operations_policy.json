@@ -99,6 +99,6 @@
   "automatic_publication": {
     "enabled": true,
     "preflight_read": true,
-    "note": "Committed disabled. Flip only after Meta API access is restored and a human has approved production activation. The worker flag alone never publishes."
+    "note": "Enabled in production since 2026-09-25 (7aa8990, human-approved). Publishing still needs ALL gates: this flag, the worker started with --auto-publish, the worker lock, Threads state ready, a successful read-only preflight and a queue evaluation with no blocker. The worker flag alone never publishes."
   }
 }

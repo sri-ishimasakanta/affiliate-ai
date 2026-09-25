@@ -127,7 +127,9 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
         "high",
     )
     assert facts["make_tracked_articles"]["value"] == [1, 10, 11]
-    assert facts["current_phase"]["value"] == "T7B"
+    assert facts["current_phase"]["value"] is None  # T7 の後、進めているフェーズは無い
+    assert facts["next_phase"]["value"] == "N0"
+    assert facts["last_completed_phase"]["value"] == "T7"
 
 
 # == disagreements A–D ==============================================================
@@ -163,9 +165,10 @@ def test_the_corrected_repository_docs_are_not_stale(tmp_path) -> None:
         "docs/operations/threads-proposal-stock.md",
         "wordpress/mu-plugins/bizfluxlab-approval-relay.README.md",
     } <= corrected
-    # policy の note の古い説明は人が直す候補 (T7 は実行の設定を書き換えない)
-    assert [d["id"] for d in health["unresolved_mismatches"]] == ["config-note-threads-autopublish"]
-    assert _action(report, "review-policy-note-text")["human_checkpoint_required"] is True
+    # T7C で policy の note の文も直した (値はそのまま)
+    assert health["unresolved_mismatches"] == []
+    assert _action(report, "review-policy-note-text") is None
+    assert _action(report, "correct-stale-docs") is None
 
 
 def test_the_relay_header_contradicting_its_deployment_record_is_a_stale_doc(tmp_path) -> None:
@@ -446,8 +449,7 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
     for forbidden in ("media 99", "delete", "broaden", "--maintain-proposal-stock ON"):
         assert forbidden not in text
     c10 = _action(report, "c10-after-maturity")
-    assert c10["blocking"] and set(c10["prerequisites"]) == {"t7-validate-project-state",
-                                                             "prepare-n0"}  # fmt: skip
+    assert c10["blocking"] and c10["prerequisites"] == ["prepare-n0"]  # T7 は完了
     info = {w["id"] for w in report["warnings"] if w["severity"] == "info"}
     assert {"threads-stock-maintenance-off", "wp-media-99-duplicate",
             "wp-api-user-author-role"} <= info  # fmt: skip
@@ -456,12 +458,17 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
 
 
 # == roadmap / decisions ============================================================
-def test_the_roadmap_marks_t7a_complete_and_t7b_active() -> None:
+def test_the_roadmap_marks_t7_complete_and_n0_next() -> None:
     roadmap = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    assert roadmap["declared_current_phase"] == "T7B"
-    assert "T7A" in roadmap["completed"] and roadmap["active"] == ["T7B"]
+    assert roadmap["declared_current_phase"] is None and roadmap["active"] == []
+    assert {"T7A", "T7B", "T7"} <= set(roadmap["completed"])
+    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("T7", "N0")
+    assert roadmap["next_phase_prerequisites_unmet"] == []
     kinds = {p["id"]: p["evidence_kind"] for p in roadmap["phases"]}
-    assert {kinds["N0"], kinds["N1-N3"], kinds["C10"]} == {"declared_only"}
+    for pid in ("N0", "N1", "N2", "N3", "C10"):
+        assert kinds[pid] == "declared_only", pid
+    status = {p["id"]: p["status"] for p in roadmap["phases"]}
+    assert status["N0"] == "planned"  # 次のフェーズ。始めたとは言わない
     assert roadmap["problems"] == []
 
 
