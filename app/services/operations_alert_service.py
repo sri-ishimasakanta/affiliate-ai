@@ -95,7 +95,11 @@ class OperationsAlertService:
                 row.last_seen_at = stored_now
                 row.severity = draft.severity
                 row.summary = draft.summary
-                row.evidence_json = draft.evidence
+                previous = (row.evidence_json or {}).get("resolution")
+                row.evidence_json = dict(draft.evidence)
+                if previous:
+                    # 再発で開き直しても、前にどう解決したかの記録は消さない。
+                    row.evidence_json["previous_resolution"] = previous
                 row.operations_run_id = operations_run_id
                 # 再発したら解決済みでは無くなる。
                 if row.status == "resolved":
@@ -170,14 +174,36 @@ class OperationsAlertService:
         self._session.commit()
         return True
 
-    def resolve(self, fingerprint: str, *, now: datetime | None = None) -> bool:
+    def resolve(
+        self,
+        fingerprint: str,
+        *,
+        now: datetime | None = None,
+        reason: str | None = None,
+        resolved_by: str | None = None,
+    ) -> bool:
+        """アラートを解決済みにする。行は消さない (同じ問題が再発すれば開き直る)。
+
+        ``reason`` を渡すと、なぜ解決としたかを ``evidence_json["resolution"]`` に残す
+        (列を増やさない)。元の証拠はそのまま残る。
+        """
+
         row = self._session.scalars(
             select(OperationsAlert).where(OperationsAlert.fingerprint == fingerprint)
         ).first()
         if row is None or row.status == "resolved":
             return False
+        resolved_at = to_storage_utc(now or datetime.now(UTC))
         row.status = "resolved"
-        row.resolved_at = to_storage_utc(now or datetime.now(UTC))
+        row.resolved_at = resolved_at
+        if reason:
+            evidence = dict(row.evidence_json or {})
+            evidence["resolution"] = {
+                "reason": reason.strip()[:500],
+                "resolved_by": (resolved_by or "human")[:64],
+                "resolved_at": resolved_at.isoformat(),
+            }
+            row.evidence_json = evidence
         self._session.commit()
         return True
 
