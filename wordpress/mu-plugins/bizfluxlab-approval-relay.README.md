@@ -208,15 +208,34 @@ wp-content/mu-plugins/bizfluxlab-approval-relay.php
 wp-content/mu-plugins/bizfluxlab-approval-relay/lib-core.php
 ```
 
-**Deployment requires explicit approval and was NOT performed in T6.1.** Until
-it is deployed, the live page still shows an empty box for Threads proposals;
-read the exact text on the PC before deciding. The publish tool's PLAN prints
-it and never writes (no `--execute`; a proposal that is not approved is refused
-even with it):
+Deployment requires explicit approval. **Deployed 2026-09-25 (see the record
+below).** If the page ever has to be rolled back, read the exact text on the PC
+before deciding. The publish tool's PLAN prints it and never writes (no
+`--execute`; a proposal that is not approved is refused even with it):
 
 ```bash
 uv run python scripts/publish_threads_post.py --proposal-id <id>
 ```
+
+### T6.1 deployment record (2026-09-25, human-authorized)
+
+- Commits: `4fea211`, `aea2bca`, `cff7a67`. Pre-deploy: 5239 tests passed, ruff and
+  `alembic check` clean, no schema change.
+- The human downloaded the two production files to
+  `D:\Backups\affiliate-ai\relay-pre-t6.1\` (they match commit `09a4a39` exactly:
+  `lib-core.php` `d1df3176…`, `bizfluxlab-approval-relay.php` `5d400a0a…`) and
+  uploaded the HEAD versions (`lib-core.php` `08d5ed12…`,
+  `bizfluxlab-approval-relay.php` `4657bd2b…`). `tests/` was not uploaded.
+- Verification (read-only): the review-page shell served for a random session id
+  (step 7 above; no state change) was compared with the shell rendered locally from
+  each commit. Before: script matched `09a4a39` (`7fd6a5cd…`). After (18:26 JST):
+  script matched HEAD (`102dfd7a…`), contains `reviewModel` and 「投稿される本文」,
+  security headers and `robots.txt` unchanged. The resident worker's next signed
+  sync (18:27:46) fetched normally, so the plugin loads and the secrets match.
+- Not directly observed yet: the rendering of a live Threads snapshot and the
+  decide-route `review_text_missing` refusal (both need a real review session,
+  i.e. a real approval request). They are covered by the tests; the first genuine
+  approval request is the live confirmation.
 
 ## What is deliberately not stored
 

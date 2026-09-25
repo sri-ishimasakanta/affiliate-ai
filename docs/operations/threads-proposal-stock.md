@@ -186,12 +186,36 @@ URL の範囲を文章として数えない (`validators.style_analysis_text`)�
 携帯の承認ページは Threads の提案で本文の枠が空になっていた (中継の許可リストが
 `publish_text` を落とし、ページが C9 用の `inserted_paragraph` を描いていた)。修正後は
 「投稿される本文」に保存済みの `content_text` をそのまま表示し、本文が無い・空のときは
-承認ボタンを出さず、中継も承認を拒否する (fail closed)。**中継 (mu-plugin) の再配置は
-人の承認が要る別の作業で、T6.1 では行っていない** — 手順は
+承認ボタンを出さず、中継も承認を拒否する (fail closed)。中継 (mu-plugin) の再配置は
+人の承認が要る作業で、2026-09-25 に行った (次の節) — 手順と記録は
 `wordpress/mu-plugins/bizfluxlab-approval-relay.README.md` の「Redeploying after T6.1」。
+
+### T6.1 本番デプロイの記録 (2026-09-25、人の許可あり)
+
+| 項目 | 内容 |
+| --- | --- |
+| コミット | `4fea211` (承認ページ) / `aea2bca` (URL と文体の警告) / `cff7a67` (collect-only) |
+| デプロイ前 | 5239 tests passed、ruff・`alembic check` clean、スキーマ変更なし |
+| 中継 | 人が XServer の 2 ファイルを PC へ退避 (`D:\Backups\affiliate-ai\relay-pre-t6.1\`、`09a4a39` と一致) してから HEAD の版に置き換えた |
+| 中継の確認 (読むだけ) | 実在しないセッション ID の承認ページの枠を読み戻し、手元で描いた各版の script と比較。前: `09a4a39` と一致。後 (18:26 JST): HEAD と一致、`reviewModel`・「投稿される本文」あり、セキュリティヘッダーと `robots.txt` は変化なし。18:27:46 の worker の署名付き同期も正常 |
+| 実物の携帯表示 | **未確認 (次の本物の承認依頼で確認する)**。本物の snapshot を描くにはレビューのセッションが要り、承認・却下の操作を伴うため、このデプロイでは作らなかった。表示と `review_text_missing` の拒否はテストで確認済み |
+| worker の再起動 (1 回) | 旧 PID 12512 (14:02:41 起動)。タスクの停止は `cmd.exe` だけを止め、uv / python が残ったため、その 3 つの PID を止めた (18:28:49)。旧いロックが古くなる 18:42:46 を待って、タスクを 1 回だけ開始 (18:43:42)。新 PID 16200 が `reclaimed_stale=True` でロックを取得。18:40 の定期トリガーの起動は `already_running` で何もせず終了 |
+| タスクの定義 | 変更なし: `run_threads_worker_task.cmd publish` (`--resident --collect-insights --sync-approvals --send-approval-digests --auto-publish`)、IgnoreNew、15 分ごと。`--maintain-proposal-stock` なし |
+| 公開の規則 | 再起動後の最初の評価: `next_candidate=6 blockers=gap_not_elapsed`、次の評価 19:43:24 JST (#4 の実際の公開 17:43:24 から 120 分)。取り戻しの連続公開なし |
+| collect-only | 本番で PLAN のみ: `mode = collect_only (submission suppressed)`、`would request = 0`、答えを待つ依頼 0 件。`--execute` は実行していない |
+| 変えていないもの | 承認・却下 (#5 / #6 承認、#7 却下のまま)、公開 (4 件のまま)、DB スキーマ、C8、WordPress の本文、メール (送っていない)、`/go/` |
+
+#6 は、常駐 worker が既存の承認と通常の規則 (19:43:24 JST 以降・公開窓の中・1 サイクル 1 件)
+で公開する見込み。これはデプロイの操作ではない。
+
+**worker の再起動の手順 (次回のため)**: `Stop-ScheduledTask` は起動した `cmd.exe` しか
+止めない。子の `uv.exe` / `python.exe` (`run_threads_worker.py`) が残っていないかを確かめ、
+残っていればその PID を止める。ロックは止めた worker が解放しないので、最後の heartbeat から
+15 分経ってから `Start-ScheduledTask` を 1 回実行する (それより前に開始すると
+`already_running` で終わる。定期トリガーでも 15 分以内に復帰する)。
 
 ### 本番での有効化
 
 常駐 worker の在庫の保守 (`--maintain-proposal-stock`) は **まだ有効にしていない**
-(タスクのプロファイルにも入れていない)。有効にする前に、中継の再配置と、manual の
-依頼に人が答える運用の手順を決める。
+(タスクのプロファイルにも入れていない)。有効にする前に、manual の依頼に人が答える
+運用の手順を決め、次の本物の承認依頼で承認ページの本文表示を確かめる。
