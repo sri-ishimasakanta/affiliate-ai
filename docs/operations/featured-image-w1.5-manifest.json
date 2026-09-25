@@ -41,8 +41,8 @@
       ]
     },
     "headline_px": {
-      "min": 96,
-      "max": 112,
+      "min": 90,
+      "max": 100,
       "hard_floor": 90
     },
     "sub_label_px": {
@@ -53,7 +53,7 @@
     "base_colors": {
       "background": "#F5F7FA",
       "text": "#12263F",
-      "sub_text": "#4A5B70"
+      "sub_text": "#12263F"
     },
     "text_rendering": "typeset afterwards (SVG / Pillow); never let an image model draw Japanese text",
     "text_role": "a short hook about what the reader gets; never the full SEO title",
@@ -199,6 +199,150 @@
         22
       ]
     }
+  },
+  "typesetting_calibration": {
+    "phase": "W1.5B.1",
+    "date": "2026-09-25",
+    "reference": [
+      "artifacts/featured-images/pilot/featured-20-chatgpt-enterprise.png",
+      "artifacts/featured-images/pilot/featured-23-chatgpt-business-plans.png",
+      "artifacts/featured-images/pilot/featured-24-ai-agents.png",
+      "artifacts/featured-images/pilot/featured-25-ai-business-efficiency.png"
+    ],
+    "method": "ink bands of the left column (x < 560) and the bottom bar measured on the applied pilot PNGs; each known text line fitted against Noto Sans JP renders (weight, size, palt) to recover size, em-box top and baseline",
+    "measured_pilot_ranges": {
+      "mark": {
+        "x": [
+          63,
+          63
+        ],
+        "y": [
+          297,
+          352
+        ],
+        "width": [
+          128,
+          131
+        ],
+        "height": [
+          17,
+          20
+        ]
+      },
+      "mark_bottom_to_first_em_top_px": [
+        18,
+        30
+      ],
+      "headline_size_px_fitted": [
+        88,
+        99
+      ],
+      "headline_weight": "Bold (wght 700), palt",
+      "headline_pen_x": [
+        58,
+        61
+      ],
+      "line_pitch_px": [
+        88,
+        92
+      ],
+      "first_line_baseline_y": {
+        "23": 471,
+        "24": 434,
+        "25": 486,
+        "20": 484
+      },
+      "sublabel": {
+        "size_px_fitted": {
+          "23": 47,
+          "24": 44,
+          "25": 61
+        },
+        "weight": "Bold",
+        "color": "navy (same as the headline), not grey",
+        "last_line_baseline_to_sublabel_baseline_px": {
+          "23": 57,
+          "24": 66,
+          "25": 85
+        },
+        "baseline_y": {
+          "23": 620,
+          "24": 588,
+          "25": 571
+        }
+      },
+      "accent_bar": {
+        "top_y": [
+          653,
+          658
+        ],
+        "height": [
+          17,
+          22
+        ],
+        "reaches_bottom_edge": true
+      }
+    },
+    "previous_spec": {
+      "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+      "headline_size_px": 104,
+      "headline_color": "#12263F",
+      "headline_top_y": 282,
+      "line_height": 1.2,
+      "headline_mark": {
+        "x": 72,
+        "y": 250,
+        "width": 64,
+        "height": 8
+      },
+      "sublabel_font": "Noto Sans JP Medium (wght 500)",
+      "sublabel_size_px": 44,
+      "sublabel_color": "#4A5B70",
+      "sublabel_gap_px": 28,
+      "column_width_px": 568,
+      "accent_bar": {
+        "x": 0,
+        "y": 663,
+        "width": 1200,
+        "height": 12
+      }
+    },
+    "production": {
+      "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+      "headline_size_px": 92,
+      "headline_color": "#12263F",
+      "headline_top_y": 367,
+      "line_height": 1.0,
+      "headline_mark": {
+        "x": 72,
+        "y": 322,
+        "width": 128,
+        "height": 18
+      },
+      "sublabel_font": "Noto Sans JP Bold (wght 700)",
+      "sublabel_size_px": 44,
+      "sublabel_color": "#12263F",
+      "sublabel_gap_px": 14,
+      "column_width_px": 568,
+      "accent_bar": {
+        "x": 0,
+        "y": 657,
+        "width": 1200,
+        "height": 18
+      }
+    },
+    "reasons": [
+      "The W1.4 pilots are the production baseline; the W1.5A spec put the headline about 85 px higher, with a mark half the size and a bar two thirds as thick.",
+      "Pilots 23 and 24 have the W1.5 structure (two headline lines + a sublabel below); the production baselines (448 / 540 / 604) sit midway between theirs (471/563/620 and 434/522/588).",
+      "Headline 92 px = median of the fitted pilot sizes (88-99); line height 1.0 (pilot pitch 88-92 px); still above the 90 px hard floor.",
+      "Mark 128 x 18 and a gap of 27 px to the first line's em top = pilot medians.",
+      "Bar 18 px flush with the bottom edge (y 657) = pilot median.",
+      "Sublabel Bold, navy, 44 px = the Japanese sublabel of pilot 24."
+    ],
+    "deviations_from_pilots": [
+      "x stays at 72 (the W1 left safe margin) instead of the pilots' 58-63: about 3 px at 320x180 and 1 px at 126x71.",
+      "Sublabel em bottom 609 stays inside the 615 bottom margin (pilot 23 reached about 625)."
+    ]
   },
   "batches": [
     {
@@ -364,35 +508,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          520,
-          520
+          460,
+          448
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0D9488"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 396,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0D9488"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article compares 7 tools across CRM, project, task, iPaaS and AI scheduling; the category glyphs stand for that spread without naming any product.",
@@ -506,35 +650,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          413,
-          416
+          365,
+          364
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0284C7"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 264,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0284C7"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article covers Krisp and Fireflies.ai only; the two cards reflect 'two options' without naming them."
@@ -646,35 +790,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          520,
-          517
+          434,
+          453
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0369A1"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 396,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0369A1"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article compares by supported languages, audio-file handling and price; the file card and globe reflect the first two."
@@ -786,35 +930,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          332,
-          312
+          292,
+          273
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#EA580C"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 440,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#EA580C"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article covers HubSpot and Pipedrive: a customer platform and a sales pipeline; the two panels mirror that difference without names."
@@ -926,35 +1070,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          453,
-          520
+          400,
+          434
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#EA580C"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 308,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#EA580C"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "'HubSpot' is plain type in the headline (no logo lettering). Prices are 'as of 2026-09' and must never appear in the image."
@@ -1065,35 +1209,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          413,
-          520
+          365,
+          455
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0284C7"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 440,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0284C7"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article compares only two tools on five axes (free range, price band, annual discount, features, uses)."
@@ -1206,35 +1350,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          413,
-          208
+          365,
+          167
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0284C7"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 308,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0284C7"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "Headline mirrors pilot 24 ('AIエージェント/とは') on purpose: category-landing articles share the 'とは' pattern."
@@ -1346,35 +1490,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          413,
-          520
+          365,
+          459
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0284C7"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 484,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0284C7"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article's core is 'Free forever' vs a 7-day trial; the day count must not appear (it can change)."
@@ -1486,35 +1630,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          413,
-          520
+          365,
+          459
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0284C7"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 440,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0284C7"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article stresses per-seat billing, monthly vs annual amounts and whether upper plans publish a price."
@@ -1627,35 +1771,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          272,
-          520
+          242,
+          459
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#16A34A"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 396,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#16A34A"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "Step markers use dots, not digits, so no numeric text is generated."
@@ -1767,35 +1911,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          272,
-          520
+          242,
+          445
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#16A34A"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 352,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#16A34A"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article's point is that active scenarios, run interval and run time change per plan, not just the price."
@@ -1908,35 +2052,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          312,
-          520
+          267,
+          434
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#0369A1"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 484,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#0369A1"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article is neutral ('not recommending a service'); the caution mark keeps the card informational."
@@ -2047,35 +2191,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          520,
-          520
+          443,
+          442
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#DB2777"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 484,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#DB2777"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article covers ClickUp and monday.com; board + timeline reflect 'tasks and dashboards' without names.",
@@ -2183,35 +2327,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          523,
-          312
+          448,
+          274
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#EA580C"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 396,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#EA580C"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article reads the difference from what each product officially covers, so overlap (not opposition) is the right shape."
@@ -2323,35 +2467,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          457,
-          520
+          393,
+          437
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#DB2777"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 396,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#DB2777"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "'Notion' is plain type in the headline only."
@@ -2463,35 +2607,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          414,
-          416
+          367,
+          364
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#16A34A"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 440,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#16A34A"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article is explicitly 'not a ranking'; the funnel narrows by conditions instead of showing a winner."
@@ -2603,35 +2747,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          206,
-          520
+          183,
+          458
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#16A34A"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 440,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#16A34A"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article stresses that amounts are not comparable (units, currency and period differ), so the matrix uses symbols only."
@@ -2740,35 +2884,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          414,
-          416
+          367,
+          366
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#16A34A"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 484,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#16A34A"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article's first decisions are: one target task, attended vs unattended, and the billing unit."
@@ -2878,35 +3022,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          413,
-          312
+          364,
+          273
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#4F46E5"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
         "sublabel_measured_width_px": 528,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#4F46E5"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article's frame is 'free range / add-on to an existing contract / built into another tool'."
@@ -3019,35 +3163,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          312,
-          312
+          275,
+          274
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#475569"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
-        "sublabel_measured_width_px": 436,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
+        "sublabel_measured_width_px": 439,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#475569"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article covers the MIC/METI 'AI事業者ガイドライン' (v1.2): 3 basic principles, 10 common guidelines, main part vs appendix.",
@@ -3161,35 +3305,35 @@
       ],
       "typesetting": {
         "headline_font": "Noto Sans JP Bold (wght 700), palt on",
-        "headline_size_px": 104,
+        "headline_size_px": 92,
         "headline_color": "#12263F",
-        "headline_top_y": 282,
-        "line_height": 1.2,
+        "headline_top_y": 367,
+        "line_height": 1.0,
         "headline_measured_width_px": [
-          520,
-          416
+          434,
+          355
         ],
         "headline_mark": {
           "x": 72,
-          "y": 250,
-          "width": 64,
-          "height": 8,
+          "y": 322,
+          "width": 128,
+          "height": 18,
           "color": "#475569"
         },
-        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_font": "Noto Sans JP Bold (wght 700)",
         "sublabel_size_px": 44,
-        "sublabel_color": "#4A5B70",
-        "sublabel_gap_px": 28,
-        "sublabel_measured_width_px": 436,
+        "sublabel_color": "#12263F",
+        "sublabel_gap_px": 14,
+        "sublabel_measured_width_px": 439,
         "column_width_px": 568,
         "accent_bar": {
           "x": 0,
-          "y": 663,
+          "y": 657,
           "width": 1200,
-          "height": 12,
+          "height": 18,
           "color": "#475569"
         },
-        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+        "measured_with": "NotoSansJP-VF 2.004 instanced with fontTools (headline wght 700 with palt from GPOS; sublabel wght 700 without palt), advance widths, 2026-09-25"
       },
       "notes": [
         "The article covers risk-based approach, agile governance, five stages, goals aligned with management and the value chain."

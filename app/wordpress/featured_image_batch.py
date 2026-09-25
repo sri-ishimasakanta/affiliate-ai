@@ -5,7 +5,8 @@
 
 - 画像生成の文 (文字なしの背景とモチーフだけ)。manifest の ``generation_prompt`` に、
   文字を描かせないための決まった文を足しただけ。
-- 組版の座標 (見出しの印・見出しの各行・補助語・下端のアクセント帯)。W1 の規則から計算する。
+- 組版の座標 (見出しの印・見出しの各行・補助語・下端のアクセント帯)。manifest の
+  ``typesetting`` (= ``PRODUCTION_TYPESETTING``) から計算する。
 
 WordPress にも DB にも触らない。標準ライブラリだけを使う (Pillow の無い環境でも import できる。
 画像を実際に組むのは ``scripts/compose_featured_image.py``)。
@@ -25,16 +26,45 @@ W15_SCHEMA = "featured-image-w1.5/1"
 CANVAS = (1200, 675)
 MARGIN = {"top": 60, "bottom": 60, "left": 72, "right": 72}
 LABEL_ZONE = (0, 0, 560, 170)
-MARK = (72, 250, 64, 8)
-HEADLINE_TOP = 282
-LINE_HEIGHT = 1.2
-SUBLABEL_GAP = 28
-ACCENT_BAR = (0, 663, 1200, 12)
 BACKGROUND = "#F5F7FA"
 # Noto Sans CJK / JP の em box: 上端から 0.88em 下が baseline (OS/2 sTypoAscender 880 /
 # sTypoDescender -120, unitsPerEm 1000)。「上端 y」は em box の上端として扱う。
 EM_ASCENT = 0.88
 EM_DESCENT = 0.12
+
+# W1.5 の本番の組版。W1.5B.1 で、適用済みの試作 4 枚 (20 / 23 / 24 / 25) の画像を測って
+# 較正した値。manifest の各記事の ``typesetting`` はこれと同じでなければならない
+# (座標の系は 1 つだけ。色は記事のアクセント色で、ここには持たない)。
+PRODUCTION_TYPESETTING = {
+    "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+    "headline_size_px": 92,
+    "headline_color": "#12263F",
+    "headline_top_y": 367,
+    "line_height": 1.0,
+    "headline_mark": {"x": 72, "y": 322, "width": 128, "height": 18},
+    "sublabel_font": "Noto Sans JP Bold (wght 700)",
+    "sublabel_size_px": 44,
+    "sublabel_color": "#12263F",
+    "sublabel_gap_px": 14,
+    "column_width_px": 568,
+    "accent_bar": {"x": 0, "y": 657, "width": 1200, "height": 18},
+}
+# 較正の前の W1.5A の仕様 (記録のためだけ。組版には使わない)。
+PREVIOUS_TYPESETTING = {
+    "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+    "headline_size_px": 104,
+    "headline_color": "#12263F",
+    "headline_top_y": 282,
+    "line_height": 1.2,
+    "headline_mark": {"x": 72, "y": 250, "width": 64, "height": 8},
+    "sublabel_font": "Noto Sans JP Medium (wght 500)",
+    "sublabel_size_px": 44,
+    "sublabel_color": "#4A5B70",
+    "sublabel_gap_px": 28,
+    "column_width_px": 568,
+    "accent_bar": {"x": 0, "y": 663, "width": 1200, "height": 12},
+}
+_WEIGHT = re.compile(r"wght (\d+)")
 
 # 画像生成の文に足す決まった文 (設計ではなく、文字を描かせないための共通の指示)。
 TEXTLESS_SUFFIX = (
@@ -126,16 +156,41 @@ def _round(value: float) -> int:
     return math.floor(value + 0.5)
 
 
+def font_weight(font: str) -> int:
+    """``"Noto Sans JP Bold (wght 700), palt on"`` → 700。"""
+
+    match = _WEIGHT.search(font)
+    if match is None:
+        raise BatchPackageError(f"no wght in font description: {font!r}")
+    return int(match.group(1))
+
+
+def production_typesetting_problems(typesetting: Mapping) -> list[str]:
+    """manifest の ``typesetting`` が本番の組版 (``PRODUCTION_TYPESETTING``) と違う点。"""
+
+    problems = []
+    for key, expected in PRODUCTION_TYPESETTING.items():
+        actual = typesetting.get(key)
+        if isinstance(expected, dict):
+            actual = {k: v for k, v in (actual or {}).items() if k != "color"}
+        if actual != expected:
+            problems.append(f"{key} is {actual!r}, production is {expected!r}")
+    return problems
+
+
 def typesetting_plan(typesetting: Mapping, lines: list[str], sublabel: str) -> dict:
-    """W1 の規則から、組版の座標を決める (同じ入力なら必ず同じ座標)。"""
+    """manifest の ``typesetting`` から、組版の座標を決める (同じ入力なら必ず同じ座標)。"""
 
     size = int(typesetting["headline_size_px"])
     sub_size = int(typesetting["sublabel_size_px"])
-    pitch = size * LINE_HEIGHT
-    x = MARK[0]
+    pitch = size * float(typesetting["line_height"])
+    top = float(typesetting["headline_top_y"])
+    mark = typesetting["headline_mark"]
+    bar = typesetting["accent_bar"]
+    x = int(mark["x"])
     headline = []
     for index, text in enumerate(lines):
-        em_top = HEADLINE_TOP + index * pitch
+        em_top = top + index * pitch
         headline.append(
             {
                 "text": text,
@@ -144,29 +199,31 @@ def typesetting_plan(typesetting: Mapping, lines: list[str], sublabel: str) -> d
                 "baseline_y": _round(em_top + EM_ASCENT * size),
             }
         )
-    sub_em_top = HEADLINE_TOP + len(lines) * pitch + SUBLABEL_GAP
+    sub_em_top = top + len(lines) * pitch + float(typesetting["sublabel_gap_px"])
     sub_baseline = _round(sub_em_top + EM_ASCENT * sub_size)
     return {
         "canvas": {"width": CANVAS[0], "height": CANVAS[1], "background": BACKGROUND},
         "mark": {
-            "x": MARK[0],
-            "y": MARK[1],
-            "width": MARK[2],
-            "height": MARK[3],
-            "color": typesetting["headline_mark"]["color"],
+            "x": mark["x"],
+            "y": mark["y"],
+            "width": mark["width"],
+            "height": mark["height"],
+            "color": mark["color"],
         },
         "headline": {
-            "font": "Noto Sans JP Bold (wght 700)",
+            "font": typesetting["headline_font"],
+            "weight": font_weight(typesetting["headline_font"]),
             "size_px": size,
             "color": typesetting["headline_color"],
             "line_pitch_px": round(pitch, 2),
             "anchor": "left-baseline (em box top + 0.88em)",
-            "palt": True,
+            "palt": "palt on" in typesetting["headline_font"],
             "max_width_px": int(typesetting["column_width_px"]),
             "lines": headline,
         },
         "sublabel": {
-            "font": "Noto Sans JP Medium (wght 500)",
+            "font": typesetting["sublabel_font"],
+            "weight": font_weight(typesetting["sublabel_font"]),
             "size_px": sub_size,
             "color": typesetting["sublabel_color"],
             "text": sublabel,
@@ -174,15 +231,15 @@ def typesetting_plan(typesetting: Mapping, lines: list[str], sublabel: str) -> d
             "em_top": round(sub_em_top, 2),
             "baseline_y": sub_baseline,
             "em_bottom": round(sub_em_top + sub_size, 2),
-            "palt": False,
+            "palt": "palt on" in typesetting["sublabel_font"],
             "max_width_px": int(typesetting["column_width_px"]),
         },
         "accent_bar": {
-            "x": ACCENT_BAR[0],
-            "y": ACCENT_BAR[1],
-            "width": ACCENT_BAR[2],
-            "height": ACCENT_BAR[3],
-            "color": typesetting["accent_bar"]["color"],
+            "x": bar["x"],
+            "y": bar["y"],
+            "width": bar["width"],
+            "height": bar["height"],
+            "color": bar["color"],
         },
         "safe_bottom_y": CANVAS[1] - MARGIN["bottom"],
     }
@@ -293,6 +350,8 @@ def validate_batch_package(package: Mapping, manifest: Mapping, *, manifest_sha2
                 problems.append(f"article {article_id}: {key} differs from the manifest")
         if item.get("typesetting") != article["typesetting"]:
             problems.append(f"article {article_id}: typesetting differs from the manifest")
+        for problem in production_typesetting_problems(article["typesetting"]):
+            problems.append(f"article {article_id}: manifest typesetting {problem}")
         expected_plan = typesetting_plan(
             article["typesetting"], article["headline"]["lines"], article["sublabel"]
         )
@@ -357,7 +416,8 @@ def render_handoff_markdown(package: Mapping) -> str:
             f"## {item['order']}. article {item['article_id']} — {item['title']}",
             "",
             f"- slug: `{item['slug']}` / URL: {item['url']}",
-            f"- 見出し: {lines} (104px) / 補助語: 「{item['sublabel']}」 (44px)",
+            f"- 見出し: {lines} ({plan['headline']['size_px']}px) / 補助語: 「{item['sublabel']}」 "
+            f"({plan['sublabel']['size_px']}px)",
             f"- アクセント色: `{item['accent']['color']}` ({item['accent']['family_name']})",
             f"- 背景のファイル: `{item['files']['background']}`",
             f"- 完成のファイル: `{files['final_webp']}` (master `{files['master_png']}`)",

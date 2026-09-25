@@ -33,19 +33,39 @@
 | モチーフの領域 | (660, 90, 468, 525) | 主モチーフ。記事ごとの箱と中心は各節の「構図」 |
 | 下端のアクセント帯 | (0, 663, 1200, 12) | アクセント色のベタ帯 |
 
-### 組版 (21 記事共通)
+### 組版 (21 記事共通。W1.5B.1 で適用済みの試作 4 枚に合わせて較正)
 
 | 要素 | 書体・太さ | サイズ | 色 | 位置 |
 | --- | --- | --- | --- | --- |
-| 見出しの印 | — | 64 × 8 のベタ | アクセント色 | (72, 250) |
-| 見出し | Noto Sans JP **Bold**、palt 有効 | **104px** (21 記事とも。2 行) | `#12263F` | 左揃え、上端 y = 282。行間 1.2 |
-| 補助語 | Noto Sans JP Medium | 44px | `#4A5B70` | 見出しの下 28px、左揃え |
+| 見出しの印 | — | 128 × 18 のベタ | アクセント色 | (72, 322) |
+| 見出し | Noto Sans JP **Bold**、palt 有効 | **92px** (21 記事とも。2 行) | `#12263F` | 左揃え、x = 72。1 行目の em box の上端 y = 367、行送り 92px (行間 1.0)。baseline は em box の上端 + 0.88em |
+| 補助語 | Noto Sans JP **Bold** | 44px | `#12263F` | 見出しの最後の行の em box の下端から 14px 下が em box の上端、左揃え |
+| 下端のアクセント帯 | — | 1200 × 18 | アクセント色 | (0, 657) (下端まで) |
 | 背景 | — | — | `#F5F7FA` | 全面。ごく薄い幾何学模様を 4〜6% の濃さで入れてよい |
 
-- 見出しはすべて **2 行・1 行あたり全角 5 字まで** に設計した。104px で最も広い行は
-  523px (「CRMとSFA」)、列は 568px。実測は NotoSansJP-VF の Bold (wght 700)、palt なし、
-  Pillow (2026-09-25)。palt を有効にすると同じか狭くなる。
-- 補助語は Medium (wght 500) 44px で最も広いものが 528px (「単体・追加契約・組み込み」)。
+- 見出しはすべて **2 行・1 行あたり全角 5 字まで**。92px・palt で最も広い行は
+  460px (「業務効率化」)、列は 568px。補助語は 44px で最も広いものが 528px (「単体・追加契約・組み込み」)。
+  実測は NotoSansJP-VF 2.004 を fontTools で wght 700 に固定し、palt は GPOS の値 (2026-09-25)。
+- 組版は `scripts/compose_featured_image.py` が行う (座標は manifest の `typesetting`。
+  `app/wordpress/featured_image_batch.py` の `PRODUCTION_TYPESETTING` と同じ値でなければ止まる)。
+
+#### 較正 (W1.5B.1)
+
+適用済みの試作 4 枚 (20 / 23 / 24 / 25) の画像を測り、W1.5A の仕様から次のとおり変えた
+(manifest の `typesetting_calibration` に測った値と理由を記録)。
+
+| 項目 | W1.5A の仕様 (廃止) | 本番 (W1.5B.1 以降) | 試作 4 枚で測った範囲 |
+| --- | --- | --- | --- |
+| 見出しの印 | 64×8 at (72, 250) | 128×18 at (72, 322) | 128〜131 × 17〜20、x 63、y 297〜352 |
+| 見出し | 104px、上端 282、行間 1.2 | 92px、上端 367、行間 1.0 (baseline 448 / 540) | 88〜99px、行送り 88〜92px |
+| 補助語 | Noto Sans JP Medium 44px `#4A5B70`、間 28px | Bold 44px `#12263F`、間 14px (baseline 604) | 44〜61px、Bold、紺 |
+| 下端の帯 | y 663、高さ 12 | y 657、高さ 18 | y 653〜658、高さ 17〜22 |
+
+試作と違えたところ (わずか):
+
+- x は W1 の左の安全余白 72 のまま (試作は 58〜63)。320×180 で約 3px、126×71 で約 1px の差。
+- 補助語の em box の下端は 609 で、下の余白 615 の内側 (試作 23 は約 625 まで下がっていた)。
+
 - サイズを記事ごとに変えない (一覧で並んだときに見出しの大きさがそろうように)。
 - 文字に影・縁取り・グラデーションを付けない。
 - 見出しの語は記事のタイトル全体ではなく、読んで得られることを短く示す語。商品名
@@ -113,7 +133,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 7 / `category_landing` |
 | URL | https://bizfluxlab.com/ai-meeting-notes/ |
 | slug | `ai-meeting-notes` |
-| **見出し (2 行, 104px)** | **「AI議事録」 / 「とは」** (実測 413px / 208px / 列 568px) |
+| **見出し (2 行, 92px)** | **「AI議事録」 / 「とは」** (実測 365px / 167px / 列 568px) |
 | 予備 | 「AI議事録入門」 / 「種類と観点」 (使う前に実測し直す) |
 | 補助語 (44px) | 種類と選ぶ観点 (実測 308px) |
 | アクセント色 | `#0284C7` (議事録・文字起こし) |
@@ -144,7 +164,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 2 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/ai-meeting-notes-tools/ |
 | slug | `ai-meeting-notes-tools` |
-| **見出し (2 行, 104px)** | **「AI議事録」 / 「の選び方」** (実測 413px / 416px / 列 568px) |
+| **見出し (2 行, 92px)** | **「AI議事録」 / 「の選び方」** (実測 365px / 364px / 列 568px) |
 | 予備 | 「AI議事録を選ぶ」 / 「目的別に選ぶ」 (使う前に実測し直す) |
 | 補助語 (44px) | 目的別の比較 (実測 264px) |
 | アクセント色 | `#0284C7` (議事録・文字起こし) |
@@ -175,7 +195,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 6 / `comparison_listicle` |
 | URL | https://bizfluxlab.com/ai-meeting-notes-comparison/ |
 | slug | `ai-meeting-notes-comparison` |
-| **見出し (2 行, 104px)** | **「AI議事録」 / 「違いを比較」** (実測 413px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「AI議事録」 / 「違いを比較」** (実測 365px / 455px / 列 568px) |
 | 予備 | 「2つの違い」 / 「違いの見方」 (使う前に実測し直す) |
 | 補助語 (44px) | 無料範囲・料金・機能 (実測 440px) |
 | アクセント色 | `#0284C7` (議事録・文字起こし) |
@@ -206,7 +226,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 8 / `pricing` |
 | URL | https://bizfluxlab.com/ai-meeting-notes-free/ |
 | slug | `ai-meeting-notes-free` |
-| **見出し (2 行, 104px)** | **「AI議事録」 / 「無料の範囲」** (実測 413px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「AI議事録」 / 「無料の範囲」** (実測 365px / 459px / 列 568px) |
 | 予備 | 「無料で使う」 / 「無料プラン」 (使う前に実測し直す) |
 | 補助語 (44px) | 無料プランとトライアル (実測 484px) |
 | アクセント色 | `#0284C7` (議事録・文字起こし) |
@@ -237,7 +257,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 9 / `pricing` |
 | URL | https://bizfluxlab.com/ai-meeting-notes-pricing/ |
 | slug | `ai-meeting-notes-pricing` |
-| **見出し (2 行, 104px)** | **「AI議事録」 / 「料金の見方」** (実測 413px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「AI議事録」 / 「料金の見方」** (実測 365px / 459px / 列 568px) |
 | 予備 | 「料金の見方」 / 「費用の見積もり」 (使う前に実測し直す) |
 | 補助語 (44px) | 人数・月払い・年払い (実測 440px) |
 | アクセント色 | `#0284C7` (議事録・文字起こし) |
@@ -274,7 +294,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 3 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/ai-transcription-tools/ |
 | slug | `ai-transcription-tools` |
-| **見出し (2 行, 104px)** | **「文字起こし」 / 「AIの選び方」** (実測 520px / 517px / 列 568px) |
+| **見出し (2 行, 92px)** | **「文字起こし」 / 「AIの選び方」** (実測 434px / 453px / 列 568px) |
 | 予備 | 「文字起こしAI」 / 「音声をテキストに」 (使う前に実測し直す) |
 | 補助語 (44px) | 言語とファイル対応 (実測 396px) |
 | アクセント色 | `#0369A1` (議事録・文字起こし (文字起こし寄り)) |
@@ -305,7 +325,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 12 / `informational` |
 | URL | https://bizfluxlab.com/ai-transcription-free/ |
 | slug | `ai-transcription-free` |
-| **見出し (2 行, 104px)** | **「無料で」 / 「文字起こし」** (実測 312px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「無料で」 / 「文字起こし」** (実測 267px / 434px / 列 568px) |
 | 予備 | 「無料の条件」 / 「無料と試用」 (使う前に実測し直す) |
 | 補助語 (44px) | 無料プランと試用の違い (実測 484px) |
 | アクセント色 | `#0369A1` (議事録・文字起こし (文字起こし寄り)) |
@@ -336,7 +356,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 13 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/project-management-tools/ |
 | slug | `project-management-tools` |
-| **見出し (2 行, 104px)** | **「チーム進捗」 / 「の見える化」** (実測 520px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「チーム進捗」 / 「の見える化」** (実測 443px / 442px / 列 568px) |
 | 予備 | 「進捗を1か所に」 / 「プロジェクト管理」 (使う前に実測し直す) |
 | 補助語 (44px) | プロジェクト管理ツール (実測 484px) |
 | アクセント色 | `#DB2777` (プロジェクト・タスク管理) |
@@ -367,7 +387,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 15 / `informational` |
 | URL | https://bizfluxlab.com/notion-task-management/ |
 | slug | `notion-task-management` |
-| **見出し (2 行, 104px)** | **「Notionで」 / 「タスク管理」** (実測 457px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「Notionで」 / 「タスク管理」** (実測 393px / 437px / 列 568px) |
 | 予備 | 「DBでタスク管理」 / 「タスクをDBで」 (使う前に実測し直す) |
 | 補助語 (44px) | データベースで表す (実測 396px) |
 | アクセント色 | `#DB2777` (プロジェクト・タスク管理) |
@@ -404,7 +424,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 1 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/%e6%a5%ad%e5%8b%99%e5%8a%b9%e7%8e%87%e5%8c%96-%e3%83%84%e3%83%bc%e3%83%ab-%e3%81%8a%e3%81%99%e3%81%99%e3%82%81-roundup/ |
 | slug | `業務効率化-ツール-おすすめ-roundup` |
-| **見出し (2 行, 104px)** | **「業務効率化」 / 「ツール選び」** (実測 520px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「業務効率化」 / 「ツール選び」** (実測 460px / 448px / 列 568px) |
 | 予備 | 「目的別に選ぶ」 / 「ツールの絞り方」 (使う前に実測し直す) |
 | 補助語 (44px) | 用途別に候補を絞る (実測 396px) |
 | アクセント色 | `#0D9488` (AI・業務効率化 (ツール総論)) |
@@ -435,7 +455,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 4 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/crm-tools/ |
 | slug | `crm-tools` |
-| **見出し (2 行, 104px)** | **「CRMの」 / 「選び方」** (実測 332px / 312px / 列 568px) |
+| **見出し (2 行, 92px)** | **「CRMの」 / 「選び方」** (実測 292px / 273px / 列 568px) |
 | 予備 | 「CRMを選ぶ」 / 「CRM選び」 (使う前に実測し直す) |
 | 補助語 (44px) | 無料範囲と有料プラン (実測 440px) |
 | アクセント色 | `#EA580C` (CRM・SFA) |
@@ -466,7 +486,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 5 / `pricing` |
 | URL | https://bizfluxlab.com/hubspot-pricing/ |
 | slug | `hubspot-pricing` |
-| **見出し (2 行, 104px)** | **「HubSpot」 / 「プラン選び」** (実測 453px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「HubSpot」 / 「プラン選び」** (実測 400px / 434px / 列 568px) |
 | 予備 | 「HubSpot料金」 / 「プランと費用」 (使う前に実測し直す) |
 | 補助語 (44px) | 月額と初期費用 (実測 308px) |
 | アクセント色 | `#EA580C` (CRM・SFA) |
@@ -497,7 +517,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 14 / `comparison_listicle` |
 | URL | https://bizfluxlab.com/crm-sfa-difference/ |
 | slug | `crm-sfa-difference` |
-| **見出し (2 行, 104px)** | **「CRMとSFA」 / 「の違い」** (実測 523px / 312px / 列 568px) |
+| **見出し (2 行, 92px)** | **「CRMとSFA」 / 「の違い」** (実測 448px / 274px / 列 568px) |
 | 予備 | 「範囲の違い」 / 「CRMとSFA」 (使う前に実測し直す) |
 | 補助語 (44px) | 扱う範囲で読み解く (実測 396px) |
 | アクセント色 | `#EA580C` (CRM・SFA) |
@@ -534,7 +554,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 10 / `how_to` |
 | URL | https://bizfluxlab.com/make-how-to/ |
 | slug | `make-how-to` |
-| **見出し (2 行, 104px)** | **「Make」 / 「最初の手順」** (実測 272px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「Make」 / 「最初の手順」** (実測 242px / 459px / 列 568px) |
 | 予備 | 「Makeの始め方」 / 「シナリオを作る」 (使う前に実測し直す) |
 | 補助語 (44px) | シナリオ作りの流れ (実測 396px) |
 | アクセント色 | `#16A34A` (RPA・自動化) |
@@ -565,7 +585,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 11 / `pricing` |
 | URL | https://bizfluxlab.com/make-pricing/ |
 | slug | `make-pricing` |
-| **見出し (2 行, 104px)** | **「Make」 / 「料金と上限」** (実測 272px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「Make」 / 「料金と上限」** (実測 242px / 445px / 列 568px) |
 | 予備 | 「Make料金」 / 「プランの上限」 (使う前に実測し直す) |
 | 補助語 (44px) | プランごとの制限 (実測 352px) |
 | アクセント色 | `#16A34A` (RPA・自動化) |
@@ -596,7 +616,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 16 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/rpa-tools/ |
 | slug | `rpa-tools` |
-| **見出し (2 行, 104px)** | **「RPA製品」 / 「の選び方」** (実測 414px / 416px / 列 568px) |
+| **見出し (2 行, 92px)** | **「RPA製品」 / 「の選び方」** (実測 367px / 364px / 列 568px) |
 | 予備 | 「RPAを選ぶ」 / 「候補の絞り方」 (使う前に実測し直す) |
 | 補助語 (44px) | 料金の公開状況も整理 (実測 440px) |
 | アクセント色 | `#16A34A` (RPA・自動化) |
@@ -627,7 +647,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 17 / `comparison_listicle` |
 | URL | https://bizfluxlab.com/rpa-comparison/ |
 | slug | `rpa-comparison` |
-| **見出し (2 行, 104px)** | **「RPA」 / 「違いの見方」** (実測 206px / 520px / 列 568px) |
+| **見出し (2 行, 92px)** | **「RPA」 / 「違いの見方」** (実測 183px / 458px / 列 568px) |
 | 予備 | 「RPAの違い」 / 「課金の違い」 (使う前に実測し直す) |
 | 補助語 (44px) | 課金単位とライセンス (実測 440px) |
 | アクセント色 | `#16A34A` (RPA・自動化) |
@@ -658,7 +678,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 18 / `how_to` |
 | URL | https://bizfluxlab.com/rpa-implementation/ |
 | slug | `rpa-implementation` |
-| **見出し (2 行, 104px)** | **「RPA導入」 / 「の進め方」** (実測 414px / 416px / 列 568px) |
+| **見出し (2 行, 92px)** | **「RPA導入」 / 「の進め方」** (実測 367px / 366px / 列 568px) |
 | 予備 | 「導入の順序」 / 「RPA導入手順」 (使う前に実測し直す) |
 | 補助語 (44px) | 対象業務の絞り込みから (実測 484px) |
 | アクセント色 | `#16A34A` (RPA・自動化) |
@@ -695,7 +715,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 19 / `recommendation_roundup` |
 | URL | https://bizfluxlab.com/generative-ai-tools/ |
 | slug | `generative-ai-tools` |
-| **見出し (2 行, 104px)** | **「生成AIの」 / 「選び方」** (実測 413px / 312px / 列 568px) |
+| **見出し (2 行, 92px)** | **「生成AIの」 / 「選び方」** (実測 364px / 273px / 列 568px) |
 | 予備 | 「使う形で選ぶ」 / 「生成AIを選ぶ」 (使う前に実測し直す) |
 | 補助語 (44px) | 単体・追加契約・組み込み (実測 528px) |
 | アクセント色 | `#4F46E5` (AIエージェント・生成AI) |
@@ -726,9 +746,9 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 21 / `informational` |
 | URL | https://bizfluxlab.com/generative-ai-guidelines/ |
 | slug | `generative-ai-guidelines` |
-| **見出し (2 行, 104px)** | **「指針の」 / 「読み方」** (実測 312px / 312px / 列 568px) |
+| **見出し (2 行, 92px)** | **「指針の」 / 「読み方」** (実測 275px / 274px / 列 568px) |
 | 予備 | 「ガイドライン」 / 「文書の構成」 (使う前に実測し直す) |
-| 補助語 (44px) | AI事業者ガイドライン (実測 436px) |
+| 補助語 (44px) | AI事業者ガイドライン (実測 439px) |
 | アクセント色 | `#475569` (ガイドライン・ガバナンス) |
 | ファイル名 | `featured-21-generative-ai-guidelines.webp` |
 | alt | AI事業者ガイドラインの構成を表す文書とチェックリストの図 |
@@ -757,9 +777,9 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 | article_id / type | 22 / `informational` |
 | URL | https://bizfluxlab.com/ai-governance/ |
 | slug | `ai-governance` |
-| **見出し (2 行, 104px)** | **「ガバナンス」 / 「の回し方」** (実測 520px / 416px / 列 568px) |
+| **見出し (2 行, 92px)** | **「ガバナンス」 / 「の回し方」** (実測 434px / 355px / 列 568px) |
 | 予備 | 「AIガバナンス」 / 「体制と運用」 (使う前に実測し直す) |
-| 補助語 (44px) | AIの体制と運用モデル (実測 436px) |
+| 補助語 (44px) | AIの体制と運用モデル (実測 439px) |
 | アクセント色 | `#475569` (ガイドライン・ガバナンス) |
 | ファイル名 | `featured-22-ai-governance.webp` |
 | alt | AIガバナンスの運用サイクルを表す循環図 |

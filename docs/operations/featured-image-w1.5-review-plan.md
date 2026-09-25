@@ -86,20 +86,16 @@ uv run --no-project --with pillow --with fonttools python scripts/compose_featur
   `C:\Windows\Fonts\NotoSansJP-VF.ttf` を wght 700 / 500 に固定したものを
   `artifacts/featured-images/w1.5/.font-cache/` に作って使う。
 
-### 2.2 確かめたい点: 試作 4 枚の実際の配置
+### 2.2 試作 4 枚に合わせた組版 (W1.5B.1 で解決)
 
-試作 4 枚 (適用済み) は、仕様の座標とは違う配置で作られていた (画像から測った値):
+W1.5B では、試作 4 枚 (適用済み) が W1.5A の仕様の座標とは違う配置で作られていたことが
+わかった (仕様だと見出しが約 85px 高く、印と帯が細い)。W1.5B.1 で試作の画像を測り、W1.5 の
+本番の組版を試作に合わせて較正した。値は `featured-image-pipeline.md` §2.4.1、測った値と
+理由は manifest の `typesetting_calibration`。座標の系は 1 つだけ (manifest の `typesetting`
+= `PRODUCTION_TYPESETTING`。違えば道具が止まる)。
 
-| 項目 | 仕様 (W1.5 の組版) | 試作 4 枚 |
-| --- | --- | --- |
-| 見出しの印 | 64 × 8、(72, 250) | 約 128 × 17〜20、x ≈ 63、y ≈ 297〜352 |
-| 見出しの位置 | 上端 y = 282 から下へ | 下に寄せてある (最終行の下端 y ≈ 575〜618) |
-| 下端の帯 | 高さ 12 | 高さ 17〜22 |
-
-W1.5B は仕様 (manifest) のとおりに組む。試作と並べたとき見出しが高く、印と帯が細く見える。
-合わせるかどうかは、バッチ 1 の一覧の見本 (`contact-sheet --with-pilots`) を見て人が決める。
-合わせる場合は manifest の `typesetting` を直し、パッケージを作り直す (道具は座標を
-manifest と `featured_image_batch.py` の定数から取る)。
+較正のあとに確かめること: `contact-sheet --with-pilots` の 3 枚
+(`…-proofs.png` 縮小の一覧、`…-compare.png` 横線つきの並び、`…-mobile.png` 126×71 を 3 倍)。
 
 止める条件 (W1.4 と同じ):
 

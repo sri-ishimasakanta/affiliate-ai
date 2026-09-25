@@ -10,8 +10,8 @@
 - 入力は ``prepare_featured_image_batch.py package`` が作った ``batch-manifest.json`` と、
   ``backgrounds/`` に置いた文字なしの背景。組む前に、パッケージが今の W1.5 manifest の
   写しのままかを確かめる (違えば何も書かない)。
-- 見出しは Noto Sans JP Bold (wght 700)、palt (プロポーショナル詰め) は font の GPOS から
-  読んで適用する。補助語は Medium (wght 500)、palt なし。座標は ``typesetting_plan`` のとおり。
+- 書体の太さ・大きさ・色・座標はすべて ``typesetting_plan`` (= manifest の ``typesetting``) の
+  とおり。palt (プロポーショナル詰め) は font の GPOS から読んで適用する (見出しだけ)。
 - 出力: master の PNG と WebP (``<dir>/`` 直下。W1.4 の apply の道具の ``--dir`` と同じ置き方)、
   ``compose-report.json``。既にある完成のファイルは ``--force`` が無ければ上書きしない
   (承認済みの画像を黙って差し替えないため)。
@@ -75,9 +75,18 @@ class Fonts:
 
         self.source = source
         self.source_sha256 = sha256_of(source)
-        self.paths = {w: self._instance(w, cache_dir) for w in (700, 500)}
-        self._fonts = {w: TTFont(p) for w, p in self.paths.items()}
-        self.version = self._fonts[700]["name"].getDebugName(5)
+        self._cache_dir = cache_dir
+        self.paths: dict[int, Path] = {}
+        self._fonts: dict[int, TTFont] = {}
+        self.version = TTFont(source)["name"].getDebugName(5)
+
+    def _font(self, weight: int):
+        if weight not in self._fonts:
+            from fontTools.ttLib import TTFont
+
+            self.paths[weight] = self._instance(weight, self._cache_dir)
+            self._fonts[weight] = TTFont(self.paths[weight])
+        return self._fonts[weight]
 
     def _instance(self, weight: int, cache_dir: Path) -> Path:
         target = cache_dir / f"NotoSansJP-wght{weight}-{self.source_sha256[:12]}.ttf"
@@ -93,10 +102,11 @@ class Fonts:
     def pil(self, weight: int, size: int):
         from PIL import ImageFont
 
+        self._font(weight)
         return ImageFont.truetype(str(self.paths[weight]), size)
 
     def metrics(self, weight: int, text: str, *, palt: bool) -> tuple[dict, int]:
-        font = self._fonts[weight]
+        font = self._font(weight)
         cmap = font.getBestCmap()
         hmtx = font["hmtx"]
         lookups = self._palt_lookups(font) if palt else []
@@ -167,7 +177,7 @@ def typeset(image, item: dict, fonts: Fonts) -> dict:
         width = _draw_text(
             draw,
             fonts,
-            700,
+            head["weight"],
             head["size_px"],
             line["text"],
             line["x"],
@@ -182,7 +192,7 @@ def typeset(image, item: dict, fonts: Fonts) -> dict:
     sub_width = _draw_text(
         draw,
         fonts,
-        500,
+        sub["weight"],
         sub["size_px"],
         sub["text"],
         sub["x"],
@@ -404,10 +414,73 @@ def command_contact_sheet(directory: Path, package: dict, fonts: Fonts, source, 
             tag = f"{label}  {tw}x{th}" + ("  grey" if grey else "")
             draw.text((x, y + th + 3), tag, font=caption_font, fill=(74, 91, 112))
         y += th + caption + pad
-    out = directory / f"contact-sheet-batch-{package['batch']}-{source}.png"
-    sheet.save(out, "PNG")
-    print(f"wrote {out}")
+    stem = f"contact-sheet-batch-{package['batch']}-{source}"
+    outputs = [directory / f"{stem}.png", directory / f"{stem}-compare.png"]
+    sheet.save(outputs[0], "PNG")
+    _compare_sheet(images, package, caption_font).save(outputs[1], "PNG")
+    if pilots:
+        outputs.append(directory / f"{stem}-mobile.png")
+        _mobile_sheet(images, caption_font).save(outputs[2], "PNG")
+    for out in outputs:
+        print(f"wrote {out}")
     return 0
+
+
+def _guide_rows(package: dict) -> list[tuple[str, int]]:
+    """比べやすくする横線: 印の上端・各行の baseline・補助語の baseline・帯の上端 (1200 基準)。"""
+
+    plan = package["items"][0]["typesetting_plan"]
+    rows = [("mark", plan["mark"]["y"])]
+    rows += [
+        (f"line {i + 1}", line["baseline_y"]) for i, line in enumerate(plan["headline"]["lines"])
+    ]
+    rows += [("sublabel", plan["sublabel"]["baseline_y"]), ("bar", plan["accent_bar"]["y"])]
+    return rows
+
+
+def _compare_sheet(images, package: dict, caption_font):
+    """400×225 で並べ、全列に同じ横線を引く (上の段がこのバッチ、下の段が試作)。"""
+
+    from PIL import Image, ImageDraw
+
+    tw, th, pad, caption, per_row = 400, 225, 16, 20, 5
+    rows = (len(images) + per_row - 1) // per_row
+    sheet = Image.new(
+        "RGB", (pad + per_row * (tw + pad), pad + rows * (th + caption + pad)), (255, 255, 255)
+    )
+    draw = ImageDraw.Draw(sheet)
+    scale = tw / CANVAS[0]
+    for index, (label, image) in enumerate(images):
+        col, row = index % per_row, index // per_row
+        x, y = pad + col * (tw + pad), pad + row * (th + caption + pad)
+        sheet.paste(image.resize((tw, th), Image.Resampling.LANCZOS), (x, y))
+        for _name, guide_y in _guide_rows(package):
+            gy = y + round(guide_y * scale)
+            draw.line((x, gy, x + tw - 1, gy), fill=(236, 72, 153), width=1)
+        draw.text((x, y + th + 3), label, font=caption_font, fill=(74, 91, 112))
+    names = ", ".join(f"{name} y={value}" for name, value in _guide_rows(package))
+    draw.text((pad, sheet.height - 18), f"guides: {names}", font=caption_font, fill=(236, 72, 153))
+    return sheet
+
+
+def _mobile_sheet(images, caption_font):
+    """126×71 (スマホの一覧) にラベルの箱を重ね、3 倍に拡大して並べる (画素の見え方を確かめる)。"""
+
+    from PIL import Image, ImageDraw
+
+    tw, th, zoom, pad, caption = 126, 71, 3, 16, 20
+    width = pad + len(images) * (tw * zoom + pad)
+    sheet = Image.new("RGB", (width, pad + th * zoom + caption + pad), (255, 255, 255))
+    draw = ImageDraw.Draw(sheet)
+    for index, (label, image) in enumerate(images):
+        thumb = image.resize((tw, th), Image.Resampling.LANCZOS)
+        thumb.paste(Image.new("RGB", (58, 17), (51, 51, 51)), (0, 0))
+        x = pad + index * (tw * zoom + pad)
+        sheet.paste(thumb.resize((tw * zoom, th * zoom), Image.Resampling.NEAREST), (x, pad))
+        draw.text(
+            (x, pad + th * zoom + 3), f"{label}  126x71 x3", font=caption_font, fill=(74, 91, 112)
+        )
+    return sheet
 
 
 def main(argv=None) -> int:

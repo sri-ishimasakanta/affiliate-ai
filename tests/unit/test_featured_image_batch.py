@@ -6,8 +6,9 @@ pin する契約:
   media の title・ファイル名・見分け方) は 1 文字も変えない。
 - バッチ 1 は 7 → 2 → 6 → 8 → 9 の順 (一覧の見本も同じ順)。
 - 画像生成の文は manifest の文 + 決まった「文字なし」の文。日本語を含まない。
-- 組版の座標は W1 の規則 (印 (72, 250)・見出しの上端 282・104px・行間 1.2・補助語 44px・
-  下端の帯 y = 663) から決まり、下の余白に入らない。
+- 組版の座標は manifest の ``typesetting`` だけから決まり、それは試作 4 枚から較正した本番の
+  値 (印 128×18 at (72, 322)・92px・上端 367・行間 1.0・補助語 Bold 44px 紺・帯 (0, 657, 18))
+  と同じ。下の余白に入らない。古い仕様のままの manifest は止まる。
 - manifest と違うパッケージ (古い版・並べ替え・書き換え) は検査で止まる。
 """
 
@@ -122,35 +123,64 @@ def test_generation_prompts_are_textless_and_keep_the_committed_text(package) ->
         assert item["sublabel"] not in gen["single_prompt"]
 
 
-def test_the_typesetting_plan_follows_the_w1_layout(package) -> None:
+def test_the_typesetting_plan_follows_the_calibrated_production_layout(package) -> None:
     plan = package["items"][0]["typesetting_plan"]
-    assert (plan["mark"]["x"], plan["mark"]["y"]) == (72, 250)
-    assert (plan["mark"]["width"], plan["mark"]["height"]) == (64, 8)
+    assert (plan["mark"]["x"], plan["mark"]["y"]) == (72, 322)
+    assert (plan["mark"]["width"], plan["mark"]["height"]) == (128, 18)
     head = plan["headline"]
-    assert head["size_px"] == 104 and head["line_pitch_px"] == 124.8 and head["palt"] is True
-    assert [line["em_top"] for line in head["lines"]] == [282, 406.8]
-    assert [line["baseline_y"] for line in head["lines"]] == [374, 498]
+    assert (head["size_px"], head["line_pitch_px"], head["weight"]) == (92, 92.0, 700)
+    assert head["palt"] is True
+    assert [line["em_top"] for line in head["lines"]] == [367, 459]
+    assert [line["baseline_y"] for line in head["lines"]] == [448, 540]
     assert [line["x"] for line in head["lines"]] == [72, 72]
+    # 印の下端から 1 行目の em box の上端まで 27px (試作 4 枚の中央値)。
+    assert head["lines"][0]["em_top"] - (plan["mark"]["y"] + plan["mark"]["height"]) == 27
     sub = plan["sublabel"]
-    assert (sub["size_px"], sub["em_top"], sub["baseline_y"]) == (44, 559.6, 598)
+    assert (sub["size_px"], sub["weight"], sub["color"]) == (44, 700, "#12263F")
+    assert (sub["em_top"], sub["baseline_y"], sub["em_bottom"]) == (565, 604, 609)
     assert sub["em_bottom"] <= plan["safe_bottom_y"] == 615
-    assert plan["accent_bar"] == {"x": 0, "y": 663, "width": 1200, "height": 12, "color": "#0284C7"}
+    assert plan["accent_bar"] == {"x": 0, "y": 657, "width": 1200, "height": 18, "color": "#0284C7"}
     for item in package["items"]:
         assert item["typesetting_plan"]["mark"]["color"] == item["accent"]["color"]
+        assert item["typesetting_plan"]["headline"] | {"lines": None} == head | {"lines": None}
+
+
+def _typesetting(**overrides) -> dict:
+    from app.wordpress.featured_image_batch import PRODUCTION_TYPESETTING
+
+    value = copy.deepcopy(PRODUCTION_TYPESETTING)
+    value["headline_mark"]["color"] = value["accent_bar"]["color"] = "#000000"
+    value.update(overrides)
+    return value
 
 
 def test_a_one_line_headline_moves_the_sublabel_up() -> None:
-    typesetting = {
-        "headline_size_px": 104,
-        "sublabel_size_px": 44,
-        "headline_color": "#12263F",
-        "sublabel_color": "#4A5B70",
-        "column_width_px": 568,
-        "headline_mark": {"color": "#000000"},
-        "accent_bar": {"color": "#000000"},
-    }
-    plan = typesetting_plan(typesetting, ["AI議事録"], "補助語")
-    assert plan["sublabel"]["em_top"] == 434.8
+    plan = typesetting_plan(_typesetting(), ["AI議事録"], "補助語")
+    assert plan["sublabel"]["em_top"] == 367 + 92 + 14
+
+
+def test_the_plan_reads_every_coordinate_from_the_manifest_typesetting() -> None:
+    plan = typesetting_plan(_typesetting(headline_top_y=300, line_height=1.1), ["一", "二"], "補")
+    assert [line["em_top"] for line in plan["headline"]["lines"]] == [300, 401.2]
+
+
+def test_a_manifest_still_on_the_old_spec_is_refused(manifest, digest) -> None:
+    from app.wordpress.featured_image_batch import (
+        PREVIOUS_TYPESETTING,
+        production_typesetting_problems,
+    )
+
+    old = copy.deepcopy(manifest)
+    for article in old["articles"]:
+        for key, value in PREVIOUS_TYPESETTING.items():
+            if isinstance(value, dict):
+                value = {**value, "color": article["accent"]["color"]}
+            article["typesetting"][key] = value
+    assert production_typesetting_problems(old["articles"][0]["typesetting"])
+    package = build_batch_package(old, 1, manifest_path="x", manifest_sha256=digest)
+    problems = validate_batch_package(package, old, manifest_sha256=digest)
+    assert any("manifest typesetting headline_size_px" in p for p in problems)
+    assert any("manifest typesetting headline_mark" in p for p in problems)
 
 
 def test_layout_positions_apply_palt_adjustments() -> None:

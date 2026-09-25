@@ -7,7 +7,8 @@ pin する契約:
 - 対象は article 1〜19・21・22 の 21 記事。W1.4 の試作 (20 / 23 / 24 / 25) を含まない。
 - どの記事も ``status: planned`` (この段階では何も適用していない)。
 - キャンバスは 1200×675 で、試作と同じ余白・ラベル予約域を使う。
-- 見出しは 1〜2 行で、列の幅に収まる。サイズは 96〜112px (90px 未満は禁止)。
+- 見出しは 1〜2 行で、列の幅に収まる。サイズは canvas の範囲 (90px 未満は禁止)。
+- 各記事の組版は本番の値 (``PRODUCTION_TYPESETTING``、試作 4 枚から較正) と同じ。
 - モチーフは余白の内側・ラベル予約域の外。
 - 画像生成の文は日本語を含まず、ロゴ・製品画面・人物を頼まない。共通の禁止語を必ず付ける。
 - 見出し・補助語に金額や日付を入れない。見出しがタイトルそのものではない。
@@ -102,13 +103,15 @@ def test_the_canvas_matches_the_w1_pilot_system(doc) -> None:
     assert "WebP" in canvas["format"]
 
 
-def test_headlines_fit_the_column_at_an_allowed_size(articles) -> None:
+def test_headlines_fit_the_column_at_an_allowed_size(doc, articles) -> None:
+    allowed = doc["canvas"]["headline_px"]
     for a in articles:
         t, lines = a["typesetting"], a["headline"]["lines"]
         size, column = t["headline_size_px"], t["column_width_px"]
         assert 1 <= len(lines) <= 2
         assert "".join(lines) == a["headline"]["text"]
-        assert 96 <= size <= 112 and size >= 90
+        assert allowed["min"] <= size <= allowed["max"]
+        assert size >= allowed["hard_floor"] >= 90
         assert column <= a["composition"]["headline_column_px"][2]
         assert len(t["headline_measured_width_px"]) == len(lines)
         for line, measured in zip(lines, t["headline_measured_width_px"], strict=True):
@@ -151,9 +154,9 @@ def test_accents_follow_the_family(doc, articles) -> None:
         assert a["typesetting"]["headline_mark"]["color"] == color
         assert a["typesetting"]["accent_bar"] == {
             "x": 0,
-            "y": 663,
+            "y": 657,
             "width": 1200,
-            "height": 12,
+            "height": 18,
             "color": color,
         }
 
@@ -187,3 +190,33 @@ def test_distinguish_from_points_at_real_articles(articles) -> None:
             assert other["article_id"] in known
             assert other["article_id"] != a["article_id"]
             assert other["rule"]
+
+
+def test_every_article_uses_the_single_production_typesetting(doc, articles) -> None:
+    from app.wordpress.featured_image_batch import (
+        PREVIOUS_TYPESETTING,
+        PRODUCTION_TYPESETTING,
+        production_typesetting_problems,
+    )
+
+    for a in articles:
+        assert production_typesetting_problems(a["typesetting"]) == [], a["article_id"]
+    calibration = doc["typesetting_calibration"]
+    assert calibration["production"] == PRODUCTION_TYPESETTING
+    assert calibration["previous_spec"] == PREVIOUS_TYPESETTING
+    assert len(calibration["reference"]) == 4
+    assert calibration["reasons"]
+    # 本番の値は試作 4 枚で測った範囲の中 (x だけは安全余白を守って 72)。
+    measured = calibration["measured_pilot_ranges"]
+    mark = PRODUCTION_TYPESETTING["headline_mark"]
+    assert measured["mark"]["width"][0] <= mark["width"] <= measured["mark"]["width"][1]
+    assert measured["mark"]["height"][0] <= mark["height"] <= measured["mark"]["height"][1]
+    assert measured["mark"]["y"][0] <= mark["y"] <= measured["mark"]["y"][1]
+    low, high = measured["headline_size_px_fitted"]
+    assert low <= PRODUCTION_TYPESETTING["headline_size_px"] <= high
+    bar = PRODUCTION_TYPESETTING["accent_bar"]
+    assert (
+        measured["accent_bar"]["height"][0] <= bar["height"] <= measured["accent_bar"]["height"][1]
+    )
+    assert bar["y"] + bar["height"] == 675
+    assert mark["x"] == doc["canvas"]["outer_margin_px"]["left"]
