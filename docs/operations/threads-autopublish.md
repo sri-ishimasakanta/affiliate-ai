@@ -36,6 +36,23 @@ T3 の `ThreadsPublicationService.plan()` / `publish()` に次を入れた。
 `publish_threads_post.py --execute` で人が公開するときにも同じように効く。
 
 - **前回の実際の公開から 120 分空いていなければ公開しない。**
+
+  「実際の公開」の時刻 (間隔の起点) は、保存済みの記録から次の順で決める。
+  手動の公開も worker も queue の評価も、同じ `ThreadsPublicationService.gap_basis()`
+  を使う。
+
+  | 順 | 起点 | 記録の場所 |
+  | --- | --- | --- |
+  | 1 | Threads が返した投稿時刻 | `threads_publications.remote_timestamp` (読み戻しで保存) |
+  | 2 | 公開 API が成功を返した時刻 | `publish_container` の試行 (`succeeded`) の `finished_at` |
+  | 3 | 応答を取りこぼした公開を照合で確定した時刻 (実際より後 = 安全側) | `reconcile` の試行 (`succeeded`) の `finished_at` |
+  | 4 | 上のどれも無い過去の行だけ: 記録された `published_at` | 推測で作らない |
+
+  サイクルの開始・候補の選択・評価・読み戻しの完了 の時刻は起点にしない。
+  2026-09-25 の公開 #2 はサイクル開始 09:39:09 に対して Threads の投稿時刻が 09:39:45
+  だった。旧実装は 09:39:09 から測っていたので、次の最早時刻が 11:39:09 になっていた
+  (正しくは 11:39:45)。公開 #1 も `remote_timestamp` (18:24:25 UTC) を持つので、どちらも
+  保存済みの記録だけで正しい起点になる。スキーマの変更も、過去の行の書き換えもしていない。
 - 人が理由を付けて明示したときだけ、**間隔だけ** を上書きできる:
 
   ```bash

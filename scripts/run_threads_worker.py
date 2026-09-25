@@ -189,8 +189,9 @@ def _print_status(status: dict, *, mode: str) -> None:
     latest = status["latest_publication"]
     if latest:
         print(
-            f"latest publication    = #{latest['publication_id']} at {latest['published_local']} "
-            f"({latest['minutes_since']} min ago)"
+            f"latest publication    = #{latest['publication_id']} at "
+            f"{latest['actual_published_local']} [{latest['gap_basis_source']}] "
+            f"(cycle recorded {latest['published_local']})"
         )
         print(
             f"latest insight        = {latest['maturity']} comparable={latest['comparable']} "

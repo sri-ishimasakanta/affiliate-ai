@@ -251,7 +251,9 @@ def test_the_next_call_waits_for_the_gap_and_never_catches_up(
 
     assert first.published and not second.attempted
     assert "gap_not_elapsed" in second.blocked_reasons
-    assert second.next_evaluation_at == _NOW + timedelta(minutes=120)
+    # 起点は公開 API が成功を返した時刻 (代役の読み戻しには投稿時刻が無いため)。
+    gap_end = second.next_evaluation_at - (_NOW + timedelta(minutes=120))
+    assert timedelta(0) <= gap_end < timedelta(seconds=1)
     assert _count(session, ThreadsPublication) == 1
 
     later = publisher.publish_one(now=_NOW + timedelta(minutes=121))

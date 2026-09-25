@@ -643,6 +643,7 @@ class ThreadsWorkerService:
             # そろっているのに automatic_publication_disabled を出さない。
             evaluation = queue.evaluate(now=now, publication_enabled=self.capabilities["publish"])
             latest = queue.latest_publication()
+            basis = queue.latest_gap_basis()
             counts = queue.counts()
             today = queue.published_today(now)
             latest_snapshot = None
@@ -673,6 +674,12 @@ class ThreadsWorkerService:
                 maturity = classify_maturity(age_hours, self._measurement)
                 latest_view = {
                     "publication_id": latest.id,
+                    # 間隔の起点になる実際の公開時刻 (Threads の投稿時刻が優先)。
+                    "actual_published_at": basis.at.isoformat() if basis else None,
+                    "actual_published_local": (
+                        to_local(basis.at, self._tz).isoformat() if basis else None
+                    ),
+                    "gap_basis_source": basis.source if basis else None,
                     "proposal_id": latest.proposal_id,
                     "angle": latest.angle,
                     "published_at": published.isoformat(),
@@ -701,7 +708,7 @@ class ThreadsWorkerService:
 
         timing = publication_timing(
             now=now,
-            last_published_at=ensure_aware(latest.published_at) if latest else None,
+            last_published_at=basis.at if basis else None,
             policy=self._policy,
             tz=self._tz,
         )

@@ -79,12 +79,14 @@ class ThreadsQueueService:
     def facts(self, *, now: datetime | None = None) -> QueueFacts:
         now = ensure_aware(now or datetime.now(UTC))
         status = self._threads.describe()
-        last = self.latest_publication()
+        # 間隔は **実際の公開時刻** から測る。T3 の書き込み経路と同じ起点を使う。
+        basis = self.latest_gap_basis()
+        last = self._session.get(ThreadsPublication, basis.publication_id) if basis else None
         return QueueFacts(
             now=now,
             threads_state=status.state,
             candidates=tuple(self._candidate_facts()),
-            last_published_at=ensure_aware(last.published_at) if last else None,
+            last_published_at=basis.at if basis else None,
             last_published_angle=last.angle if last else None,
             last_published_article_id=last.source_article_id if last else None,
             published_today=self.published_today(now),
@@ -132,16 +134,16 @@ class ThreadsQueueService:
         }
 
     # -- publications ------------------------------------------------------------
+    def latest_gap_basis(self):
+        """最後の公開の **実際の** 時刻 (T3 と同じ計算)。"""
+
+        return self._publications.latest_gap_basis()
+
     def latest_publication(self) -> ThreadsPublication | None:
-        return self._session.scalars(
-            select(ThreadsPublication)
-            .where(
-                ThreadsPublication.status == PUB_PUBLISHED,
-                ThreadsPublication.published_at.is_not(None),
-            )
-            .order_by(ThreadsPublication.published_at.desc(), ThreadsPublication.id.desc())
-            .limit(1)
-        ).first()
+        """実際の公開時刻が最も新しい公開。"""
+
+        basis = self.latest_gap_basis()
+        return self._session.get(ThreadsPublication, basis.publication_id) if basis else None
 
     def uncertain_publication_ids(self) -> list[int]:
         """照合が済んでいない公開。**1 件でもあれば queue 全体を止める。**"""
@@ -164,12 +166,10 @@ class ThreadsQueueService:
 
         start, end = local_day_bounds(now, self._tz)
         rows = self._session.scalars(
-            select(ThreadsPublication.published_at).where(
-                ThreadsPublication.status == PUB_PUBLISHED,
-                ThreadsPublication.published_at.is_not(None),
-            )
+            select(ThreadsPublication).where(ThreadsPublication.status == PUB_PUBLISHED)
         ).all()
-        return sum(1 for value in rows if start <= ensure_aware(value) < end)
+        bases = [self._publications.gap_basis(row) for row in rows]
+        return sum(1 for basis in bases if basis is not None and start <= basis.at < end)
 
     def mature_post_count(self, now: datetime) -> int:
         """比較に使える投稿の数。**成熟していて、観測できている** ものだけ数える。"""

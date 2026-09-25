@@ -73,6 +73,61 @@ class ThreadsPublicationError(ApplicationError):
         self.reason = reason
 
 
+# -- 間隔の起点 (T4.3 の最初の自動公開で見つかった仕様のずれを直した) -----------------
+#: 起点の出どころ。上から順に信頼する。
+GAP_BASIS_REMOTE = "remote_timestamp"
+GAP_BASIS_PUBLISH_RETURNED = "publish_api_returned"
+GAP_BASIS_RECONCILED = "reconcile_confirmed"
+GAP_BASIS_LEGACY = "recorded_published_at"
+
+
+@dataclass(frozen=True)
+class GapBasis:
+    """前回の公開の **実際の** 時刻と、その出どころ。
+
+    120 分の間隔はここから測る。サイクルの開始・候補の選択・評価の時刻は使わない
+    (2026-09-25 の公開 #2 は、サイクル開始 09:39:09 に対して実際の投稿は 09:39:45
+    だった。旧実装は 09:39:09 から測り、間隔が 36 秒短くなっていた)。
+
+    1. ``remote_timestamp``: Threads が返した投稿時刻 (読み戻しで保存済み)
+    2. ``publish_api_returned``: 公開 API が成功を返した直後の時刻 (公開の試行の記録)
+    3. ``reconcile_confirmed``: 応答を取りこぼした公開を、照合で確定させた時刻
+       (実際の投稿より後なので、間隔は長めになる = 安全側)
+    4. ``recorded_published_at``: 上のどれも無い過去の行だけ。推測で作らず、記録を
+       そのまま使う (T3 の公開では 1 か 2 が必ず残るので、通常は使われない)
+    """
+
+    publication_id: int
+    at: datetime
+    source: str
+
+    def as_dict(self) -> dict:
+        return {
+            "publication_id": self.publication_id,
+            "at": self.at.isoformat(),
+            "source": self.source,
+        }
+
+
+def parse_remote_timestamp(value: str | None) -> datetime | None:
+    """Threads の ``timestamp`` (例 ``2026-09-25T00:39:45+0000``) を読む。読めなければ None。"""
+
+    if not value:
+        return None
+    for parse in (
+        lambda v: datetime.strptime(v, "%Y-%m-%dT%H:%M:%S%z"),
+        datetime.fromisoformat,
+    ):
+        try:
+            moment = parse(value.strip())
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            return None  # 時刻帯の無い値は推測しない
+        return moment.astimezone(UTC)
+    return None
+
+
 @dataclass(frozen=True)
 class ManualGapOverride:
     """人が明示した、120 分の間隔 **だけ** の上書き (T4.3)。
@@ -232,6 +287,9 @@ class ThreadsPublicationService:
             gap_minutes = get_operations_policy().soft_min_gap_minutes
         #: 前回の公開からの最小間隔 (T4.3 で書き込み経路に入れた)。
         self._gap = timedelta(minutes=int(gap_minutes))
+        #: 公開・照合の操作の時計の原点 ((開始時刻, monotonic))。試行の時刻をこの時計で
+        #: 刻むので、注入した ``now`` と試行の記録が同じ時計に乗る (本番では同じ値)。
+        self._op_origin: tuple[datetime, float] | None = None
 
     # -- plan ------------------------------------------------------------------
     def plan(
@@ -338,6 +396,7 @@ class ThreadsPublicationService:
         """``execute=True`` のときだけ外へ出す。既定は PLAN と同じ。"""
 
         now = now or datetime.now(UTC)
+        self._op_origin = (ensure_aware(now), time.monotonic())
         plan = self.plan(
             proposal_id=proposal_id, now=now, trigger=trigger, gap_override=gap_override
         )
@@ -369,7 +428,7 @@ class ThreadsPublicationService:
 
         # 1) コンテナを作る。
         self._set(row, PUB_CREATING, reason="creating the media container")
-        started = datetime.now(UTC)
+        started = self._op_now()
         try:
             container = self._threads.client.create_text_container(row.exact_published_text)
         except ThreadsError as exc:
@@ -391,7 +450,7 @@ class ThreadsPublicationService:
 
         # 3) 公開する。ここから先の失敗は「出たかどうか分からない」になりうる。
         self._set(row, PUB_PUBLISHING, reason="publishing the container")
-        started = datetime.now(UTC)
+        started = self._op_now()
         try:
             publication = self._threads.client.publish_container(container.creation_id)
         except ThreadsError as exc:
@@ -438,6 +497,7 @@ class ThreadsPublicationService:
         """
 
         now = now or datetime.now(UTC)
+        self._op_origin = (ensure_aware(now), time.monotonic())
         row = self._existing(proposal_id)
         outcome = PublishOutcome(proposal_id=proposal_id, executed=False, outcome="blocked")
         if row is None:
@@ -458,7 +518,7 @@ class ThreadsPublicationService:
             outcome.notes.append("nothing reached Threads; this proposal may be retried")
             return outcome
 
-        started = datetime.now(UTC)
+        started = self._op_now()
         try:
             payload = self._threads.client.fetch_container_status(row.threads_creation_id)
         except ThreadsError as exc:
@@ -537,7 +597,7 @@ class ThreadsPublicationService:
 
         if not row.threads_media_id:
             return
-        started = datetime.now(UTC)
+        started = self._op_now()
         try:
             media = self._threads.fetch_publication(row.threads_media_id)
         except ThreadsError as exc:
@@ -657,27 +717,19 @@ class ThreadsPublicationService:
     ) -> None:
         """前回の **実際の** 公開から間隔が空いているか (T4.3、書き込み経路)。"""
 
-        last = self._session.scalars(
-            select(ThreadsPublication)
-            .where(
-                ThreadsPublication.proposal_id != proposal_id,
-                ThreadsPublication.status == PUB_PUBLISHED,
-                ThreadsPublication.published_at.is_not(None),
-            )
-            .order_by(ThreadsPublication.published_at.desc())
-            .limit(1)
-        ).first()
+        basis = self.latest_gap_basis(exclude_proposal_id=proposal_id)
         minutes = int(self._gap.total_seconds() // 60)
-        if last is None:
+        if basis is None:
             plan.gap = {"minutes": minutes, "last_publication_id": None, "elapsed": True}
             return
-        last_at = ensure_aware(last.published_at)
-        earliest = last_at + self._gap
+        earliest = basis.at + self._gap
         elapsed = now >= earliest
+        last_id = basis.publication_id
         plan.gap = {
             "minutes": minutes,
-            "last_publication_id": last.id,
-            "last_published_at": last_at.isoformat(),
+            "last_publication_id": last_id,
+            "last_published_at": basis.at.isoformat(),
+            "basis_source": basis.source,
             "earliest_at": earliest.isoformat(),
             "elapsed": elapsed,
         }
@@ -688,9 +740,55 @@ class ThreadsPublicationService:
             plan.gap["overridden"] = True
             return
         plan.blocked_reasons.append(
-            f"the {minutes}-minute gap since publication {last.id} has not elapsed "
+            f"the {minutes}-minute gap since publication {last_id} has not elapsed "
             f"(earliest {earliest.isoformat()}); a human may override it with a reason"
         )
+
+    def gap_basis(self, row: ThreadsPublication) -> GapBasis | None:
+        """1 件の公開の、間隔の起点 (実際の公開時刻) を保存済みの記録から求める。"""
+
+        if row.status != PUB_PUBLISHED:
+            return None
+        remote = parse_remote_timestamp(row.remote_timestamp)
+        if remote is not None:
+            return GapBasis(row.id, remote, GAP_BASIS_REMOTE)
+        for step, source in (
+            (STEP_PUBLISH, GAP_BASIS_PUBLISH_RETURNED),
+            (STEP_RECONCILE, GAP_BASIS_RECONCILED),
+        ):
+            finished = self._session.scalars(
+                select(ThreadsPublicationAttempt.finished_at)
+                .where(
+                    ThreadsPublicationAttempt.threads_publication_id == row.id,
+                    ThreadsPublicationAttempt.step == step,
+                    ThreadsPublicationAttempt.outcome == "succeeded",
+                    ThreadsPublicationAttempt.finished_at.is_not(None),
+                )
+                .order_by(ThreadsPublicationAttempt.finished_at.desc())
+                .limit(1)
+            ).first()
+            if finished is not None:
+                return GapBasis(row.id, ensure_aware(finished), source)
+        if row.published_at is not None:
+            return GapBasis(row.id, ensure_aware(row.published_at), GAP_BASIS_LEGACY)
+        return None
+
+    def latest_gap_basis(self, *, exclude_proposal_id: int | None = None) -> GapBasis | None:
+        """公開済みのうち、実際の公開時刻が最も新しいもの。**手動も自動もこれを使う。**"""
+
+        stmt = select(ThreadsPublication).where(ThreadsPublication.status == PUB_PUBLISHED)
+        if exclude_proposal_id is not None:
+            stmt = stmt.where(ThreadsPublication.proposal_id != exclude_proposal_id)
+        bases = [b for b in (self.gap_basis(r) for r in self._session.scalars(stmt)) if b]
+        return max(bases, key=lambda b: (b.at, b.publication_id)) if bases else None
+
+    def _op_now(self) -> datetime:
+        """公開・照合の操作の時計。操作の外では壁時計。"""
+
+        if self._op_origin is None:
+            return datetime.now(UTC)
+        start, origin = self._op_origin
+        return start + timedelta(seconds=time.monotonic() - origin)
 
     def _existing(self, proposal_id: int) -> ThreadsPublication | None:
         return self._session.scalars(
@@ -749,7 +847,7 @@ class ThreadsPublicationService:
                 error_category=error.category if error else None,
                 error_message=error.reason if error else None,
                 started_at=to_storage_utc(started),
-                finished_at=to_storage_utc(datetime.now(UTC)),
+                finished_at=to_storage_utc(self._op_now()),
             )
         )
         self._session.commit()
