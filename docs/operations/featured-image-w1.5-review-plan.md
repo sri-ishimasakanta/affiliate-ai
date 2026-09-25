@@ -76,6 +76,9 @@ uv run --no-project --with pillow --with fonttools python scripts/compose_featur
 uv run --no-project --with pillow --with fonttools python scripts/compose_featured_image.py --dir artifacts/featured-images/w1.5/batch-1 contact-sheet --with-pilots
 ```
 
+- `contact-sheet` は 3 枚 (縮小の一覧 + グレースケール、横線つきの並び `-compare`、126×71 を 3 倍の
+  `-mobile`) を作る。`--compare-batch <N>` で承認済みの別のバッチの完成画像も並べる
+  (例: バッチ 2 は `--compare-batch 1 --with-pilots`)。
 - `package`: manifest のバッチを写した `batch-manifest.json`・README・確認項目・画像生成の文
   (`prompts/`) を作る。`validate`: 今の manifest の写しのままかを確かめる。
 - `compose`: `backgrounds/<file>-bg.png` (文字なし) に、`typesetting_plan` の座標で組む。

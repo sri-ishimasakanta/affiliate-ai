@@ -116,6 +116,10 @@ SHAPE_SUMMARY = {
     6: "比較表",
     8: "∞ のカードと砂時計のカード",
     9: "見積もりシートと月払い/年払いの切り替え",
+    3: "音声の波形がテキストの行に変わる変換 + ファイルと地球儀の 2 枚",
+    12: "クリップボードのチェックリスト + 注意の印と砂時計",
+    13: "カンバンとタイムラインの 2 枚のボード",
+    15: "1 枚のデータベースの表 (チェック欄)",
 }
 
 
@@ -483,6 +487,26 @@ def render_checklist_markdown(package: Mapping) -> str:
         "- [ ] グレースケールでも形だけで見分けられる: "
         + "、".join(f"{item['article_id']} = {shape_summary(item)}" for item in package["items"]),
         "- [ ] 見出しが一覧のタイトルの繰り返しになっていない",
-        "",
     ]
+    ids = {item["article_id"] for item in package["items"]}
+    seen = set()
+    for item in package["items"]:
+        for other in item["distinguish_from"]:
+            pair = frozenset((item["article_id"], other["article_id"]))
+            if other["article_id"] in ids and pair not in seen:
+                seen.add(pair)
+                out.append(
+                    f"- [ ] {item['article_id']} と {other['article_id']} が 126×71 でも形で"
+                    f"見分けられる (見出しの語や色だけに頼らない): {other['rule']}"
+                )
+    for accent in dict.fromkeys(item["accent"]["name"] for item in package["items"]):
+        if "new" not in accent:
+            continue
+        members = [i for i in package["items"] if i["accent"]["name"] == accent]
+        out.append(
+            f"- [ ] 新しいアクセント `{members[0]['accent']['color']}` "
+            f"({', '.join(str(i['article_id']) for i in members)}) が、試作 4 枚と承認済みの"
+            "バッチと並べて同じサイトの系列に見える (別のキャンペーンのように浮かない)"
+        )
+    out.append("")
     return "\n".join(out) + "\n"

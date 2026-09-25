@@ -238,3 +238,45 @@ def test_the_cli_writes_the_package_and_validates_it(tmp_path, capsys) -> None:
     (out / "batch-manifest.json").write_text(json.dumps(package), encoding="utf-8")
     assert main(["validate", "--batch", "1", "--out-root", str(tmp_path)]) == 1
     assert "sublabel differs" in capsys.readouterr().out
+
+
+# == batch 2 ===================================================================
+@pytest.fixture
+def package_2(manifest, digest) -> dict:
+    return build_batch_package(
+        manifest, 2, manifest_path="docs/operations/x.json", manifest_sha256=digest
+    )
+
+
+def test_batch_2_is_transcription_and_project_articles_in_order(package_2, manifest, digest):
+    ids = [i["article_id"] for i in package_2["items"]]
+    assert ids == [3, 12, 13, 15]
+    assert package_2["contact_sheet_order"] == [3, 12, 13, 15]
+    assert not set(ids) & ({7, 2, 6, 8, 9} | {20, 23, 24, 25})
+    assert package_2["source"]["sha256"] == digest
+    assert validate_batch_package(package_2, manifest, manifest_sha256=digest) == []
+    colors = {i["article_id"]: i["accent"]["color"] for i in package_2["items"]}
+    assert colors == {3: "#0369A1", 12: "#0369A1", 13: "#DB2777", 15: "#DB2777"}
+    for item in package_2["items"]:
+        plan = item["typesetting_plan"]
+        assert [line["baseline_y"] for line in plan["headline"]["lines"]] == [448, 540]
+        assert plan["sublabel"]["baseline_y"] == 604
+        assert (plan["mark"]["y"], plan["accent_bar"]["y"]) == (322, 657)
+        assert plan["mark"]["color"] == plan["accent_bar"]["color"] == item["accent"]["color"]
+
+
+def test_batch_2_pairs_are_told_apart_by_shape(package_2) -> None:
+    shapes = {i["article_id"]: shape_summary(i) for i in package_2["items"]}
+    assert "波形" in shapes[3] and "クリップボード" in shapes[12]
+    assert "ボード" in shapes[13] and "データベースの表" in shapes[15]
+    motifs = {i["article_id"]: i["motif"] for i in package_2["items"]}
+    assert "waveform" in motifs[3] and "clipboard" in motifs[12]
+    assert "kanban" in motifs[13] and "database table" in motifs[15]
+    checklist = render_checklist_markdown(package_2)
+    assert "3 と 12 が 126×71 でも形で" in checklist
+    assert "13 と 15 が 126×71 でも形で" in checklist
+    assert "新しいアクセント `#DB2777` (13, 15)" in checklist
+
+
+def test_batch_1_checklist_has_no_new_accent_line(package) -> None:
+    assert "新しいアクセント" not in render_checklist_markdown(package)

@@ -6,6 +6,7 @@
         --dir artifacts/featured-images/w1.5/batch-1 compose [--article 7] [--force]
     uv run --no-project --with pillow --with fonttools python scripts/compose_featured_image.py \\
         --dir artifacts/featured-images/w1.5/batch-1 contact-sheet [--source proofs] [--with-pilots]
+        [--compare-batch 1]
 
 - 入力は ``prepare_featured_image_batch.py package`` が作った ``batch-manifest.json`` と、
   ``backgrounds/`` に置いた文字なしの背景。組む前に、パッケージが今の W1.5 manifest の
@@ -376,7 +377,9 @@ def command_compose(directory: Path, package: dict, fonts: Fonts, articles, forc
     return 1 if missing else 0
 
 
-def command_contact_sheet(directory: Path, package: dict, fonts: Fonts, source, pilots) -> int:
+def command_contact_sheet(
+    directory: Path, package: dict, fonts: Fonts, source, pilots, compare_batches=()
+) -> int:
     from PIL import Image, ImageDraw, ImageOps
 
     tiles = []
@@ -386,6 +389,15 @@ def command_contact_sheet(directory: Path, package: dict, fonts: Fonts, source, 
         if not path.exists():
             raise SystemExit(f"missing {name}")
         tiles.append((str(item["article_id"]), path))
+    for number in compare_batches:
+        # 承認済みの別のバッチの完成画像 (同じ系列に見えるかを並べて確かめる)。
+        other_dir = directory.parent / f"batch-{number}"
+        other = json.loads((other_dir / "batch-manifest.json").read_text(encoding="utf-8"))
+        for item in other["items"]:
+            path = other_dir / item["files"]["final_webp"]
+            if not path.exists():
+                raise SystemExit(f"missing batch {number} final {path.name}")
+            tiles.append((f"b{number}: {item['article_id']}", path))
     if pilots:
         tiles += [(f"pilot {p.split('-')[1]}", PILOT_DIR / p) for p in PILOT_FILES]
     images = []
@@ -415,12 +427,14 @@ def command_contact_sheet(directory: Path, package: dict, fonts: Fonts, source, 
             draw.text((x, y + th + 3), tag, font=caption_font, fill=(74, 91, 112))
         y += th + caption + pad
     stem = f"contact-sheet-batch-{package['batch']}-{source}"
-    outputs = [directory / f"{stem}.png", directory / f"{stem}-compare.png"]
+    outputs = [
+        directory / f"{stem}.png",
+        directory / f"{stem}-compare.png",
+        directory / f"{stem}-mobile.png",
+    ]
     sheet.save(outputs[0], "PNG")
     _compare_sheet(images, package, caption_font).save(outputs[1], "PNG")
-    if pilots:
-        outputs.append(directory / f"{stem}-mobile.png")
-        _mobile_sheet(images, caption_font).save(outputs[2], "PNG")
+    _mobile_sheet(images, caption_font).save(outputs[2], "PNG")
     for out in outputs:
         print(f"wrote {out}")
     return 0
@@ -495,6 +509,13 @@ def main(argv=None) -> int:
     sheet = commands.add_parser("contact-sheet")
     sheet.add_argument("--source", choices=("final", "proofs"), default="final")
     sheet.add_argument("--with-pilots", action="store_true")
+    sheet.add_argument(
+        "--compare-batch",
+        type=int,
+        action="append",
+        default=[],
+        help="別のバッチ (承認済み) の完成画像も並べる",
+    )
     args = parser.parse_args(argv)
 
     package = _load_package(args.dir)
@@ -504,7 +525,9 @@ def main(argv=None) -> int:
     elif args.command == "compose":
         code = command_compose(args.dir, package, fonts, set(args.article), args.force)
     else:
-        code = command_contact_sheet(args.dir, package, fonts, args.source, args.with_pilots)
+        code = command_contact_sheet(
+            args.dir, package, fonts, args.source, args.with_pilots, args.compare_batch
+        )
     print("no WordPress or database access")
     return code
 
