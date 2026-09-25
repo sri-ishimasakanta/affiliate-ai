@@ -60,6 +60,8 @@ class AutoPublishOutcome:
     network_calls: int = 0
     #: T3 が返した失敗 (分類と redact 済みの理由)。token は入らない。
     error: dict | None = None
+    #: 公開を試みた **後** の状態で評価し直したときのブロッカー (次の評価の話)。
+    next_blockers: list[str] | None = None
     notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -80,6 +82,7 @@ class AutoPublishOutcome:
             "threads_writes": self.threads_writes,
             "network_calls": self.network_calls,
             "error": self.error,
+            "next_blockers": list(self.next_blockers) if self.next_blockers is not None else None,
             "notes": list(self.notes),
         }
 
@@ -244,9 +247,9 @@ class ThreadsAutoPublisher:
                 "publish_threads_post.py --reconcile confirms what happened"
             )
         # 出した (または試みた) 後の状態で、次の評価時刻を計算し直す。
-        outcome.next_evaluation_at = self._queue.evaluate(
-            now=now, publication_enabled=True
-        ).next_evaluation_at
+        after = self._queue.evaluate(now=now, publication_enabled=True)
+        outcome.next_evaluation_at = after.next_evaluation_at
+        outcome.next_blockers = list(after.blockers)
         return outcome
 
 

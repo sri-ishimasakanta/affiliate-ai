@@ -108,6 +108,17 @@ def test_the_schedule_cli_registers_nothing(monkeypatch, capsys) -> None:
     monkeypatch.setattr(subprocess, "run", _refuse)
     monkeypatch.setattr(subprocess, "Popen", _refuse)
 
+    # 本番のポリシーは運用で有効にされうる。「無効のときの注記」を確かめるので、
+    # 無効のポリシーを明示する。
+    from dataclasses import replace
+
+    from app.social.threads.policy import get_operations_policy
+    from scripts import plan_threads_worker_schedule
+
+    base = get_operations_policy()
+    disabled = replace(base, raw={**base.raw, "automatic_publication": {"enabled": False}})
+    monkeypatch.setattr(plan_threads_worker_schedule, "get_operations_policy", lambda: disabled)
+
     class _Settings:
         threads_access_token = "THAAAsecret-value"
         approval_relay_shared_secret = "relay-secret-value"

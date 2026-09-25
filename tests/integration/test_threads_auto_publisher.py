@@ -167,6 +167,22 @@ def _approved(session: Session, article: Article, seed: str, hours_ago: float = 
     return row
 
 
+def _disabled_policy():
+    """自動公開を明示的に無効にしたポリシー。
+
+    本番のポリシーファイルは運用で有効にされうる (2026-09-25 に有効化された) ので、
+    「無効のとき」の振る舞いを確かめる試験は、コミット済みの値に頼らず自分で用意する。
+    """
+
+    from dataclasses import replace
+
+    base = get_operations_policy()
+    return replace(
+        base,
+        raw={**base.raw, "automatic_publication": {"enabled": False, "preflight_read": True}},
+    )
+
+
 def _publisher(session, fake, policy, *, flag=True, lock=True) -> ThreadsAutoPublisher:
     return ThreadsAutoPublisher(
         session,
@@ -186,16 +202,26 @@ def _count(session: Session, model) -> int:
 
 
 # == gates =====================================================================
-def test_the_committed_policy_keeps_automatic_publication_off() -> None:
-    assert get_operations_policy().automatic_publication_enabled is False
+def test_automatic_publication_is_off_unless_the_policy_says_exactly_true(tmp_path) -> None:
+    """安全側の既定: ``enabled`` が真偽値の true でなければ無効 (欠落・"true" 文字列も無効)。"""
+
+    for section in (None, {}, {"enabled": "true"}, {"enabled": 1}, {"enabled": False}):
+        document = dict(get_operations_policy().raw)
+        document.pop("automatic_publication", None)
+        if section is not None:
+            document["automatic_publication"] = section
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        assert load_operations_policy(path).automatic_publication_enabled is False
+    document["automatic_publication"] = {"enabled": True}
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert load_operations_policy(path).automatic_publication_enabled is True
 
 
-def test_the_committed_policy_publishes_nothing_even_with_the_flag(
-    session: Session, articles
-) -> None:
+def test_a_disabled_policy_publishes_nothing_even_with_the_flag(session: Session, articles) -> None:
     _approved(session, articles[0], "a")
     fake = _FakeThreads()
-    outcome = _publisher(session, fake, get_operations_policy()).publish_one(now=_NOW)
+    outcome = _publisher(session, fake, _disabled_policy()).publish_one(now=_NOW)
     assert outcome.outcome == "gated"
     assert "automatic_publication.enabled is false in the policy" in outcome.blocked_reasons
     assert fake.calls == []
@@ -337,7 +363,7 @@ def test_the_dry_run_touches_nothing(session: Session, articles) -> None:
     fake = _FakeThreads()
     before = (_count(session, ThreadsPublication), _count(session, ThreadsPublicationAttempt))
 
-    dry = _publisher(session, fake, get_operations_policy()).dry_run(now=_NOW)
+    dry = _publisher(session, fake, _disabled_policy()).dry_run(now=_NOW)
 
     assert fake.calls == []
     assert (_count(session, ThreadsPublication), _count(session, ThreadsPublicationAttempt)) == (

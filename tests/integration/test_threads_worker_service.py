@@ -25,6 +25,7 @@ from app.models import (
     PUB_UNCERTAIN,
     SNAPSHOT_OBSERVED,
     TP_APPROVED,
+    TP_AWAITING_APPROVAL,
     Article,
     NotificationDelivery,
     OperationsLock,
@@ -52,6 +53,8 @@ _TOKEN = "THAAAsecret-token-must-never-appear"
 _TEXT = "体制を先に決めたほうが早い。"
 # 2026-09-24 10:00 JST。公開窓の中。
 _NOW = datetime(2026, 9, 24, 1, 0, tzinfo=UTC)
+#: 本番の公開 #3 の頃 (2026-09-25 09:39 JST、公開窓の中)。
+_FROZEN = datetime(2026, 9, 25, 0, 39, 9, tzinfo=UTC)
 
 
 class _Settings:
@@ -93,7 +96,34 @@ def _factory(session: Session):
 def _service(session: Session, **settings) -> ThreadsWorkerService:
     configured = type("S", (_Settings,), settings)()
     threads = ThreadsService(configured, client=_ExplodingClient())
-    return ThreadsWorkerService(_factory(session), settings=configured, threads_service=threads)
+    return ThreadsWorkerService(
+        _factory(session),
+        settings=configured,
+        threads_service=threads,
+        policy=_disabled_policy(),
+    )
+
+
+def _disabled_policy():
+    """自動公開を明示的に無効にしたポリシー。
+
+    本番のポリシーファイルは運用で有効にされうる (2026-09-25 に有効化された) ので、
+    「無効のとき」の振る舞いを確かめる試験は、コミット済みの値に頼らず自分で用意する。
+    """
+
+    from dataclasses import replace
+
+    base = _committed_policy()
+    return replace(
+        base,
+        raw={**base.raw, "automatic_publication": {"enabled": False, "preflight_read": True}},
+    )
+
+
+def _committed_policy():
+    from app.social.threads.policy import get_operations_policy
+
+    return get_operations_policy()
 
 
 @pytest.fixture(autouse=True)
@@ -828,7 +858,7 @@ def test_the_worker_does_not_publish_without_the_lock(
     assert session.scalar(select(func.count()).select_from(ThreadsPublication)) == 0
 
 
-def test_the_committed_policy_keeps_the_worker_from_publishing(
+def test_a_disabled_policy_keeps_the_worker_from_publishing(
     session: Session, article: Article
 ) -> None:
     _proposal(session, article, seed="a")
@@ -838,6 +868,7 @@ def test_the_committed_policy_keeps_the_worker_from_publishing(
         settings=_Settings(),
         threads_service=threads,
         auto_publish=True,
+        policy=_disabled_policy(),
         publish_sleep=lambda _s: None,
     )
     lock = ThreadsWorkerLock(_factory(session), stale_after_minutes=15, owner_label="w")
@@ -1042,8 +1073,7 @@ def _pilot_cli(session, article, tmp_path, threads, capsys, *, enabled=True):
         "publish_sleep": lambda _s: None,
         "alert_notifiers": [],
     }
-    if enabled:
-        overrides["policy"] = _enabled_policy(tmp_path)
+    overrides["policy"] = _enabled_policy(tmp_path) if enabled else _disabled_policy()
     code = main(
         ["--once", "--auto-publish"],
         session_factory=_factory(session),
@@ -1140,7 +1170,7 @@ def test_a_lost_publish_counts_both_write_calls_and_says_so(
     assert "公開は確定していない" in out
 
 
-def test_with_the_committed_policy_the_flag_alone_is_reported_honestly(
+def test_with_a_disabled_policy_the_flag_alone_is_reported_honestly(
     session: Session, article: Article, tmp_path, capsys, monkeypatch
 ) -> None:
     from scripts import run_threads_worker
@@ -1199,7 +1229,11 @@ def test_the_resident_cli_logs_startup_first_and_every_subsystem(
         ["--resident", "--max-cycles", "2", "--collect-insights", "--sync-approvals"],
         session_factory=_factory(session),
         settings=_Settings(),
-        overrides={"threads_service": _ReadOnlyThreads(), "relay_client": object()},
+        overrides={
+            "threads_service": _ReadOnlyThreads(),
+            "relay_client": object(),
+            "policy": _disabled_policy(),
+        },
     )
     lines = capsys.readouterr().out.splitlines()
 
@@ -1242,7 +1276,11 @@ def test_the_resident_log_carries_no_secret(
         ["--resident", "--max-cycles", "1", "--collect-insights", "--sync-approvals"],
         session_factory=_factory(session),
         settings=_Settings(),
-        overrides={"threads_service": threads, "relay_client": object()},
+        overrides={
+            "threads_service": threads,
+            "relay_client": object(),
+            "policy": _disabled_policy(),
+        },
     )
     out = capsys.readouterr().out
 
@@ -1272,9 +1310,67 @@ def test_an_already_running_resident_worker_says_so(
         ["--resident", "--max-cycles", "1"],
         session_factory=_factory(session),
         settings=_Settings(),
-        overrides={"threads_service": _ReadOnlyThreads()},
+        overrides={"threads_service": _ReadOnlyThreads(), "policy": _disabled_policy()},
     )
     out = capsys.readouterr().out
     assert code == 4
     assert "event=started" in out
     assert "event=already_running" in out
+
+
+# == resident blocker log regression (publication #3, 2026-09-25) ==============
+def test_the_resident_publication_line_reports_blockers_before_and_after(
+    session: Session, article: Article, tmp_path
+) -> None:
+    """本番の常駐 worker が提案 #4 を公開 #3 として出したときのログを再現する。
+
+    旧実装は、ポリシーも --auto-publish も有効で実際に公開したのに
+    ``blockers=automatic_publication_disabled auto_publish=published`` と出していた
+    (実行前の評価に publication_enabled を渡していなかった)。
+    """
+
+    from app.services.threads_worker_log import WorkerLogFormatter
+
+    first = _proposal(session, article, seed="first", angle="insight")
+    _publication(session, first, published_at=_FROZEN - timedelta(hours=30), media="m1")
+    second = _proposal(session, article, seed="second", angle="beginner_tip")
+    _publication(session, second, published_at=_FROZEN - timedelta(hours=3), media="m2")
+    waiting = _proposal(session, article, seed="third", angle="comparison")
+    waiting.status = TP_AWAITING_APPROVAL
+    candidate = _proposal(session, article, seed="fourth", angle="mistake")
+    candidate.approved_at = _FROZEN - timedelta(hours=1)
+    session.commit()
+    assert candidate.id == 4
+
+    service = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        threads_service=_PublishingThreads(),
+        policy=_enabled_policy(tmp_path),
+        auto_publish=True,
+        publish_sleep=lambda _s: None,
+    )
+    assert service.capabilities["publish"] is True
+    formatter = WorkerLogFormatter(timezone=service.timezone)
+    lines: list[str] = []
+
+    def emit(event: dict) -> None:
+        line = formatter.format(event)
+        if line:
+            lines.append(line)
+
+    lock = ThreadsWorkerLock(_factory(session), stale_after_minutes=15, owner_label="w")
+    service.build_worker(
+        now=_FROZEN, clock=lambda: _FROZEN, sleep=lambda _s: None, lock=lock, on_event=emit
+    ).run(max_cycles=1)
+
+    line = next(line for line in lines if "event=publication_evaluation" in line)
+    assert "next_candidate=4 blockers=(none) auto_publish=published publication=3" in line
+    assert "automatic_publication_disabled" not in line
+    # 公開の後の評価は別に出す: いま出したので次は間隔待ち。
+    assert "next_blockers=" in line
+    assert "gap_not_elapsed" in line.split("next_blockers=")[1]
+
+    published = session.get(ThreadsPublication, 3)
+    assert published.proposal_id == 4
+    assert published.trigger == "automatic"

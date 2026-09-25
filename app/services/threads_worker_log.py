@@ -193,9 +193,10 @@ class WorkerLogFormatter:
 
     @staticmethod
     def _describe_publication_evaluation(summary: dict):
+        # blockers = 実行の **前** の評価。公開の結果の後に、次の評価のブロッカーを分けて出す。
         fields = {
             "next_candidate": summary.get("next_candidate_id"),
-            "blockers": ",".join(summary.get("blockers") or []) or None,
+            "blockers": ",".join(summary.get("blockers") or []) or "(none)",
         }
         level = "WARN" if summary.get("problems") else "INFO"
         attempt = summary.get("auto_publish")
@@ -206,6 +207,8 @@ class WorkerLogFormatter:
             fields["threads_writes"] = attempt.get("threads_writes")
             if attempt.get("outcome") in ("uncertain", "failed", "preflight_failed"):
                 level = "ERROR"
+        if summary.get("next_blockers") is not None:
+            fields["next_blockers"] = ",".join(summary["next_blockers"]) or "(none)"
         return fields, level
 
     @staticmethod

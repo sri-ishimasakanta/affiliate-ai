@@ -338,7 +338,12 @@ class ThreadsWorkerService:
         """
 
         with self._factory() as session:
-            evaluation = self._queue(session).evaluate(now=now)
+            # 実行の **前** の評価。この worker が公開しうるか (フラグとポリシー) で評価する。
+            # 以前は publication_enabled を渡しておらず、公開できる worker でも
+            # automatic_publication_disabled を出していた (実際の判断は別の評価だった)。
+            evaluation = self._queue(session).evaluate(
+                now=now, publication_enabled=self.capabilities["publish"]
+            )
             summary = {
                 "blockers": list(evaluation.blockers),
                 "problems": list(evaluation.problems),
@@ -356,6 +361,9 @@ class ThreadsWorkerService:
                 publisher = self._auto_publisher(session)
                 result = publisher.publish_one(now=now)
                 summary["auto_publish"] = result.as_dict()
+                if result.next_blockers is not None:
+                    # 公開 (の試み) の後、次の評価で効くブロッカー。実行前のものとは別に出す。
+                    summary["next_blockers"] = list(result.next_blockers)
                 self._counters["threads_writes"] += result.threads_writes
                 self._counters["network_calls"] += result.network_calls
                 if result.published:
