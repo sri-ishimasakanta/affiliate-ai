@@ -54,8 +54,10 @@ class AutoPublishOutcome:
     media_id: str | None = None
     preflight: dict | None = None
     next_evaluation_at: datetime | None = None
-    #: Threads への書き込み呼び出しの数 (コンテナ作成・公開)。
+    #: Threads への **書き込み呼び出し** の数 (コンテナ作成・公開)。結果ではなく呼んだ回数。
     threads_writes: int = 0
+    #: この試みで行った HTTP 呼び出しの総数 (事前確認・作成・公開・読み戻し)。
+    network_calls: int = 0
     #: T3 が返した失敗 (分類と redact 済みの理由)。token は入らない。
     error: dict | None = None
     notes: list[str] = field(default_factory=list)
@@ -76,6 +78,7 @@ class AutoPublishOutcome:
                 self.next_evaluation_at.isoformat() if self.next_evaluation_at else None
             ),
             "threads_writes": self.threads_writes,
+            "network_calls": self.network_calls,
             "error": self.error,
             "notes": list(self.notes),
         }
@@ -199,6 +202,7 @@ class ThreadsAutoPublisher:
             return outcome
 
         if self._policy.automatic_publication_preflight:
+            outcome.network_calls += 1  # GET /me (読むだけ)
             status = self._threads.check_connection()
             outcome.preflight = {
                 "reachable": status.reachable,
@@ -222,7 +226,16 @@ class ThreadsAutoPublisher:
         outcome.publication_id = result.publication_id
         outcome.media_id = result.media_id
         outcome.blocked_reasons.extend(result.blocked_reasons)
-        outcome.threads_writes = int(bool(result.creation_id)) + int(bool(result.media_id))
+        # 数えるのは「呼んだ回数」。結果の有無で数えると、応答を取りこぼした公開
+        # (呼んだが media id が返らなかった) を書き込み 0 回と誤って報告してしまう。
+        #   作成を呼んだ   = T3 が行を確保して実行に進んだ (executed)
+        #   公開を呼んだ   = コンテナができた (creation_id)
+        #   読み戻しを呼んだ = media id が返った (T3 はその後に必ず読み戻す)
+        create_called = bool(result.executed)
+        publish_called = bool(result.creation_id)
+        readback_called = bool(result.media_id)
+        outcome.threads_writes = int(create_called) + int(publish_called)
+        outcome.network_calls += int(create_called) + int(publish_called) + int(readback_called)
         outcome.published = result.outcome == "published"
         outcome.error = result.error
         if result.outcome == "uncertain":

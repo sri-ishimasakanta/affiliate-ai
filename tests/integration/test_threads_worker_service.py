@@ -1022,3 +1022,154 @@ def test_the_daily_monitoring_also_sees_an_uncertain_publication(
         session, settings=_Settings(), threads_service=_ReadOnlyThreads()
     ).alert_drafts(now=_NOW)
     assert any(d.fingerprint.startswith("threads_publication_uncertain:") for d in drafts)
+
+
+# == first-pilot output regression (2026-09-25 09:39 JST) =====================
+def _pilot_cli(session, article, tmp_path, threads, capsys, *, enabled=True):
+    """--once --auto-publish を、本番の 1 本目と同じ条件で CLI から動かす。"""
+
+    from scripts.run_threads_worker import main
+
+    earlier = _proposal(session, article, seed="first", angle="insight")
+    _publication(session, earlier, published_at=_NOW - timedelta(hours=30))
+    for seed, angle in (("second", "beginner_tip"), ("third", "comparison")):
+        proposal = _proposal(session, article, seed=seed, angle=angle)
+        proposal.approved_at = _NOW - timedelta(hours=1)
+    session.commit()
+
+    overrides = {
+        "threads_service": threads,
+        "publish_sleep": lambda _s: None,
+        "alert_notifiers": [],
+    }
+    if enabled:
+        overrides["policy"] = _enabled_policy(tmp_path)
+    code = main(
+        ["--once", "--auto-publish"],
+        session_factory=_factory(session),
+        settings=_Settings(),
+        overrides=overrides,
+    )
+    return code, capsys.readouterr().out
+
+
+def test_a_real_automatic_post_is_reported_as_executed_not_as_plan(
+    session: Session, article: Article, tmp_path, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    # 公開窓の中の時刻で動かす (CLI は現在時刻を使う)。
+    monkeypatch.setattr(run_threads_worker, "datetime", _FrozenDatetime, raising=True)
+    code, out = _pilot_cli(session, article, tmp_path, _PublishingThreads(), capsys)
+
+    assert code == 0
+    heading = out.splitlines()[0]
+    assert "EXECUTED: published 1 post" in heading
+    assert "PLAN" not in heading
+    # 実行したのに「投稿はしていない」とは決して言わない。
+    assert "投稿はしていない" not in out
+    assert "1 本公開した" in out
+
+
+def test_the_three_phases_are_labelled_separately(
+    session: Session, article: Article, tmp_path, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    monkeypatch.setattr(run_threads_worker, "datetime", _FrozenDatetime, raising=True)
+    _code, out = _pilot_cli(session, article, tmp_path, _PublishingThreads(), capsys)
+
+    pre = out.split("--- (a) ")[1].split("--- (b)")[0]
+    result = out.split("--- (b) ")[1].split("--- (c)")[0]
+    after = out.split("--- (c) ")[1].split("--- subsystems")[0]
+
+    # (a) 実行前: ロックを持っている状態の計画。
+    assert pre.startswith("pre-execution plan")
+    assert "worker_lock=True" in pre
+    # (b) 実行結果: 1 本、書き込み 2 件 (作成・公開)、通信 4 件 (事前確認・作成・公開・読み戻し)。
+    assert "posts published     = 1" in result
+    assert "threads write calls = 2" in result
+    assert "network calls       = 4" in result
+    assert "auto-publish        = published" in result
+    # (c) 実行後: 次のサイクルの話であり、ロックは解放済みだと明記する。
+    assert after.startswith("next-cycle preview after this run")
+    assert "lock was released" in after
+    assert "worker_lock=False" in after
+
+
+def test_blockers_do_not_claim_publication_is_disabled_when_it_ran(
+    session: Session, article: Article, tmp_path, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    monkeypatch.setattr(run_threads_worker, "datetime", _FrozenDatetime, raising=True)
+    _code, out = _pilot_cli(session, article, tmp_path, _PublishingThreads(), capsys)
+
+    blockers = next(line for line in out.splitlines() if line.startswith("hard blockers"))
+    assert "automatic_publication_disabled" not in blockers
+    # 公開した直後なので、次は間隔待ち。
+    assert "gap_not_elapsed" in blockers
+
+
+def test_the_pilot_still_publishes_only_one_post(
+    session: Session, article: Article, tmp_path, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    monkeypatch.setattr(run_threads_worker, "datetime", _FrozenDatetime, raising=True)
+    _pilot_cli(session, article, tmp_path, _PublishingThreads(), capsys)
+    rows = session.scalars(select(ThreadsPublication)).all()
+    automatic = [r for r in rows if r.trigger == "automatic"]
+    assert len(automatic) == 1  # 資格のある候補が 2 件あっても 1 件だけ
+
+
+def test_a_lost_publish_counts_both_write_calls_and_says_so(
+    session: Session, article: Article, tmp_path, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    monkeypatch.setattr(run_threads_worker, "datetime", _FrozenDatetime, raising=True)
+    _code, out = _pilot_cli(session, article, tmp_path, _LosingThreads(), capsys)
+
+    result = out.split("--- (b) ")[1].split("--- (c)")[0]
+    assert "posts published     = 0" in result
+    assert "threads write calls = 2" in result  # 作成 + (応答を取りこぼした) 公開
+    assert "network calls       = 3" in result  # 事前確認 + 作成 + 公開 (読み戻しは無い)
+    assert "auto-publish        = uncertain" in result
+    assert "投稿はしていない" not in out
+    assert "公開は確定していない" in out
+
+
+def test_with_the_committed_policy_the_flag_alone_is_reported_honestly(
+    session: Session, article: Article, tmp_path, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    monkeypatch.setattr(run_threads_worker, "datetime", _FrozenDatetime, raising=True)
+    threads = _PublishingThreads()
+    _code, out = _pilot_cli(session, article, tmp_path, threads, capsys, enabled=False)
+
+    assert "EXECUTED" not in out.splitlines()[0]
+    assert "投稿はしていない" in out
+    blockers = next(line for line in out.splitlines() if line.startswith("hard blockers"))
+    assert "automatic_publication_disabled" in blockers
+    assert "create" not in threads.calls
+
+
+class _FrozenDatetime(datetime):
+    """CLI の現在時刻を固定する (2026-09-25 09:39 JST、公開窓の中)。"""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 9, 25, 0, 39, 9, tzinfo=UTC)
+
+
+def test_published_proposals_are_not_shown_as_waiting_stock(
+    session: Session, article: Article
+) -> None:
+    published = _proposal(session, article, seed="p")
+    _publication(session, published, published_at=_NOW - timedelta(hours=3))
+    _proposal(session, article, seed="w")
+    counts = _once(_service(session))["proposals"]
+    assert counts["approved"] == 2
+    assert counts["approved_unpublished"] == 1

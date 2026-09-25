@@ -168,7 +168,12 @@ class ThreadsWorkerService:
         self._notifier = notifier
         self._relay = relay_client
         #: この worker が実際に行った外部への作用 (固定の 0 ではなく数えた値)。
-        self._counters = {"network_calls": 0, "approval_emails": 0, "threads_writes": 0}
+        self._counters = {
+            "network_calls": 0,
+            "approval_emails": 0,
+            "threads_writes": 0,
+            "publications": 0,
+        }
         #: T4.3: 自動公開を worker として許すか。**ポリシーも有効でなければ公開しない。**
         self._auto_publish = auto_publish
         #: T4.3: 携帯での決定を中継から取り込むか。
@@ -341,9 +346,9 @@ class ThreadsWorkerService:
                 result = publisher.publish_one(now=now)
                 summary["auto_publish"] = result.as_dict()
                 self._counters["threads_writes"] += result.threads_writes
-                if result.preflight is not None:
-                    self._counters["network_calls"] += 1
-                self._counters["network_calls"] += result.threads_writes
+                self._counters["network_calls"] += result.network_calls
+                if result.published:
+                    self._counters["publications"] += 1
                 if result.attempted:
                     publications = 1
                 if result.next_evaluation_at is not None:
@@ -584,14 +589,59 @@ class ThreadsWorkerService:
         return SubsystemResult(next_run_at=max(next_at, now + _MIN_RESCHEDULE), summary=summary)
 
     # -- status ------------------------------------------------------------------
-    def status(self, *, now: datetime, schedule: WorkerSchedule | None = None) -> dict:
-        """CLI が出す現在の状態。**読むだけ。**"""
+    #: status を取る時点。実行の前か後かで、dry run の意味が変わる。
+    PHASE_SNAPSHOT = "snapshot"
+    PHASE_PRE_RUN = "pre_run"
+    PHASE_POST_RUN = "post_run"
+
+    def run_kind(self) -> str:
+        """このコマンドの種類。**何をしうるか** で決まる (何をしたかは execution を見る)。
+
+        - ``plan``: 外に一切作用しない
+        - ``observe``: 読むだけの外部呼び出し (指標・決定の取り込み)
+        - ``operate``: 承認依頼メールを送りうる
+        - ``execute``: Threads に公開しうる (フラグとポリシーの両方がそろったとき)
+        """
+
+        caps = self.capabilities
+        if caps["publish"]:
+            return "execute"
+        if caps["send_approval_digests"]:
+            return "operate"
+        if caps["collect_insights"] or caps["sync_approvals"]:
+            return "observe"
+        return "plan"
+
+    def execution(self) -> dict:
+        """この worker が **実際に行ったこと** (固定値ではなく数えた値)。"""
+
+        return {
+            "publications": self._counters["publications"],
+            "threads_writes": self._counters["threads_writes"],
+            "network_calls": self._counters["network_calls"],
+            "approval_emails": self._counters["approval_emails"],
+        }
+
+    def status(
+        self,
+        *,
+        now: datetime,
+        schedule: WorkerSchedule | None = None,
+        phase: str = PHASE_SNAPSHOT,
+    ) -> dict:
+        """CLI が出す現在の状態。**読むだけ。**
+
+        ``phase`` が ``post_run`` のとき、ここに含まれる評価と dry run は **このコマンドの
+        実行後の状態から見た「次のサイクル」** の話である (ロックは既に解放済み)。
+        """
 
         now = ensure_aware(now)
         with self._factory() as session:
             queue = self._queue(session)
             config = queue.config_status()
-            evaluation = queue.evaluate(now=now)
+            # ブロッカーは「このコマンドが公開しうるか」で評価する。ポリシーとフラグが
+            # そろっているのに automatic_publication_disabled を出さない。
+            evaluation = queue.evaluate(now=now, publication_enabled=self.capabilities["publish"])
             latest = queue.latest_publication()
             counts = queue.counts()
             today = queue.published_today(now)
@@ -661,6 +711,9 @@ class ThreadsWorkerService:
             "timezone": self._tz.key,
             "policy_version": self._policy.policy_version,
             "worker_mode": MODE_PLAN,
+            "run_kind": self.run_kind(),
+            "phase": phase,
+            "execution": self.execution(),
             "automatic_publication_enabled": self.capabilities["publish"],
             "max_publications_per_cycle": MAX_PUBLICATIONS_PER_CYCLE,
             "threads": {
@@ -694,7 +747,7 @@ class ThreadsWorkerService:
             "problems": list(evaluation.problems),
             "subsystems": [self._subsystem_view(s) for s in schedule.states()] if schedule else [],
             "capabilities": self.capabilities,
-            "publication_dry_run": self._dry_run(now),
+            "publication_dry_run": self._dry_run(now, phase=phase),
             "side_effects": {
                 "threads_writes": self._counters["threads_writes"],
                 "network_calls": self._counters["network_calls"],
@@ -705,11 +758,27 @@ class ThreadsWorkerService:
             },
         }
 
-    def _dry_run(self, now: datetime) -> dict:
+    def _dry_run(self, now: datetime, *, phase: str = PHASE_SNAPSHOT) -> dict:
         """自動公開が有効なら何が起きるか。**外にも DB にも触れない。**"""
 
         with self._factory() as session:
-            return self._auto_publisher(session).dry_run(now=now).as_dict()
+            view = self._auto_publisher(session).dry_run(now=now).as_dict()
+        view["phase"] = phase
+        if phase == self.PHASE_POST_RUN:
+            view["label"] = (
+                "next-cycle preview after this run (the worker lock was released when the "
+                "run ended; the next cycle re-acquires it)"
+            )
+        elif phase == self.PHASE_PRE_RUN:
+            view["label"] = "pre-execution plan (what this run is about to evaluate)"
+        else:
+            view["label"] = "preview (nothing is executed)"
+        return view
+
+    def preview(self, *, now: datetime) -> dict:
+        """実行の **前** の計画 (ロックを取った後、サイクルを回す前に呼ぶ)。"""
+
+        return self._dry_run(ensure_aware(now), phase=self.PHASE_PRE_RUN)
 
     def _subsystem_view(self, state) -> dict:
         view = state.as_dict()

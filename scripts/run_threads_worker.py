@@ -107,19 +107,26 @@ def main(
             if not acquired.get("acquired"):
                 print("another Threads worker is already running; exiting without doing any work")
                 return EXIT_ALREADY_RUNNING
+        # (a) 実行の前の計画。ロックを取った後・サイクルを回す前に取る。
+        pre = service.preview(now=now) if external else None
         try:
             cycle = worker.run_cycle()
         finally:
             if lock is not None:
                 lock.release(datetime.now(UTC))
-        status = service.status(now=now, schedule=worker.schedule)
+        # (b)(c) 実行の後の状態。外に作用しうる実行なら「次のサイクル」の話として扱う。
+        after = datetime.now(UTC) if external else now
+        phase = service.PHASE_POST_RUN if external else service.PHASE_SNAPSHOT
+        status = service.status(now=after, schedule=worker.schedule, phase=phase)
         status["cycle"] = cycle.as_dict()
+        status["pre_execution_plan"] = pre
         _print_status(status, mode="once")
         _write(args.json_path, status)
         return EXIT_OK
 
     lock = service.build_lock()
     worker = service.build_worker(now=now, sleep=time.sleep, lock=lock)
+    pre = service.preview(now=now)
     try:
         run = worker.run(max_cycles=args.max_cycles)
     except KeyboardInterrupt:
@@ -133,8 +140,11 @@ def main(
             print(f"  held by: {blocking}")
         return EXIT_ALREADY_RUNNING
     final = datetime.now(UTC)
-    status = service.status(now=final, schedule=worker.schedule)
+    status = service.status(now=final, schedule=worker.schedule, phase=service.PHASE_POST_RUN)
     status["cycles"] = [c.as_dict() for c in run.cycles]
+    # 常駐の開始前に取った計画 (ロックはまだ取っていなかった)。
+    pre["label"] = "plan before the resident loop started (lock not yet acquired)"
+    status["pre_execution_plan"] = pre
     _print_status(status, mode="resident")
     _write(args.json_path, status)
     return run.exit_code
@@ -149,7 +159,7 @@ def _write(path: str | None, payload: dict) -> None:
 
 def _print_status(status: dict, *, mode: str) -> None:
     threads = status["threads"]
-    print(f"=== threads worker ({status['worker_mode'].upper()} / {mode}) ===")
+    print(f"=== threads worker ({_heading(status)} / {mode}) ===")
     print(f"now ({status['timezone']})      = {status['now_local']}")
     print(f"policy_version        = {status['policy_version']}")
     print(f"threads state         = {threads['state']}")
@@ -207,7 +217,8 @@ def _print_status(status: dict, *, mode: str) -> None:
     )
     proposals = status["proposals"]
     print(
-        f"proposals             = approved {proposals['approved']}, "
+        f"proposals             = approved {proposals['approved']} "
+        f"(still unpublished {proposals['approved_unpublished']}), "
         f"awaiting approval {proposals['awaiting_approval']}"
     )
 
@@ -230,15 +241,34 @@ def _print_status(status: dict, *, mode: str) -> None:
                 f"{item['result']}{reason}"
             )
 
+    pre = status.get("pre_execution_plan")
+    if pre:
+        print(f"\n--- (a) {pre['label']} ---")
+        _print_dry(pre)
+
+    execution = status["execution"]
+    attempt = _auto_publish_attempt(status)
+    print("\n--- (b) execution result of this run ---")
+    print(f"  run kind            = {status['run_kind']}")
+    print(f"  posts published     = {execution['publications']}")
+    print(f"  threads write calls = {execution['threads_writes']}")
+    print(f"  network calls       = {execution['network_calls']}")
+    print(f"  approval emails     = {execution['approval_emails']}")
+    if attempt:
+        print(f"  auto-publish        = {attempt['outcome']}")
+        if attempt.get("publication_id"):
+            print(
+                f"  publication         = #{attempt['publication_id']} "
+                f"(proposal {attempt['proposal_id']}, media {attempt['media_id']})"
+            )
+        for reason in attempt.get("blocked_reasons") or []:
+            print(f"  BLOCKED: {reason}")
+        for note in attempt.get("notes") or []:
+            print(f"  note: {note}")
+
     dry = status.get("publication_dry_run") or {}
-    print("\n--- automatic publication dry run (no network, no write) ---")
-    gates = ", ".join(f"{name}={value}" for name, value in (dry.get("gates") or {}).items())
-    print(f"  gates: {gates}")
-    print(f"  next candidate: {dry.get('proposal_id') or '(none)'}")
-    for reason in dry.get("blocked_reasons") or []:
-        print(f"  BLOCKED: {reason}")
-    for note in dry.get("notes") or []:
-        print(f"  note: {note}")
+    print(f"\n--- (c) {dry.get('label', 'preview')} (no network, no write) ---")
+    _print_dry(dry)
 
     print("\n--- subsystems (each owns its own next run) ---")
     for sub in status["subsystems"]:
@@ -247,7 +277,52 @@ def _print_status(status: dict, *, mode: str) -> None:
 
     effects = status["side_effects"]
     print("\nside effects: " + ", ".join(f"{name}={value}" for name, value in effects.items()))
-    print("投稿はしていない。WordPress にもスケジューラにも触れていない。")
+    print(_footer(status))
+    print("WordPress にもタスクスケジューラにも触れていない。")
+
+
+def _heading(status: dict) -> str:
+    """見出しは「何をしうるか」ではなく「何をしたか」を先に言う。"""
+
+    published = status["execution"]["publications"]
+    kind = status["run_kind"]
+    if published:
+        return f"EXECUTED: published {published} post"
+    if kind == "execute":
+        return "EXECUTE: nothing published"
+    return kind.upper()
+
+
+def _footer(status: dict) -> str:
+    execution = status["execution"]
+    if execution["publications"]:
+        return (
+            f"このコマンドは Threads に {execution['publications']} 本公開した "
+            f"(書き込み呼び出し {execution['threads_writes']} 件)。"
+        )
+    if execution["threads_writes"]:
+        return (
+            f"Threads に書き込み呼び出しを {execution['threads_writes']} 件行ったが、公開は確定して"
+            "いない。(b) の結果と照合の要否を確認すること。"
+        )
+    return "投稿はしていない (Threads への書き込み 0 件)。"
+
+
+def _auto_publish_attempt(status: dict) -> dict | None:
+    for sub in status["subsystems"]:
+        if sub["name"] == "publication_evaluation":
+            return (sub.get("last_summary") or {}).get("auto_publish")
+    return None
+
+
+def _print_dry(view: dict) -> None:
+    gates = ", ".join(f"{name}={value}" for name, value in (view.get("gates") or {}).items())
+    print(f"  gates: {gates}")
+    print(f"  next candidate: {view.get('proposal_id') or '(none)'}")
+    for reason in view.get("blocked_reasons") or []:
+        print(f"  BLOCKED: {reason}")
+    for note in view.get("notes") or []:
+        print(f"  note: {note}")
 
 
 if __name__ == "__main__":

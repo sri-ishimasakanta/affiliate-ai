@@ -120,8 +120,13 @@ class ThreadsQueueService:
 
     def counts(self) -> dict:
         proposals = self._session.scalars(select(ThreadsPostProposal)).all()
+        published = set(self._session.scalars(select(ThreadsPublication.proposal_id)).all())
         return {
             "approved": sum(1 for p in proposals if p.status == TP_APPROVED),
+            # 承認済みでも、公開済みのものは queue に残っていない。
+            "approved_unpublished": sum(
+                1 for p in proposals if p.status == TP_APPROVED and p.id not in published
+            ),
             "awaiting_approval": sum(1 for p in proposals if p.status in TP_OPEN_STATES),
             "total": len(proposals),
         }
