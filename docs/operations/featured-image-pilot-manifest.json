@@ -1,0 +1,241 @@
+{
+  "schema": "featured-image-pilot/1",
+  "spec": "docs/operations/featured-image-pipeline.md",
+  "created_at": "2026-09-25",
+  "status": "draft for W1.3: no image generated, nothing uploaded to WordPress",
+  "canvas": {
+    "width": 1200,
+    "height": 675,
+    "aspect": "16:9",
+    "theme": "Cocoon (thumb-wide, object-fit: cover)",
+    "outer_margin_px": {
+      "top": 60,
+      "bottom": 60,
+      "left": 72,
+      "right": 72
+    },
+    "reserved_label_area_px": {
+      "x": 0,
+      "y": 0,
+      "width": 560,
+      "height": 170,
+      "reason": "Cocoon category label overlays the top-left of list thumbnails",
+      "keep_out": [
+        "text",
+        "faces or human figures",
+        "the centre of the main motif"
+      ]
+    },
+    "headline_px": {
+      "min": 96,
+      "max": 120,
+      "hard_floor": 90
+    },
+    "sub_label_px": {
+      "min": 40,
+      "max": 48
+    },
+    "layout": "A: headline bottom-left, motif right, light background, thin accent bar at the bottom",
+    "base_colors": {
+      "background": "#F5F7FA",
+      "text": "#12263F"
+    },
+    "text_rendering": "typeset afterwards (SVG / Pillow); never let an image model draw Japanese text",
+    "text_role": "a short hook about what the reader gets; never the title, its first half, or a paraphrase of it"
+  },
+  "pilots": [
+    {
+      "article_id": 25,
+      "title": "AI業務効率化｜要点と実務上の注意点",
+      "slug": "ai-business-efficiency",
+      "url": "https://bizfluxlab.com/ai-business-efficiency/",
+      "article_type": "informational",
+      "short_copy_candidates": [
+        "AI業務効率化",
+        "AIに任せる範囲",
+        "進め方と注意点"
+      ],
+      "recommended_copy": "AI業務効率化",
+      "sub_label_candidates": [
+        "要点と注意点",
+        "進め方の整理"
+      ],
+      "visual_motif": "A left-to-right workflow of rounded tool blocks that splits into two lanes: one lane marked by a small spark/gear (work handed to AI), the other ending in a checkmark (a person confirms). Flat vector, no product logos.",
+      "visual_keywords": [
+        "workflow",
+        "two roles",
+        "automation",
+        "human check",
+        "tool blocks",
+        "arrows"
+      ],
+      "tone": {
+        "family": "AI・業務効率化 (総論)",
+        "accent": "#0D9488",
+        "nuance": "calm teal on light grey; practical and orderly, the 'entry point' of the category"
+      },
+      "list_intent": "The category's general entry: reads as 'how to start using AI for work', calmer than the product-specific cards next to it.",
+      "notes": [
+        "The article frames AI's job as two distinct roles; the two-lane split mirrors that without claiming specifics.",
+        "Do not draw Make or ChatGPT logos even though the article uses them as examples."
+      ],
+      "headline_layout": {
+        "lines": [
+          "AI業務効率化"
+        ],
+        "size_px": 100,
+        "measured_width_px": 598,
+        "column_width_px": 628,
+        "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      }
+    },
+    {
+      "article_id": 23,
+      "title": "ChatGPT法人プラン｜プラン別の料金と選び方",
+      "slug": "chatgpt-business-plans",
+      "url": "https://bizfluxlab.com/chatgpt-business-plans/",
+      "article_type": "pricing",
+      "short_copy_candidates": [
+        "法人プラン比較",
+        "法人プランの選び方",
+        "プランと人数"
+      ],
+      "recommended_copy": "法人プラン比較",
+      "sub_label_candidates": [
+        "ChatGPT",
+        "料金と選び方"
+      ],
+      "visual_motif": "Three plan cards of increasing height laid out side by side in a horizontal row (a comparison composition), each with a row of small seat (person) icons; no prices, currencies or plan names.",
+      "visual_keywords": [
+        "plan tiers",
+        "seats",
+        "cards",
+        "comparison",
+        "organization size"
+      ],
+      "tone": {
+        "family": "ChatGPT の法人利用 (料金・プラン)",
+        "accent": "#2563EB",
+        "nuance": "clear blue; structured and comparative, like a clean pricing table without numbers"
+      },
+      "list_intent": "Instantly reads as 'compare the business plans'; must be distinguishable from the adjacent ChatGPT Enterprise card by motif (cards and seats vs. admin panel).",
+      "notes": [
+        "The article is seat-based (シート appears 23 times), so seat icons carry the theme.",
+        "Never print amounts or dates: the article's prices are 'as of 2026-09' and would go stale in an image.",
+        "'ChatGPT' may appear as a small sub label in plain type only; no OpenAI mark."
+      ],
+      "distinguish_from": {
+        "article_id": 20,
+        "rule": "emphasise comparison: horizontal row of parallel cards, bright blue"
+      },
+      "headline_layout": {
+        "lines": [
+          "法人プラン",
+          "比較"
+        ],
+        "size_px": 104,
+        "measured_width_px": 520,
+        "column_width_px": 568,
+        "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      }
+    },
+    {
+      "article_id": 24,
+      "title": "AIエージェント｜意味・種類・選び方の基礎知識",
+      "slug": "ai-agents",
+      "url": "https://bizfluxlab.com/ai-agents/",
+      "article_type": "category_landing",
+      "short_copy_candidates": [
+        "AIエージェントとは",
+        "AIエージェント入門",
+        "種類と選び方"
+      ],
+      "recommended_copy": "AIエージェントとは",
+      "sub_label_candidates": [
+        "意味・種類・選び方",
+        "基礎知識"
+      ],
+      "visual_motif": "A central rounded node linked by thin lines to four small icons (calendar, document, data table, message), suggesting an agent that acts across tasks; concept-map style.",
+      "visual_keywords": [
+        "agent node",
+        "concept map",
+        "tasks",
+        "connections",
+        "definition"
+      ],
+      "tone": {
+        "family": "AI エージェント・生成 AI",
+        "accent": "#4F46E5",
+        "nuance": "indigo; slightly more conceptual than the others, still flat and quiet"
+      },
+      "list_intent": "Reads as 'what is an AI agent' (a definition/entry article), not a product review.",
+      "notes": [
+        "Two lines 'AIエージェント' / 'とは' at 96px; line 1 measures 670px, so the text column is widened to 690px and the motif moves right (x >= 780).",
+        "Avoid robot/humanoid clichés and sci-fi visuals; the article stresses that the term means different things per product."
+      ],
+      "headline_layout": {
+        "lines": [
+          "AIエージェント",
+          "とは"
+        ],
+        "size_px": 96,
+        "measured_width_px": 670,
+        "column_width_px": 690,
+        "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      }
+    },
+    {
+      "article_id": 20,
+      "title": "ChatGPT Enterprise｜要点と実務上の注意点",
+      "slug": "chatgpt-enterprise",
+      "url": "https://bizfluxlab.com/chatgpt-enterprise/",
+      "article_type": "informational",
+      "short_copy_candidates": [
+        "Enterpriseの要点",
+        "組織導入の要点",
+        "Enterprise検討の要点"
+      ],
+      "recommended_copy": "Enterpriseの要点",
+      "sub_label_candidates": [
+        "ChatGPT",
+        "導入前の確認点"
+      ],
+      "visual_motif": "One organization admin panel (toggle switches and a user list) guarded by a small shield and a lock on a data stack, plus a short checklist; a compact, vertically grouped composition that conveys management and security.",
+      "visual_keywords": [
+        "admin panel",
+        "shield",
+        "lock",
+        "data protection",
+        "organization",
+        "checklist"
+      ],
+      "tone": {
+        "family": "ChatGPT の法人利用 (導入・管理)",
+        "accent": "#334E68",
+        "secondary_accent": "#2563EB",
+        "nuance": "deeper slate blue with a blue highlight; more 'governed/enterprise' than the plan-comparison card"
+      },
+      "list_intent": "Must differ at a glance from the ChatGPT法人プラン card beside it: admin/data motif and darker slate tone vs. plan cards and bright blue.",
+      "notes": [
+        "The article centres on data (16 mentions), administration and SSO, and on pricing by inquiry; the admin-panel + lock motif reflects that without inventing features.",
+        "Two lines 'Enterprise' / 'の要点' at 100px (line 1 measures 517px); one line would be 785px even at 96px.",
+        "No OpenAI logo, no imitation of the real ChatGPT UI."
+      ],
+      "distinguish_from": {
+        "article_id": 23,
+        "rule": "emphasise management/security: single guarded panel, deep slate blue"
+      },
+      "headline_layout": {
+        "lines": [
+          "Enterprise",
+          "の要点"
+        ],
+        "size_px": 100,
+        "measured_width_px": 517,
+        "column_width_px": 568,
+        "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      }
+    }
+  ],
+  "brief": "docs/operations/featured-image-pilot-prompts.md"
+}
