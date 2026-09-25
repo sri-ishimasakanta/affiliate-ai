@@ -578,3 +578,75 @@ def test_a_near_miss_manual_child_still_blocks_adoption(world) -> None:
     }
     assert run(world, "create-next-category", "--execute")[0] == 2
     assert "collision" in record(world, "category", "ai")["reason"] and wp.writes == []
+
+
+# == W2C: WordPress の返すカテゴリの順と、書いたあとに止まった記事の確かめ直し =============
+def test_categories_returned_in_another_order_are_still_exact(world) -> None:
+    wp = world[0]
+    create_all(world)
+    original = wp.set_post_categories_exact
+
+    def reorder(post_id, payload_json):
+        result = original(post_id, payload_json)
+        wp.posts[post_id]["categories"] = list(reversed(wp.posts[post_id]["categories"]))
+        return result
+
+    wp.set_post_categories_exact = reorder
+    assert run(world, "next", "--execute")[0] == 0
+    rec = record(world, "article", 15)
+    assert rec["result"] == "applied"
+    assert rec["after_categories"] == list(reversed(rec["payload"]["categories"]))
+
+
+def _stop_after_write(world):
+    """書いたあと (読み戻しの前) に止まった状態を作る (W2C の [9, 4] の読み戻しと同じ形)。"""
+
+    wp = world[0]
+    create_all(world)
+    original = wp.get_post
+    calls = {"n": 0}
+
+    def flaky(post_id):
+        if post_id == 115 and wp.writes and wp.writes[-1][0] == "set_categories":
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("readback interrupted")
+        return original(post_id)
+
+    wp.get_post = flaky
+    assert run(world, "next", "--execute")[0] == 2
+    rec = record(world, "article", 15)
+    assert (rec["result"], rec["stage"]) == ("stopped", "readback")
+    return wp
+
+
+def test_reconcile_confirms_a_stopped_write_without_writing_again(world, capsys) -> None:
+    wp = _stop_after_write(world)
+    writes = list(wp.writes)
+    code, out = run(world, "reconcile", capsys=capsys)  # 読むだけ
+    assert code == 0 and '"result": "ready"' in out
+    assert record(world, "article", 15)["result"] == "stopped"  # 読むだけでは記録を変えない
+    assert run(world, "reconcile", "--execute")[0] == 0
+    rec = record(world, "article", 15)
+    assert rec["result"] == "applied" and rec["reconciled_from"].startswith("RuntimeError")
+    assert rec["public"]["problems"] == []
+    assert wp.writes == writes  # WordPress には何も書いていない
+    assert run(world, "next", "--execute")[0] == 0  # 次は 13
+    assert wp.writes[-1][1]["post"] == 113
+
+
+def test_reconcile_refuses_when_the_live_post_does_not_match(world) -> None:
+    wp = _stop_after_write(world)
+    wp.posts[115]["categories"] = [4]  # 人が戻した、など
+    assert run(world, "reconcile", "--execute")[0] == 2
+    assert record(world, "article", 15)["result"] == "stopped"
+
+
+def test_reconcile_refuses_a_stop_that_happened_before_any_write(world, capsys) -> None:
+    wp = world[0]
+    create_all(world)
+    wp.posts[115]["title"] = {"raw": "変わった"}
+    assert run(world, "next", "--execute")[0] == 2
+    code, out = run(world, "reconcile", "--execute", capsys=capsys)
+    assert code == 2 and "stopped before its write" in out
+    assert not [w for w in wp.writes if w[0] == "set_categories"]

@@ -204,8 +204,10 @@ def post_readback_problems(before: Mapping, after: Mapping, *, expected: list[in
     """書いたあと: カテゴリがちょうど計画どおり、modified_gmt は変わり、ほかは同じ。"""
 
     problems = []
-    if list(after.get("categories") or []) != expected:
-        problems.append(f"categories read back as {after.get('categories')}, expected {expected}")
+    got = list(after.get("categories") or [])
+    # WordPress は ID を自分の順で返す ([9, 4] など)。同じ集合で重複が無ければ一致とみなす。
+    if sorted(got) != sorted(expected) or len(set(got)) != len(got):
+        problems.append(f"categories read back as {got}, expected {expected}")
     if after.get("modified_gmt") == before.get("modified_gmt"):
         problems.append("modified_gmt did not change (the write may not have been applied)")
     old, new = post_fingerprint(before), post_fingerprint(after)

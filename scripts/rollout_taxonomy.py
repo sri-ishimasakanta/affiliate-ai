@@ -8,6 +8,7 @@
     uv run python scripts/rollout_taxonomy.py next --execute               # 1 記事だけ書く
     uv run python scripts/rollout_taxonomy.py snapshot --out before.json   # 読むだけ
     uv run python scripts/rollout_taxonomy.py compare --before b.json --after a.json
+    uv run python scripts/rollout_taxonomy.py reconcile [--execute]   # 書いたあとに止まった記事
 
 入力は ``scripts/plan_taxonomy.py`` の計画 (``artifacts/taxonomy/w2-category-plan.json``)。
 記録は ``artifacts/taxonomy/rollout/`` (git 管理外): ``category-<key>.json`` と
@@ -282,6 +283,136 @@ def public_state(http_get, *, site: str, link: str, parent_url: str, child_url: 
     }
 
 
+def verify_public(http_get, sleep, *, site, link, archive, child_id, attempts, wait):
+    """公開ページを確かめる (キャッシュを避けた URL。数回まで待って確かめ直す)。"""
+
+    for attempt in range(1, attempts + 1):
+        rendered = public_state(
+            http_get, site=site, link=link, parent_url=archive["parent"], child_url=archive["child"]
+        )
+        problems = public_problems(
+            rendered,
+            link=link,
+            parent_url=archive["parent"],
+            child_url=archive["child"],
+            child_id=child_id,
+        )
+        if not problems or attempt == attempts:
+            return {"attempt": attempt, "rendered": rendered, "problems": problems}, problems
+        sleep(wait)
+    raise AssertionError("unreachable")
+
+
+def _live_children(client, plan: dict, state: Path) -> tuple[list, dict[str, int]]:
+    parent = plan["parent_category"]
+    child_ids = resolved_child_ids(state)
+    categories = client.list_categories()
+    check_parent(categories, parent_id=parent["id"], parent_slug=parent["slug"])
+    for key, cid in child_ids.items():
+        term = resolve_child(categories, child_by_key(key), parent_id=parent["id"])
+        if term is None or term["id"] != cid:
+            raise TaxonomyRolloutStop(f"child {key} is not category {cid} any more")
+    extra = unexpected_categories(categories, parent_id=parent["id"], child_ids=child_ids)
+    if extra:
+        raise TaxonomyRolloutStop(f"unexpected categories exist: {extra}")
+    return categories, child_ids
+
+
+def reconcile_article(
+    client,
+    plan: dict,
+    state: Path,
+    *,
+    execute: bool,
+    http_get=default_http_get,
+    sleep=time.sleep,
+    attempts: int = 4,
+    wait: float = 20,
+) -> dict:
+    """書いたあとに止まった記事を、今の WordPress で確かめ直す (WordPress には書かない)。
+
+    記録の payload (書こうとしたカテゴリ)・書く前の項目・書く前の modified_gmt と今の post を
+    比べ、公開ページも確かめる。すべて合い、``execute`` のときだけ手元の記録を ``applied`` に
+    する。合わなければ記録は止まったまま (人が確かめる)。
+    """
+
+    blocked = progress(state)["articles"]["blocked"]
+    if not blocked:
+        return {"result": "nothing_to_do", "reason": "no stopped article"}
+    article_id = blocked[0]
+    path = _record_path(state, "article", article_id)
+    record = _read(path) or {}
+    if record.get("stage") not in ("write", "readback", "public") or "payload" not in record:
+        raise TaxonomyRolloutStop(
+            f"article {article_id} stopped before its write (stage {record.get('stage')}); "
+            "a human must decide whether to clear the record"
+        )
+    row = next(r for r in plan["articles"] if r["article_id"] == article_id)
+    child = child_for_article(article_id)
+    site = client.target_base_url
+    log = {
+        "kind": "article",
+        "article_id": article_id,
+        "wordpress_post_id": row["wordpress_post_id"],
+        "stage": "reconcile",
+        "execute": execute,
+    }
+    categories, child_ids = _live_children(client, plan, state)
+    child_id = child_ids[child["key"]]
+    desired = record["payload"]["categories"]
+    if desired != [plan["parent_category"]["id"], child_id]:
+        raise TaxonomyRolloutStop(
+            f"article {article_id}: recorded payload {desired} is not the plan"
+        )
+    post = client.get_post(row["wordpress_post_id"])
+    got = list(post.get("categories") or [])
+    problems = []
+    if sorted(got) != sorted(desired) or len(set(got)) != len(got):
+        problems.append(f"live categories {got} are not {desired}")
+    if post_fingerprint(post) != record["before"]:
+        problems.append("post fields differ from before the write")
+    if post.get("modified_gmt") == record.get("before_modified_gmt"):
+        problems.append("modified_gmt did not change")
+    terms = {c.get("id"): c for c in categories}
+    archive = {
+        "parent": terms[plan["parent_category"]["id"]].get("link"),
+        "child": terms[child_id].get("link"),
+    }
+    if not problems:
+        log["public"], problems = verify_public(
+            http_get,
+            sleep,
+            site=site,
+            link=row["link"],
+            archive=archive,
+            child_id=child_id,
+            attempts=attempts,
+            wait=wait,
+        )
+    log["problems"] = problems
+    if problems:
+        log["result"] = "stopped"
+        log["reason"] = f"reconcile: {problems}"
+        return log
+    log["result"] = "reconciled" if execute else "ready"
+    if execute:
+        _write(
+            path,
+            {
+                **record,
+                "stage": "done",
+                "result": "applied",
+                "reconciled_at": _now(),
+                "reconciled_from": record.get("reason"),
+                "archive_urls": archive,
+                "after_categories": got,
+                "after_modified_gmt": post.get("modified_gmt"),
+                "public": log["public"],
+            },
+        )
+    return log
+
+
 def next_article(
     client,
     plan: dict,
@@ -373,26 +504,16 @@ def next_article(
         if problems:
             raise TaxonomyRolloutStop(f"readback: {problems}")
         log["stage"] = "public"
-        for attempt in range(1, attempts + 1):
-            rendered = public_state(
-                http_get,
-                site=site,
-                link=row["link"],
-                parent_url=archive["parent"],
-                child_url=archive["child"],
-            )
-            problems = public_problems(
-                rendered,
-                link=row["link"],
-                parent_url=archive["parent"],
-                child_url=archive["child"],
-                child_id=child_id,
-            )
-            log["public"] = {"attempt": attempt, "rendered": rendered, "problems": problems}
-            if not problems:
-                break
-            if attempt < attempts:
-                sleep(wait)
+        log["public"], problems = verify_public(
+            http_get,
+            sleep,
+            site=site,
+            link=row["link"],
+            archive=archive,
+            child_id=child_id,
+            attempts=attempts,
+            wait=wait,
+        )
         if problems:
             raise TaxonomyRolloutStop(f"public: {problems}")
         log["stage"] = "done"
@@ -470,6 +591,10 @@ def main(argv=None, *, client=None, http_get=default_http_get, sleep=time.sleep)
     commands.add_parser("plan")
     create = commands.add_parser("create-next-category")
     create.add_argument("--execute", action="store_true")
+    rec = commands.add_parser("reconcile")
+    rec.add_argument(
+        "--execute", action="store_true", help="確かめられたら手元の記録だけを更新する"
+    )
     nxt = commands.add_parser("next")
     nxt.add_argument("--execute", action="store_true")
     snap = commands.add_parser("snapshot")
@@ -516,6 +641,10 @@ def main(argv=None, *, client=None, http_get=default_http_get, sleep=time.sleep)
             )
         elif args.command == "create-next-category":
             log = create_next_category(client, plan, args.state, execute=args.execute)
+        elif args.command == "reconcile":
+            log = reconcile_article(
+                client, plan, args.state, execute=args.execute, http_get=http_get, sleep=sleep
+            )
         else:
             log = next_article(
                 client, plan, args.state, execute=args.execute, http_get=http_get, sleep=sleep
@@ -539,7 +668,8 @@ def main(argv=None, *, client=None, http_get=default_http_get, sleep=time.sleep)
         print("read-only: nothing was created or changed in WordPress")
     return (
         EXIT_OK
-        if log.get("result") in ("ready", "created", "reused", "applied", "nothing_to_do")
+        if log.get("result")
+        in ("ready", "created", "reused", "applied", "reconciled", "nothing_to_do")
         else EXIT_STOPPED
     )
 
