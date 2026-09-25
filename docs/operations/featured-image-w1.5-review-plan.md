@@ -244,6 +244,20 @@ uv run python scripts/apply_featured_image.py --dir artifacts/featured-images/w1
 - manifest の各項目: `file` は upload のファイル名 (パス区切りなし)、`source` は
   `batch-<N>/<file>`。`media_action` (`upload` / `reuse` / `human_review`) と
   `planned_media_id`。元の `featured_media` (巻き戻し用)・`modified_gmt`・カテゴリも記録。
+- 本番は `scripts/rollout_featured_image.py` で 1 記事ずつ行う (既定は読むだけ):
+
+  ```bash
+  uv run python scripts/rollout_featured_image.py next             # 次の 1 記事の事前確認と PLAN
+  uv run python scripts/rollout_featured_image.py next --execute   # 次の 1 記事だけを適用して確かめる
+  uv run python scripts/rollout_featured_image.py status           # 進み具合
+  uv run python scripts/rollout_featured_image.py check-public --link <URL> --stem <stem> --alt <alt>
+  ```
+
+  書くのは既存の `apply_featured_image.py` (`apply_one`) だけ。この道具はその前 (post・
+  タイトル・slug・`featured_media`・`modified_gmt`・ローカルの SHA-256・media の名前と byte
+  の衝突・試作 4 件・media 95 / 99) と後 (REST の読み戻し・公開ページ・カテゴリ一覧・
+  og:image・twitter:image) を確かめ、`rollout/article-<id>.json` に残す。承認した順の
+  次の 1 記事だけを扱い、失敗した記事が残っていれば次へ進まない。
 - apply の道具は、manifest の計画と `--media-id` が食い違うと何も書かない
   (`upload` なのに `--media-id` がある、`reuse` の media と違う、`human_review`)。
   まとめて書く命令は作っていない。**1 回の `apply` で 1 記事だけ。**
