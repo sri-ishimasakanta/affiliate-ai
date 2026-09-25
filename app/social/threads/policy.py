@@ -357,6 +357,24 @@ class ThreadsOperationsPolicy:
     def stock_days_high(self) -> float:
         return float(self.section("stock").get("approved_days_high", 3))
 
+    # -- T6: proposal-stock maintenance ------------------------------------------------
+    @property
+    def stock_target_low(self) -> int:
+        """T4.2 の目安の下限 (日次の目安 × 在庫日数)。digest と同じ計算。ノルマではない。"""
+
+        return round(self.daily_target_low * self.stock_days_low)
+
+    @property
+    def stock_target_high(self) -> int:
+        return round(self.daily_target_high * self.stock_days_high)
+
+    def proposal_stock(self, key: str, default):
+        return self.section("proposal_stock").get(key, default)
+
+    @property
+    def max_new_proposals_per_cycle(self) -> int:
+        return int(self.proposal_stock("max_new_proposals_per_cycle", 3))
+
 
 def _parse_window(document: dict, key: str) -> DailyWindowSpec:
     raw = document.get(key)
@@ -411,6 +429,17 @@ def load_operations_policy(path: Path | str | None = None) -> ThreadsOperationsP
     stock = document.get("stock") or {}
     if stock and stock.get("advisory") is not True:
         raise ValueError("stock coverage must be advisory")
+    proposal_stock = document.get("proposal_stock") or {}
+    if proposal_stock:
+        if proposal_stock.get("advisory") is not True:
+            raise ValueError("proposal_stock must be advisory")
+        per_cycle = int(proposal_stock.get("max_new_proposals_per_cycle", 3))
+        if not 1 <= per_cycle <= MAX_NEW_PROPOSALS_PER_CYCLE_LIMIT:
+            # 1 回の保守で大量に作らせない (T6 の安全の上限。ノルマではない)。
+            raise ValueError(
+                "proposal_stock.max_new_proposals_per_cycle must be between 1 and "
+                f"{MAX_NEW_PROPOSALS_PER_CYCLE_LIMIT}"
+            )
     return ThreadsOperationsPolicy(
         policy_version=version,
         raw=document,
@@ -420,6 +449,10 @@ def load_operations_policy(path: Path | str | None = None) -> ThreadsOperationsP
         daily_target_low=low,
         daily_target_high=high,
     )
+
+
+#: T6: 1 回の在庫保守で作ってよい提案の数の、コードに固定した上限。
+MAX_NEW_PROPOSALS_PER_CYCLE_LIMIT = 3
 
 
 @lru_cache

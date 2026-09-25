@@ -1,5 +1,5 @@
 {
-  "policy_version": "t4.3",
+  "policy_version": "t6.0",
   "notes": [
     "Threads operating choices for the resident worker. These are our own editorial/operational choices, not Meta limits.",
     "Timezone is NOT defined here. It is read from operations_policy.json (the same setting C8 and C9.5 use).",
@@ -9,7 +9,8 @@
     "T4.1 is PLAN-only: automatic publication is disabled in code, not only here.",
     "T4.2: approval requests are batched into ONE digest email. Each proposal in a digest keeps its own review session and its own approve/reject decision; there is no approve-all.",
     "T4.2: approval TTL starts when the request is actually sent, never when the proposal was generated. Nighttime generation does not consume the TTL.",
-    "T4.3: automatic publication exists in code but is OFF. It needs ALL of: automatic_publication.enabled=true in this file, the worker started with --auto-publish, the worker lock, Threads state ready, a successful read-only preflight, and a queue evaluation with no blocker. At most one post per cycle, through the T3 path."
+    "T4.3: automatic publication exists in code but is OFF. It needs ALL of: automatic_publication.enabled=true in this file, the worker started with --auto-publish, the worker lock, Threads state ready, a successful read-only preflight, and a queue evaluation with no blocker. At most one post per cycle, through the T3 path.",
+    "T6: proposal-stock maintenance only PREPARES awaiting_approval proposals. It never approves, rejects, publishes or edits an existing proposal. The stock floor/ceiling are the T4.2 advisory stock (daily target x stock days); they are not quotas."
   ],
   "publication_window": {
     "start": "07:00",
@@ -54,6 +55,11 @@
       "approval_sync": {
         "interval_minutes": 5,
         "note": "Pulls phone decisions from the relay (read + local record through the existing sync). Runs only when the worker is started with --sync-approvals."
+      },
+      "proposal_stock_maintenance": {
+        "interval_minutes": 360,
+        "min_interval_minutes": 60,
+        "note": "Low-frequency. Runs only when the worker is started with --maintain-proposal-stock. Material queue changes pull it forward, never sooner than min_interval_minutes after the last run."
       }
     }
   },
@@ -75,6 +81,20 @@
     "approved_days_low": 1,
     "approved_days_high": 3,
     "note": "Advisory coverage of approved-but-unpublished proposals, in days of the advisory daily target. Not a quota: above the high mark new approval requests are deferred, never deleted."
+  },
+  "proposal_stock": {
+    "advisory": true,
+    "max_new_proposals_per_cycle": 3,
+    "diversity_top_up": true,
+    "article_cooldown_days": 7,
+    "recent_publication_window": 10,
+    "source_angle_suppression_days": 30,
+    "re_review_after_days": 14,
+    "request_stale_after_hours": 72,
+    "article_link_share_max": 0.34,
+    "provider": "manual",
+    "request_directory": "data/threads-generation",
+    "note": "Generate only when usable stock (approved unpublished + active requests + prepared) is below the T4.2 advisory floor, or when it is below the ceiling and one article/topic dominates. At most max_new_proposals_per_cycle per cycle, one per article. A pending generation request blocks new requests until it is answered or goes stale."
   },
   "automatic_publication": {
     "enabled": true,

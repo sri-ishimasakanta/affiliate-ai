@@ -59,7 +59,12 @@ class WorkerLogFormatter:
         policy_state = "enabled" if capabilities.get("auto_publish_policy") else "disabled"
         caps = ",".join(
             name
-            for name in ("collect_insights", "sync_approvals", "send_approval_digests")
+            for name in (
+                "collect_insights",
+                "sync_approvals",
+                "send_approval_digests",
+                "maintain_proposal_stock",
+            )
             if capabilities.get(name)
         )
         return self._line(
@@ -209,6 +214,25 @@ class WorkerLogFormatter:
                 level = "ERROR"
         if summary.get("next_blockers") is not None:
             fields["next_blockers"] = ",".join(summary["next_blockers"]) or "(none)"
+        return fields, level
+
+    @staticmethod
+    def _describe_proposal_stock_maintenance(summary: dict):
+        fields = {
+            "needs_generation": summary.get("needs_generation"),
+            "usable": summary.get("usable"),
+            "created": summary.get("created"),
+            "requests_created": summary.get("requests_created"),
+            "pending_requests": summary.get("pending_requests"),
+            "provider": summary.get("provider"),
+            "guidance": summary.get("guidance"),
+        }
+        if summary.get("blocked_by"):
+            fields["blocked"] = "; ".join(summary["blocked_by"])
+        level = "INFO"
+        if summary.get("failures"):
+            fields["failures"] = "; ".join(summary["failures"])
+            level = "WARN"
         return fields, level
 
     @staticmethod

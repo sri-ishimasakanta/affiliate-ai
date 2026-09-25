@@ -148,7 +148,12 @@ class ThreadsProposalService:
 
     # -- prompt ---------------------------------------------------------------
     def build_prompt(
-        self, *, article_id: int, angles=None, learning_as_of: datetime | None = None
+        self,
+        *,
+        article_id: int,
+        angles=None,
+        learning_as_of: datetime | None = None,
+        requested_link_mode: str | None = None,
     ) -> ThreadsPromptPackage:
         """生成に使う prompt を決定的に組み立てる (外部呼び出しなし)。
 
@@ -165,6 +170,7 @@ class ThreadsProposalService:
             angles=angles or self._policy.angles,
             policy=self._policy,
             guidance=guidance,
+            requested_link_mode=requested_link_mode,
         )
 
     # -- proposal -------------------------------------------------------------
@@ -327,6 +333,58 @@ class ThreadsProposalService:
             self._session.refresh(row)
         return rows
 
+    # -- audit (T6) ---------------------------------------------------------------
+    def audit_guidance(self, proposal_id: int) -> dict:
+        """保存した提案の学習の来歴を、同じ ``as_of`` で作り直して指紋を比べる。
+
+        **読むだけ。** 何も書かない (flush しようとしたら止める)。
+        結果: ``match`` / ``mismatch`` / ``no_provenance`` / ``not_migrated``。
+        """
+
+        from app.services.threads_learning_service import read_only_session
+
+        with read_only_session(self._session):
+            row = self._require(proposal_id)
+            base = {
+                "proposal_id": row.id,
+                "status": row.status,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            if not self.can_store_learning_provenance():
+                return {
+                    **base,
+                    "result": "not_migrated",
+                    "reason": "this database has no learning_guidance_json column",
+                }
+            provenance = row.learning_guidance_json
+            if not provenance:
+                return {
+                    **base,
+                    "result": "no_provenance",
+                    "reason": "the proposal was saved before T5.5 or without guidance",
+                }
+            as_of = datetime.fromisoformat(provenance["as_of"])
+            rebuilt = self.learning_guidance(as_of=as_of)
+        match = rebuilt.fingerprint == provenance.get("fingerprint")
+        return {
+            **base,
+            "result": "match" if match else "mismatch",
+            "as_of": provenance["as_of"],
+            "saved": {
+                "fingerprint": provenance.get("fingerprint"),
+                "mode": provenance.get("mode"),
+                "evidence_status": provenance.get("evidence_status"),
+                "learning_policy_version": provenance.get("learning_policy_version"),
+                "verified_against_prompt": provenance.get("verified_against_prompt"),
+            },
+            "rebuilt": {
+                "fingerprint": rebuilt.fingerprint,
+                "mode": rebuilt.mode,
+                "evidence_status": rebuilt.evidence_status,
+                "learning_policy_version": rebuilt.source_policy_version,
+            },
+        }
+
     # -- state ----------------------------------------------------------------
     def evaluate_staleness(self, proposal: ThreadsPostProposal) -> tuple[bool, list[str]]:
         """記事が変わって、この提案の前提が崩れていないか。"""
@@ -374,14 +432,19 @@ class ThreadsProposalService:
         return list(self._session.scalars(stmt).all())
 
     # -- internals ------------------------------------------------------------
-    def _require_learning_column(self) -> None:
-        """来歴の列が無い (migration 前の) DB には保存しない。何も書かずに止める。"""
+    def can_store_learning_provenance(self) -> bool:
+        """来歴の列 (migration ``afc2f36bb3ca``) がこの DB にあるか (読むだけ)。"""
 
         columns = {
             c["name"]
             for c in inspect(self._session.connection()).get_columns("threads_post_proposals")
         }
-        if "learning_guidance_json" not in columns:
+        return "learning_guidance_json" in columns
+
+    def _require_learning_column(self) -> None:
+        """来歴の列が無い (migration 前の) DB には保存しない。何も書かずに止める。"""
+
+        if not self.can_store_learning_provenance():
             raise ThreadsProposalError(
                 "the database has no learning_guidance_json column yet; run "
                 "`uv run alembic upgrade head` first (nothing was stored)"

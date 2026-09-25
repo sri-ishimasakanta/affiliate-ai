@@ -42,6 +42,8 @@ SUBSYSTEM_INSIGHTS_REFRESH = "insights_refresh"
 SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH = "approval_notification_flush"
 #: 携帯での決定を中継から取り込む (T4.3)。
 SUBSYSTEM_APPROVAL_SYNC = "approval_sync"
+#: 投稿案の在庫の保守 (T6)。低頻度。提案を用意するだけで、承認も公開もしない。
+SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE = "proposal_stock_maintenance"
 #: 同じ時刻に期限が来たときの実行順。決定を取り込み、queue を観測してから公開を評価する。
 SUBSYSTEM_ORDER = (
     SUBSYSTEM_HEALTH,
@@ -50,6 +52,7 @@ SUBSYSTEM_ORDER = (
     SUBSYSTEM_PUBLICATION_EVALUATION,
     SUBSYSTEM_INSIGHTS_REFRESH,
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
+    SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE,
 )
 
 MODE_PLAN = "plan"
@@ -372,6 +375,7 @@ __all__ = [
     "SUBSYSTEM_HEALTH",
     "SUBSYSTEM_INSIGHTS_REFRESH",
     "SUBSYSTEM_ORDER",
+    "SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE",
     "SUBSYSTEM_PUBLICATION_EVALUATION",
     "SUBSYSTEM_QUEUE_OBSERVATION",
     "AutomaticPublicationUnavailable",

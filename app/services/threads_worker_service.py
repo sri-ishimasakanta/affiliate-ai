@@ -56,6 +56,7 @@ from app.social.threads.worker import (
     SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_HEALTH,
     SUBSYSTEM_INSIGHTS_REFRESH,
+    SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE,
     SUBSYSTEM_PUBLICATION_EVALUATION,
     SUBSYSTEM_QUEUE_OBSERVATION,
     SubsystemResult,
@@ -153,6 +154,8 @@ class ThreadsWorkerService:
         sync_approvals: bool = False,
         publish_sleep=None,
         alert_notifiers=None,
+        maintain_proposal_stock: bool = False,
+        stock_provider=None,
     ) -> None:
         self._factory = session_factory
         self._settings = settings
@@ -184,6 +187,10 @@ class ThreadsWorkerService:
         self._lock = None
         #: 自動公開の異常を知らせる notifier (None なら設定から作る。試験では差し替える)。
         self._alert_notifiers = alert_notifiers
+        #: T6: 投稿案の在庫を保守するか。**提案を用意するだけ** (承認・公開はしない)。
+        self._maintain_stock = maintain_proposal_stock
+        self._stock_provider = stock_provider
+        self._last_stock_run: datetime | None = None
 
     @property
     def capabilities(self) -> dict:
@@ -191,6 +198,7 @@ class ThreadsWorkerService:
             "collect_insights": self._collect_insights,
             "send_approval_digests": self._send_digests,
             "sync_approvals": self._sync_approvals,
+            "maintain_proposal_stock": self._maintain_stock,
             "auto_publish_flag": self._auto_publish,
             "auto_publish_policy": self._policy.automatic_publication_enabled,
             # 公開しうるのは、フラグとポリシーの両方がそろったときだけ。
@@ -223,6 +231,16 @@ class ThreadsWorkerService:
             enabled=self._sync_approvals,
             disabled_reason=None if self._sync_approvals else "start with --sync-approvals",
         )
+        # 起動直後に 1 回だけ保守する (停止していた間の分をまとめて作らない: 1 回の
+        # 上限と「答え待ちの依頼があれば出さない」がそのまま効く)。
+        schedule.register(
+            SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE,
+            first_run_at=now if self._maintain_stock else None,
+            enabled=self._maintain_stock,
+            disabled_reason=(
+                None if self._maintain_stock else "start with --maintain-proposal-stock"
+            ),
+        )
         flush = self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH)
         enabled = bool(flush.get("enabled", False))
         schedule.register(
@@ -241,6 +259,7 @@ class ThreadsWorkerService:
             SUBSYSTEM_INSIGHTS_REFRESH: self._insights_refresh,
             SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: self._approval_notification_flush,
             SUBSYSTEM_APPROVAL_SYNC: self._approval_sync,
+            SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE: self._proposal_stock_maintenance,
         }
 
     @property
@@ -302,9 +321,69 @@ class ThreadsWorkerService:
             summary={**counts, "changed_since_last_observation": changed},
             # 承認が増えた・提案が増えた・状態が変わったら、公開の評価と
             # まとめ送りの評価を、それぞれの定期時刻まで待たせない。
+            wake=self._observation_wake(now) if changed else {},
+        )
+
+    def _observation_wake(self, now: datetime) -> dict:
+        wake = {SUBSYSTEM_PUBLICATION_EVALUATION: now, SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: now}
+        if self._maintain_stock:
+            # 在庫が動いたら保守も前倒しする。ただし最短間隔より早めない (debounce)。
+            wake[SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE] = self._stock_wake_at(now)
+        return wake
+
+    def _stock_wake_at(self, now: datetime) -> datetime:
+        minimum = timedelta(
+            minutes=int(
+                self._policy.subsystem(SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE).get(
+                    "min_interval_minutes", 60
+                )
+            )
+        )
+        if self._last_stock_run is None:
+            return now
+        return max(now, self._last_stock_run + minimum)
+
+    def _proposal_stock_maintenance(self, now: datetime) -> SubsystemResult:
+        """投稿案の在庫を 1 回保守する (T6)。**承認・却下・公開はしない。**
+
+        新しい提案は awaiting_approval で保存され、既存の digest が人へ依頼する。
+        """
+
+        from app.services.threads_proposal_stock_service import (
+            ThreadsProposalStockService,
+        )
+
+        self._last_stock_run = now
+        with self._factory() as session:
+            outcome = ThreadsProposalStockService(
+                session,
+                settings=self._settings,
+                threads_service=self._threads,
+                policy=self._policy,
+                provider=self._stock_provider,
+                timezone=self._tz,
+                alert_notifiers=self._alert_notifiers,
+            ).maintain(now=now, execute=True)
+        plan = outcome.get("plan", {})
+        created = outcome["created"]
+        return SubsystemResult(
+            next_run_at=now + self._interval(SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE, 360),
+            summary={
+                "needs_generation": plan.get("stock", {}).get("needs_generation"),
+                "usable": plan.get("stock", {}).get("usable"),
+                "created": len(created),
+                "requests_created": len(outcome["requests_created"]),
+                "pending_requests": len(plan.get("pending_requests", [])),
+                "skipped": len(outcome["skipped"]),
+                "failures": [f["reason"] for f in outcome["failures"]],
+                "blocked_by": plan.get("blocked_by", []),
+                "provider": plan.get("provider", {}).get("name"),
+                "guidance": plan.get("learning", {}).get("mode"),
+            },
+            # 新しい提案は既存の digest の評価に任せる (送るかどうかは T4.2 が決める)。
             wake=(
-                {SUBSYSTEM_PUBLICATION_EVALUATION: now, SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: now}
-                if changed
+                {SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: now, SUBSYSTEM_QUEUE_OBSERVATION: now}
+                if created
                 else {}
             ),
         )

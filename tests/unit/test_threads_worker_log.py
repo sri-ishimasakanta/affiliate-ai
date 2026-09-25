@@ -194,3 +194,29 @@ def test_numeric_ids_stay_readable() -> None:
     assert sanitize("media 18095684012104774 publication 2") == (
         "media 18095684012104774 publication 2"
     )
+
+
+def test_proposal_stock_maintenance_is_logged_with_its_outcome() -> None:
+    line = _formatter().format(
+        _event(
+            "proposal_stock_maintenance",
+            {
+                "needs_generation": True,
+                "usable": 0,
+                "created": 0,
+                "requests_created": 3,
+                "pending_requests": 3,
+                "provider": "manual",
+                "guidance": "neutral",
+                "blocked_by": [],
+                "failures": [],
+            },
+        )
+    )
+    assert "event=proposal_stock_maintenance" in line
+    assert "requests_created=3" in line
+    assert "guidance=neutral" in line
+    failed = _formatter().format(
+        _event("proposal_stock_maintenance", {"created": 0, "failures": ["malformed output"]})
+    )
+    assert "WARN" in failed

@@ -163,4 +163,7 @@ def _read_only(session: Session) -> Iterator[None]:
         event.remove(session, "before_flush", refuse)
 
 
-__all__ = ["ThreadsLearningError", "ThreadsLearningService"]
+#: 他の読むだけの処理 (T6 の監査など) でも同じ保護を使う。
+read_only_session = _read_only
+
+__all__ = ["ThreadsLearningError", "ThreadsLearningService", "read_only_session"]

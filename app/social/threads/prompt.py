@@ -81,6 +81,7 @@ def build_prompt(
     angles,
     policy: ThreadsStylePolicy,
     guidance: ThreadsGenerationGuidance | None = None,
+    requested_link_mode: str | None = None,
 ) -> ThreadsPromptPackage:
     """決定的に prompt を組み立てる (外部呼び出しはしない)。"""
 
@@ -136,8 +137,14 @@ def build_prompt(
         "URL は書かない (こちらで決定的に組み立てる)。",
         f"link_mode は {' か '.join(LINK_MODES)} のどちらか。",
         "リンクが宣伝臭くなる投稿では none にしてよい。",
-        "",
     ]
+    if requested_link_mode in LINK_MODES:
+        # T6: 在庫の保守が出す依頼の目安。検査はしない (記事に合わなければ変えてよい)。
+        lines.append(
+            f"この依頼では link_mode={requested_link_mode} を基本にする "
+            "(記事に合わなければ none にしてよい)。"
+        )
+    lines.append("")
     if guidance is not None:
         lines += [*render_prompt_sections(guidance), ""]
     lines += [
