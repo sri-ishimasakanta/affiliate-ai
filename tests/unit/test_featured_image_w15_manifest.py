@@ -5,7 +5,8 @@ WordPress にも DB にも触らない。manifest の JSON だけを読む。
 pin する契約:
 
 - 対象は article 1〜19・21・22 の 21 記事。W1.4 の試作 (20 / 23 / 24 / 25) を含まない。
-- どの記事も ``status: planned`` (この段階では何も適用していない)。
+- どの記事も ``status: applied`` (W1.5H で本番に適用済み)。WordPress の記録は post と media が
+  21 件とも別々で、試作の media (96〜100) と media 99 を使っていない。
 - キャンバスは 1200×675 で、試作と同じ余白・ラベル予約域を使う。
 - 見出しは 1〜2 行で、列の幅に収まる。サイズは canvas の範囲 (90px 未満は禁止)。
 - 各記事の組版は本番の値 (``PRODUCTION_TYPESETTING``、試作 4 枚から較正) と同じ。
@@ -82,12 +83,14 @@ def test_the_manifest_covers_exactly_the_remaining_21_articles(doc, articles) ->
     assert len(set(headlines)) == len(headlines), "duplicate headline"
 
 
-def test_every_record_is_complete_and_only_planned(articles) -> None:
+def test_every_record_is_complete_and_applied(articles) -> None:
     for a in articles:
         for key in REQUIRED:
             assert a.get(key) not in (None, "", [], {}), f"article {a['article_id']}: {key}"
-        assert a["status"] == "planned"
-        assert "wordpress" not in a  # 適用の記録はまだ無い
+        assert a["status"] == "applied"
+        wp = a["wordpress"]
+        assert wp["file"] == a["planned_file"] and wp["original_featured_media"] == 0
+        assert wp["media_id"] not in {95, 96, 97, 98, 99, 100}
         assert a["media_title"] == f"{a['title']} アイキャッチ"
         assert re.fullmatch(rf"featured-{a['article_id']}-[a-z0-9-]+\.webp", a["planned_file"])
 
@@ -223,3 +226,10 @@ def test_every_article_uses_the_single_production_typesetting(doc, articles) -> 
     )
     assert bar["y"] + bar["height"] == 675
     assert mark["x"] == doc["canvas"]["outer_margin_px"]["left"]
+
+
+def test_the_21_applied_articles_use_distinct_posts_and_media(articles) -> None:
+    posts = [a["wordpress"]["wordpress_post_id"] for a in articles]
+    media = [a["wordpress"]["media_id"] for a in articles]
+    assert len(set(posts)) == len(set(media)) == 21
+    assert not set(posts) & {72, 74, 76, 78}  # 試作の post には触れていない

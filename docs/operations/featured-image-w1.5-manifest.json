@@ -6,7 +6,7 @@
   "review_plan": "docs/operations/featured-image-w1.5-review-plan.md",
   "created_at": "2026-09-25",
   "phase": "W1.5A",
-  "status": "planned (design only: nothing generated, uploaded or applied)",
+  "status": "applied and verified on production WordPress (W1.5H, 2026-09-26 JST)",
   "excluded_article_ids": {
     "ids": [
       20,
@@ -543,7 +543,24 @@
         "DB article_type is null; treated as recommendation_roundup from the title and structure.",
         "WordPress stores the Japanese slug percent-encoded; the apply manifest must use the slug exactly as the REST API returns it (see the review plan)."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 25,
+        "media_id": 110,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-1-business-efficiency-tools-roundup.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:19:05",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 2,
@@ -683,7 +700,24 @@
       "notes": [
         "The article covers Krisp and Fireflies.ai only; the two cards reflect 'two options' without naming them."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 36,
+        "media_id": 102,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-2-ai-meeting-notes-tools.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:16:39",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 3,
@@ -823,7 +857,24 @@
       "notes": [
         "The article compares by supported languages, audio-file handling and price; the file card and globe reflect the first two."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 37,
+        "media_id": 106,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-3-ai-transcription-tools.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:17:44",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 4,
@@ -963,7 +1014,24 @@
       "notes": [
         "The article covers HubSpot and Pipedrive: a customer platform and a sales pipeline; the two panels mirror that difference without names."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 38,
+        "media_id": 111,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-4-crm-tools.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:19:25",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 5,
@@ -1103,7 +1171,24 @@
       "notes": [
         "'HubSpot' is plain type in the headline (no logo lettering). Prices are 'as of 2026-09' and must never appear in the image."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 39,
+        "media_id": 112,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-5-hubspot-pricing.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:19:54",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 6,
@@ -1242,7 +1327,24 @@
       "notes": [
         "The article compares only two tools on five axes (free range, price band, annual discount, features, uses)."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 40,
+        "media_id": 103,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-6-ai-meeting-notes-comparison.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:16:54",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 7,
@@ -1383,7 +1485,24 @@
       "notes": [
         "Headline mirrors pilot 24 ('AIエージェント/とは') on purpose: category-landing articles share the 'とは' pattern."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 50,
+        "media_id": 101,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-7-ai-meeting-notes.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:16:02",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 8,
@@ -1523,7 +1642,24 @@
       "notes": [
         "The article's core is 'Free forever' vs a 7-day trial; the day count must not appear (it can change)."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 52,
+        "media_id": 104,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-8-ai-meeting-notes-free.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:17:11",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 9,
@@ -1663,7 +1799,24 @@
       "notes": [
         "The article stresses per-seat billing, monthly vs annual amounts and whether upper plans publish a price."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 54,
+        "media_id": 105,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-9-ai-meeting-notes-pricing.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:17:26",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 10,
@@ -1804,7 +1957,24 @@
       "notes": [
         "Step markers use dots, not digits, so no numeric text is generated."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 82,
+        "media_id": 114,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-10-make-how-to.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:20:33",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 11,
@@ -1944,7 +2114,24 @@
       "notes": [
         "The article's point is that active scenarios, run interval and run time change per plan, not just the price."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 56,
+        "media_id": 115,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-11-make-pricing.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:20:53",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 12,
@@ -2085,7 +2272,24 @@
       "notes": [
         "The article is neutral ('not recommending a service'); the caution mark keeps the card informational."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 60,
+        "media_id": 107,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-12-ai-transcription-free.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:18:01",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 13,
@@ -2225,7 +2429,24 @@
         "The article covers ClickUp and monday.com; board + timeline reflect 'tasks and dashboards' without names.",
         "Rose #DB2777 is a new family accent; confirm it at the batch 2 review."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 58,
+        "media_id": 108,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-13-project-management-tools.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:18:18",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 14,
@@ -2360,7 +2581,24 @@
       "notes": [
         "The article reads the difference from what each product officially covers, so overlap (not opposition) is the right shape."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 62,
+        "media_id": 113,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-14-crm-sfa-difference.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:20:14",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 15,
@@ -2500,7 +2738,24 @@
       "notes": [
         "'Notion' is plain type in the headline only."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 64,
+        "media_id": 109,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-15-notion-task-management.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:18:35",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 16,
@@ -2640,7 +2895,24 @@
       "notes": [
         "The article is explicitly 'not a ranking'; the funnel narrows by conditions instead of showing a winner."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 66,
+        "media_id": 116,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-16-rpa-tools.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:21:12",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 17,
@@ -2780,7 +3052,24 @@
       "notes": [
         "The article stresses that amounts are not comparable (units, currency and period differ), so the matrix uses symbols only."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 80,
+        "media_id": 117,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-17-rpa-comparison.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:21:31",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 18,
@@ -2917,7 +3206,24 @@
       "notes": [
         "The article's first decisions are: one target task, attended vs unattended, and the billing unit."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 68,
+        "media_id": 118,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-18-rpa-implementation.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:21:51",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 19,
@@ -3055,7 +3361,24 @@
       "notes": [
         "The article's frame is 'free range / add-on to an existing contract / built into another tool'."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 70,
+        "media_id": 119,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-19-generative-ai-tools.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:22:11",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 21,
@@ -3197,7 +3520,24 @@
         "The article covers the MIC/METI 'AI事業者ガイドライン' (v1.2): 3 basic principles, 10 common guidelines, main part vs appendix.",
         "The sublabel names the document; the headline is a short hook."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 84,
+        "media_id": 120,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-21-generative-ai-guidelines.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:22:31",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     },
     {
       "article_id": 22,
@@ -3338,7 +3678,24 @@
       "notes": [
         "The article covers risk-based approach, agile governance, five stages, goals aligned with management and the value chain."
       ],
-      "status": "planned"
+      "status": "applied",
+      "wordpress": {
+        "wordpress_post_id": 86,
+        "media_id": 121,
+        "set_by": "W1.5H rollout (scripts/rollout_featured_image.py; uploaded)",
+        "file": "featured-22-ai-governance.webp",
+        "original_featured_media": 0,
+        "modified_gmt_after_apply": "2026-09-25T16:22:51",
+        "verified": [
+          "featured_media read-back",
+          "media WebP 1200x675, file name, alt_text, title, approved SHA-256",
+          "post fields unchanged except featured_media / modified_gmt",
+          "body eye-catch and alt",
+          "category card 640x360 derivative",
+          "og:image",
+          "twitter:image (summary_large_image)"
+        ]
+      }
     }
   ]
 }

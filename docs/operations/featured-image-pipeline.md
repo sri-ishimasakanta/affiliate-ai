@@ -307,6 +307,73 @@ W1.5A で設計だけを用意した (画像は未作成、WordPress には未�
   [`featured-image-w1.5-review-plan.md`](featured-image-w1.5-review-plan.md)
 - W1.5G (2026-09-26): 5 バッチ・21 枚とも人が承認済み。WordPress を読むだけで 21 件の対象を
   決め、適用の manifest を用意した (21/21 が 1 件に決まり、`featured_media = 0`、全件新しく
-  upload)。**本番への適用はまだ**。手順・巻き戻し・キャッシュ・更新日は review plan §6。
+  upload)。手順・巻き戻し・キャッシュ・更新日は review plan §6。
+- W1.5H (2026-09-26 01:15〜01:22 JST): 21 記事に本番で適用して確かめた (§7)。
 - W1.5 で足した系統のアクセント: プロジェクト・タスク管理 = rose `#DB2777`、
   文字起こし寄りの記事 = deep sky `#0369A1` (議事録 `#0284C7` と形で見分け、明るさは補助)。
+
+## 7. W1.5 本番適用の記録 (2026-09-26)
+
+残り 21 記事に、人が承認した画像を 1 記事ずつ適用し、その場で確かめた (W1.5H)。
+
+- 時刻 (JST): 2026-09-26 01:15:56 (canary の article 7 の開始) 〜 01:22:54 (article 22 の確認の終わり)。
+- 道具: `scripts/rollout_featured_image.py next --execute` を 21 回 (1 回 = 1 記事)。書き込みは既存の
+  `apply_featured_image.py` (`apply_one`) だけ。記事ごとの結果は
+  `artifacts/featured-images/w1.5/rollout/article-<id>.json`、道具の記録は `.../w1.5/applied/`。
+- 作業者: このセッションだけ (同じ機械に別の Claude のセッションは無く、W1.5G の読み取りから
+  media / featured_media に変化なし)。
+- 事前: ruff / 5336 tests / alembic / `git diff --check` が clean。計画を作り直して 21/21 ready
+  (W1.5G と同じ)。書く前の状態を `rollout/before-snapshot.json` に保存。
+- canary (article 7 / post 50 → media 101) を確かめ、全 post の比較で変わったのが post 50 の
+  `featured_media` と `modified_gmt` だけであることを確かめてから、残りの 20 記事に進んだ。
+
+### 適用結果
+
+| # | バッチ | article | slug | WP post | media ID | ファイル | modified_gmt (前 → 後) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 7 | ai-meeting-notes | 50 | **101** | featured-7-ai-meeting-notes.webp | 2026-09-22T10:11:34 → 2026-09-25T16:16:02 |
+| 2 | 1 | 2 | ai-meeting-notes-tools | 36 | **102** | featured-2-ai-meeting-notes-tools.webp | 2026-09-22T07:01:44 → 2026-09-25T16:16:39 |
+| 3 | 1 | 6 | ai-meeting-notes-comparison | 40 | **103** | featured-6-ai-meeting-notes-comparison.webp | 2026-09-22T07:31:56 → 2026-09-25T16:16:54 |
+| 4 | 1 | 8 | ai-meeting-notes-free | 52 | **104** | featured-8-ai-meeting-notes-free.webp | 2026-09-22T10:11:53 → 2026-09-25T16:17:11 |
+| 5 | 1 | 9 | ai-meeting-notes-pricing | 54 | **105** | featured-9-ai-meeting-notes-pricing.webp | 2026-09-22T10:12:12 → 2026-09-25T16:17:26 |
+| 6 | 2 | 3 | ai-transcription-tools | 37 | **106** | featured-3-ai-transcription-tools.webp | 2026-09-22T07:31:49 → 2026-09-25T16:17:44 |
+| 7 | 2 | 12 | ai-transcription-free | 60 | **107** | featured-12-ai-transcription-free.webp | 2026-09-22T10:12:28 → 2026-09-25T16:18:01 |
+| 8 | 2 | 13 | project-management-tools | 58 | **108** | featured-13-project-management-tools.webp | 2026-09-22T10:11:42 → 2026-09-25T16:18:18 |
+| 9 | 2 | 15 | notion-task-management | 64 | **109** | featured-15-notion-task-management.webp | 2026-09-22T10:13:02 → 2026-09-25T16:18:35 |
+| 10 | 3 | 1 | 業務効率化-ツール-おすすめ-roundup | 25 | **110** | featured-1-business-efficiency-tools-roundup.webp | 2026-09-16T15:54:53 → 2026-09-25T16:19:05 |
+| 11 | 3 | 4 | crm-tools | 38 | **111** | featured-4-crm-tools.webp | 2026-09-22T07:31:51 → 2026-09-25T16:19:25 |
+| 12 | 3 | 5 | hubspot-pricing | 39 | **112** | featured-5-hubspot-pricing.webp | 2026-09-22T07:31:53 → 2026-09-25T16:19:54 |
+| 13 | 3 | 14 | crm-sfa-difference | 62 | **113** | featured-14-crm-sfa-difference.webp | 2026-09-22T10:12:25 → 2026-09-25T16:20:14 |
+| 14 | 4 | 10 | make-how-to | 82 | **114** | featured-10-make-how-to.webp | 2026-09-22T12:20:00 → 2026-09-25T16:20:33 |
+| 15 | 4 | 11 | make-pricing | 56 | **115** | featured-11-make-pricing.webp | 2026-09-22T12:20:02 → 2026-09-25T16:20:53 |
+| 16 | 4 | 16 | rpa-tools | 66 | **116** | featured-16-rpa-tools.webp | 2026-09-22T13:03:52 → 2026-09-25T16:21:12 |
+| 17 | 4 | 17 | rpa-comparison | 80 | **117** | featured-17-rpa-comparison.webp | 2026-09-22T13:04:09 → 2026-09-25T16:21:31 |
+| 18 | 4 | 18 | rpa-implementation | 68 | **118** | featured-18-rpa-implementation.webp | 2026-09-22T17:43:40 → 2026-09-25T16:21:51 |
+| 19 | 5 | 19 | generative-ai-tools | 70 | **119** | featured-19-generative-ai-tools.webp | 2026-09-22T13:04:01 → 2026-09-25T16:22:11 |
+| 20 | 5 | 21 | generative-ai-guidelines | 84 | **120** | featured-21-generative-ai-guidelines.webp | 2026-09-22T13:04:17 → 2026-09-25T16:22:31 |
+| 21 | 5 | 22 | ai-governance | 86 | **121** | featured-22-ai-governance.webp | 2026-09-22T13:04:34 → 2026-09-25T16:22:51 |
+
+article 1 は WordPress の slug (`%e6%a5%ad...-roundup`、パーセントエンコード) で解決し、slug は
+変えていない。
+
+### 確認
+
+| 項目 | 結果 |
+| --- | --- |
+| 記事ごとの REST の読み戻し (21/21) | featured_media が新しい media。media は WebP・1200×675・ファイル名・alt・title (`<タイトル> アイキャッチ`) が計画どおりで、実ファイルの SHA-256 が承認済みの画像と一致 |
+| post の他の項目 (21/21) | タイトル・slug・状態・本文・抜粋・公開日・カテゴリ・タグは変わっていない |
+| 全 post の前後比較 | 25 件のうち変わったのは対象の 21 件の `featured_media` と `modified_gmt` だけ。状態はすべて publish のまま |
+| 公開ページ (21 + 試作 4) | キャッシュを避けた URL で、アイキャッチと alt・og:image・twitter:image (summary_large_image)・カテゴリ一覧のカード (640×360 の派生画像) がすべて正しい。ふつうの URL も同じ |
+| カテゴリ一覧 (3 ページ) | NO IMAGE は 0 (キャッシュを避けた URL・ふつうの URL とも) |
+| 試作 4 件 | 78 → 100、74 → 98、76 → 97、72 → 96 (変わっていない) |
+| media 95〜100 | 変更なし (modified_gmt が以前と同じ)。media 99 はどこにも添付されず、どの post の featured image でもない |
+
+- **キャッシュ**: 今回は、ふつうの URL の一覧・記事ページも、すぐに新しい画像を返した
+  (W1.4 のような古い NO IMAGE は見られなかった)。キャッシュの消去・設定の変更はしていない。
+- **更新日**: 21 件とも `modified_gmt` が適用の時刻 (2026-09-25T16:16〜16:22 GMT = 2026-09-26
+  01:16〜01:22 JST) に変わり、Cocoon が更新日を表示する。公開日は変わっていない。日付を戻す・
+  隠す・Cocoon を変える、のどれもしていない (人が許容済み)。
+- 書き込みの数: upload 21 回、media の alt / title の設定 21 回、`featured_media` の設定 21 回。
+  それ以外の post への書き込み (本文・タイトル・slug・カテゴリ・タグ・状態) は 0。
+- これで **公開済みの 25 記事すべてに featured image が付いた** (W1.4 の 4 + W1.5 の 21)。
+- 残り (任意): media 99 (W1.4 の重複、使われていない) の削除は、人が wp-admin で行う別の片付け。
