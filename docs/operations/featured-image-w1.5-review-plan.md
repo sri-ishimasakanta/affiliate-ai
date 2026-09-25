@@ -47,7 +47,7 @@ WordPress には何も書いていない。manifest の各記事の `status` は
 | 2 | 3 / 12 / 13 / 15 | **承認済み** (W1.5C のあと、人の報告)。rose `#DB2777` もプロジェクト・タスク管理の色として承認 | まだ |
 | 3 | 1 / 4 / 5 / 14 | **承認済み** (W1.5D のあと、人の報告)。orange `#EA580C` (CRM・SFA) も目で見て承認 | まだ |
 | 4 | 10 / 11 / 16 / 17 / 18 | **承認済み** (W1.5E のあと、人の報告)。green `#16A34A` (RPA・自動化) も承認 | まだ |
-| 5 | 19 / 21 / 22 | 制作パッケージを用意 (W1.5F)。背景はまだ | まだ |
+| 5 | 19 / 21 / 22 | **承認済み** (W1.5F のあと、人の報告)。indigo `#4F46E5`・slate `#475569` も承認 | まだ |
 
 承認した画像 (`artifacts/featured-images/w1.5/batch-<N>/` の WebP。`compose-report.json` の値と
 一致を確認済み)。適用の manifest にはこの SHA-256 を入れ、違うファイルは使わない:
@@ -72,6 +72,9 @@ WordPress には何も書いていない。manifest の各記事の `status` は
 | 16 | featured-16-rpa-tools.webp | `4ecc6d8ff7e76bf07cfca6b26b4020d8121977222e102cfafac6cea1c42374fb` |
 | 17 | featured-17-rpa-comparison.webp | `51b82f2b52d558c76e417738d12d87d5d400e887b02937ba6b44f7060a218987` |
 | 18 | featured-18-rpa-implementation.webp | `3d9d580272cefe841d7c3418d4019151a0a8753112964da0196270b6c70ffc38` |
+| 19 | featured-19-generative-ai-tools.webp | `0b8901734cc1dcc75a86197668be5fc5991eaae95fec893c67a56d90bc4d6cb5` |
+| 21 | featured-21-generative-ai-guidelines.webp | `2639de0202ef4d35cbc25ea0c4a2a4bc9c31e7a7124289d5a170c277e969e01a` |
+| 22 | featured-22-ai-governance.webp | `f7f577dfee5ec11563446a9b0b24914c365bf9f7ba830db2797e65a5277b6cfc` |
 
 W1.5D での manifest の変更 (設計は変えていない): article 5 の禁止語 `'月額' as text` を
 `monthly-fee wording` にした (画像生成の文に日本語を入れないため。W1.5A の検査が negative の
@@ -91,13 +94,12 @@ W1.5D での manifest の変更 (設計は変えていない): article 5 の禁�
    グレースケール版も付ける (§1 の組が形だけで見分けられるか)。
 4. **人が承認する**: バッチ単位。直すものは直して 2〜3 に戻る。承認されたら、ファイルの
    SHA-256 を記録する。
-5. **適用の manifest を作る**: `artifacts/featured-images/w1.5/batch-<N>/wordpress-apply-manifest.json`
-   (`schema: featured-image-wordpress-apply/1`、`approved: true`)。各項目は W1.5 manifest の
-   `article_id` / `slug` / `title` / `planned_file` / `alt_text` と、承認した画像の
-   `sha256` / 1200 / 675 / `image/webp`。
+5. **適用の manifest を作る (読むだけ)**: `uv run python scripts/plan_featured_image_rollout.py` が
+   21 枚ぶんを 1 つにまとめて `artifacts/featured-images/w1.5/wordpress-apply-manifest.json`
+   (`schema: featured-image-wordpress-apply/1`) を作る。WordPress は読むだけ。詳細は §6。
 6. **本番の確認点 (別の承認が要る)**: ここから先は WordPress に書く。W1.4 と同じく、この
    段階を始める指示を人から受けてから進める。
-7. **書く前の状態を保存**: `uv run python scripts/apply_featured_image.py --dir <batch> snapshot --out <before>.json`。
+7. **書く前の状態を保存**: `uv run python scripts/apply_featured_image.py --dir artifacts/featured-images/w1.5 snapshot --out <before>.json`。
 8. **1 記事目 (canary)**: `plan` で slug・タイトルの完全一致・`featured_media = 0` を確かめて
    から `apply --slug <slug> --execute`。記事ページ・カテゴリ一覧・`og:image` を確かめる。
 9. **残りを 1 記事ずつ**: 同じく `apply --slug ... --execute`。1 記事ごとに read-back を確かめる。
@@ -182,6 +184,12 @@ W1.5B では、試作 4 枚 (適用済み) が W1.5A の仕様の座標とは違
   W1.5D (バッチ 3 の制作パッケージ) でも slug は manifest の値のまま (変えていない。
   WordPress の ID も解決していない)。**本番に書く前の `plan` で、WordPress が返す
   パーセントエンコードの slug に解決してから適用の manifest に入れる**ことは変わらない。
+- **W1.5G で解決 (読むだけ)**: article 1 は post 25。WordPress が返す slug は
+  `%e6%a5%ad%e5%8b%99%e5%8a%b9%e7%8e%87%e5%8c%96-%e3%83%84%e3%83%bc%e3%83%ab-%e3%81%8a%e3%81%99%e3%81%99%e3%82%81-roundup`
+  (小文字のパーセントエンコード)。decode すると manifest の slug と完全に同じ。slug での検索は
+  日本語・小文字・大文字のどの形でも post 25 の 1 件だけ。**適用の manifest の `slug` は
+  WordPress が返す形** (道具は返ってきた slug と完全一致で比べるため)。W1.5 の design manifest
+  の slug はそのまま (`application_slug` として記録)。post の slug は変えていない。
 - タイトルが WordPress 側で変わっていたら、W1.5 manifest を直してから進める。
 
 ### 3.3 そのほか
@@ -214,3 +222,127 @@ upload した **media 100** (post 78 が使用中)。
 - Cocoon の設定の変更
 - Threads の投稿・提案の承認や却下、worker・スケジューラの変更
 - DB の変更、`/go/` への問い合わせ、git の push
+
+## 6. 本番適用の計画 (W1.5G。**まだ実行していない**)
+
+5 バッチ・21 枚とも人が目で見て承認した (§1.1)。W1.5G では WordPress を **読むだけ** で
+対象を決め、適用の manifest を作った。**upload・`featured_media` の設定・media の変更・
+削除は一度もしていない。** 本番に書くのは、別の指示 (本番の確認点) を受けてから。
+
+### 6.1 道具
+
+```bash
+# 計画 (読むだけ): ローカルの 21 枚・承認の記録・WordPress の post と media を突き合わせる
+uv run python scripts/plan_featured_image_rollout.py
+# 21 件の PLAN (読むだけ): 何を書くかを 1 件ずつ表示する
+uv run python scripts/apply_featured_image.py --dir artifacts/featured-images/w1.5 plan
+```
+
+- 出力: `artifacts/featured-images/w1.5/wordpress-apply-manifest.json` (apply の道具が読む) と
+  `rollout-plan-report.{json,md}` (git 管理外)。1 つでも確かめられなければ `approved: false`、
+  終了コード 1。
+- manifest の各項目: `file` は upload のファイル名 (パス区切りなし)、`source` は
+  `batch-<N>/<file>`。`media_action` (`upload` / `reuse` / `human_review`) と
+  `planned_media_id`。元の `featured_media` (巻き戻し用)・`modified_gmt`・カテゴリも記録。
+- apply の道具は、manifest の計画と `--media-id` が食い違うと何も書かない
+  (`upload` なのに `--media-id` がある、`reuse` の media と違う、`human_review`)。
+  まとめて書く命令は作っていない。**1 回の `apply` で 1 記事だけ。**
+
+### 6.2 読んで確かめた結果 (2026-09-26)
+
+- ローカル: 21/21 の WebP があり、本物の WebP・1200×675・0 バイトでない。SHA-256 は
+  compose の報告と、§1.1 の承認の表の両方と一致。ファイル名は design manifest の
+  `planned_file` と一致。
+- WordPress: post 25 件を読んだ。21/21 が公開済みで、slug (manifest の値と WordPress の値の
+  両方) でちょうど 1 件に決まり、タイトルが完全一致。21/21 とも `featured_media = 0`。
+- 試作 4 件の読み戻し: 78 → 100、74 → 98、76 → 97、72 → 96 (変わっていない)。
+- media library: 6 件 (95〜100)。95 は人が 2026-09-23 に upload した PNG
+  (1254×1254、W1 とは無関係)。96〜98・100 は試作が使用中。99 は W1.4 の重複 (下の §6.6)。
+  W1.5 の 21 枚と byte が同じ media も、同じ名前 (`-1` などを含む) の media も無い
+  → **21/21 とも新しく upload**。
+- 読んで分かったこと: media の一覧を `context=edit` で読むと、この API の利用者が upload した
+  media (100) しか返らない (95〜99 は別の利用者の upload)。一覧は `context=view` で読む。
+  また別の利用者の media は `get_media` (edit) で 403 になるので、W1.4 の「既存の media の
+  再利用」は別の利用者の media には使えない (安全側に止まる)。今回は再利用の対象が無い。
+
+### 6.3 適用の順番と対象 (承認したバッチの順)
+
+1 記事目 (canary) は article 7 (post 50)。article 1 (post 25、日本語の slug) はバッチ 3 の
+先頭で、PLAN でも WordPress の形の slug で 1 件に決まることを確かめ済み。各記事の
+`modified_gmt` は **適用すると新しい時刻に変わり、Cocoon が更新日を表示する** (§3.1)。
+
+| # | バッチ | article | WP post | 今の featured_media | 今の modified_gmt (変わる) | カテゴリ |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 7 | 50 | 0 | 2026-09-22T10:11:34 | [4] |
+| 2 | 1 | 2 | 36 | 0 | 2026-09-22T07:01:44 | [4] |
+| 3 | 1 | 6 | 40 | 0 | 2026-09-22T07:31:56 | [4] |
+| 4 | 1 | 8 | 52 | 0 | 2026-09-22T10:11:53 | [4] |
+| 5 | 1 | 9 | 54 | 0 | 2026-09-22T10:12:12 | [4] |
+| 6 | 2 | 3 | 37 | 0 | 2026-09-22T07:31:49 | [4] |
+| 7 | 2 | 12 | 60 | 0 | 2026-09-22T10:12:28 | [4] |
+| 8 | 2 | 13 | 58 | 0 | 2026-09-22T10:11:42 | [4] |
+| 9 | 2 | 15 | 64 | 0 | 2026-09-22T10:13:02 | [4] |
+| 10 | 3 | 1 | 25 | 0 | 2026-09-16T15:54:53 | [4] |
+| 11 | 3 | 4 | 38 | 0 | 2026-09-22T07:31:51 | [4] |
+| 12 | 3 | 5 | 39 | 0 | 2026-09-22T07:31:53 | [4] |
+| 13 | 3 | 14 | 62 | 0 | 2026-09-22T10:12:25 | [4] |
+| 14 | 4 | 10 | 82 | 0 | 2026-09-22T12:20:00 | [4] |
+| 15 | 4 | 11 | 56 | 0 | 2026-09-22T12:20:02 | [4] |
+| 16 | 4 | 16 | 66 | 0 | 2026-09-22T13:03:52 | [4] |
+| 17 | 4 | 17 | 80 | 0 | 2026-09-22T13:04:09 | [4] |
+| 18 | 4 | 18 | 68 | 0 | 2026-09-22T17:43:40 | [4] |
+| 19 | 5 | 19 | 70 | 0 | 2026-09-22T13:04:01 | [4] |
+| 20 | 5 | 21 | 84 | 0 | 2026-09-22T13:04:17 | [4] |
+| 21 | 5 | 22 | 86 | 0 | 2026-09-22T13:04:34 | [4] |
+
+### 6.4 本番で 1 記事ずつやること (まだしない)
+
+事前 (preflight):
+
+1. **作業者は 1 つだけ。** W1.4 では別の主体が同じ時間に featured image を設定していた。
+   実行の前に、別の Claude のセッション・別の人が WordPress の media / featured image を
+   触っていないことを人が確かめる。W1.5 の適用は 1 つのセッションだけが行う。
+2. 計画を作り直す (`plan_featured_image_rollout.py` が ready、`apply ... plan` が 21/21 ready)。
+3. `snapshot --out <before>.json` で全 post の状態を保存する。
+
+1 記事ごと (前の記事がすべて問題なければ次へ):
+
+1. `apply --slug <manifest の slug> --execute` (upload → media の read-back → alt / title →
+   `{"featured_media": id}` → post の read-back。道具が 1 回ずつ行い、記録を
+   `artifacts/featured-images/w1.5/applied/<slug>.json` に残す)。
+2. REST の読み戻し: `featured_media` が新しい media、タイトル・slug・本文・カテゴリ・タグ・
+   公開日が変わっていない (道具が確かめる)。
+3. 記事ページ: アイキャッチが本文の上に出る。
+4. カテゴリ一覧: カードの画像 (320×180 / スマホ 126×71)。
+5. `og:image` / `twitter:image` が新しい画像。
+6. 止める条件: 道具が STOP を出した、upload の結果が不明 (timeout など。media library を人が
+   確かめるまで再送しない)、読み戻しが合わない。**同じ記事のために upload し直さない。**
+
+事後: `snapshot --out <after>.json` と `compare`。変わってよいのは 21 件の `featured_media` と
+`modified_gmt` だけ。
+
+### 6.5 キャッシュ (W1.4 で見たこと)
+
+設定の直後、クエリなしの一覧 URL はサーバーのページキャッシュで古い HTML (NO IMAGE) を
+しばらく返した (W1.4 では数十分で切り替わった)。確かめ方を分ける:
+
+1. REST の読み戻し (すぐ): これが合っていれば WordPress への書き込みは成功。
+2. キャッシュを避けた読み取り (クエリ付きの URL など、読むだけ): 記事ページとカテゴリ一覧。
+3. 時間を置いてから、ふつうの URL で確認。
+
+短い間の NO IMAGE を失敗とみなさない (1 と 2 が合っていれば)。キャッシュの消去や設定の変更は
+しない。
+
+### 6.6 巻き戻し・更新日・media 99
+
+- **巻き戻し**: 元の `featured_media` は 21 件とも 0 (manifest に記録)。道具の書き込みの契約は
+  正の `featured_media` しか送れない (0 に戻す経路は無い。意図してそうしている)。戻すときは人が
+  wp-admin の投稿の編集画面で「アイキャッチ画像を削除」する。upload した media は消さずに残す
+  (片付けは W1 のあとに別に)。`modified_gmt` は元に戻せない (戻さない)。
+- **更新日**: 21 件とも `modified_gmt` が適用の時刻に変わり、Cocoon が更新日を表示する。
+  古い時刻を残す・日付を戻す・更新日を隠す・Cocoon を変える、のどれもしない (W1.4 と同じく人が
+  許容済みの副作用)。
+- **media 99**: まだあり、どこにも添付されず、どの post の featured image でもなく、upload の
+  あと一度も変更されていない (`modified_gmt` = `date_gmt` = 2026-09-25T08:15:13)。バイトは
+  article 25 の画像と同じ。**W1.5 では削除・添付・変更・再利用をしない**。計画でも
+  再利用の候補から外している。片付けは W1 が終わってからの別の作業 (§4)。

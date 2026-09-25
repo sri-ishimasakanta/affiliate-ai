@@ -264,6 +264,44 @@ class WordPressClient:
                 return items
             page += 1
 
+    def list_media_items(self) -> list[dict]:
+        """media library の全件を read-only GET で列挙する (W1.5 の重複・名前の衝突の確認専用)。
+
+        ページを順に読むだけで、書き込みは一切行わない。``context=view`` で読む
+        (``edit`` だと、この利用者が編集できる media だけに絞られ、別の利用者が upload した
+        media が一覧から消える)。
+        """
+
+        items: list[dict] = []
+        page = 1
+        while True:
+            response = _check_status(
+                self._send(
+                    "GET",
+                    f"{self._base_url}{_MEDIA_PATH}",
+                    params={
+                        "context": "view",
+                        "per_page": "100",
+                        "page": str(page),
+                        "orderby": "id",
+                        "order": "asc",
+                    },
+                    ambiguous_on_no_response=False,
+                ),
+                expected_status=200,
+            )
+            try:
+                batch = response.json()
+            except ValueError as exc:
+                raise ExternalProviderError(_PROVIDER, "response was not valid JSON") from exc
+            if not isinstance(batch, list):
+                raise ExternalProviderError(_PROVIDER, "unexpected response shape")
+            items.extend(item for item in batch if isinstance(item, dict))
+            total_pages = int(response.headers.get("X-WP-TotalPages", "1") or "1")
+            if page >= total_pages or not batch:
+                return items
+            page += 1
+
     def get_media(self, media_id: int) -> dict:
         """upload 後の read-back 専用 read-only GET。"""
 

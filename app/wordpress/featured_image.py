@@ -48,9 +48,17 @@ class ApplyItem:
     width: int
     height: int
     mime_type: str
+    # W1.5: 画像は ``--dir`` の下の別の場所 (``batch-<N>/<file>``) に置く。``file`` は upload の
+    # ファイル名 (パス区切りを含まない) のまま。無ければ ``file`` を ``--dir`` の直下に探す (W1.4)。
+    source: str | None = None
+    # W1.5: 計画した media の扱い (``upload`` / ``reuse`` / ``human_review``) と、再利用する media。
+    # 無ければ W1.4 と同じ (``--media-id`` を人が指定する)。
+    media_action: str | None = None
+    planned_media_id: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> ApplyItem:
+        planned = data.get("planned_media_id")
         return cls(
             article_id=int(data["article_id"]),
             slug=str(data["slug"]),
@@ -61,6 +69,9 @@ class ApplyItem:
             width=int(data["width"]),
             height=int(data["height"]),
             mime_type=str(data["mime_type"]),
+            source=str(data["source"]) if data.get("source") else None,
+            media_action=str(data["media_action"]) if data.get("media_action") else None,
+            planned_media_id=int(planned) if planned is not None else None,
         )
 
 
@@ -98,7 +109,9 @@ def webp_dimensions(data: bytes) -> tuple[int, int]:
 
 
 def verify_local(item: ApplyItem, directory: Path) -> bytes:
-    path = directory / item.file
+    if any(ch in item.file for ch in "/\\"):
+        raise FeaturedImageError(f"{item.file} must be a plain file name (use source for a path)")
+    path = directory / (item.source or item.file)
     if not path.is_file():
         raise FeaturedImageError(f"{item.file} does not exist")
     data = path.read_bytes()
@@ -133,6 +146,24 @@ def post_fingerprint(post: dict) -> dict:
         "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
         "excerpt_sha256": hashlib.sha256((raw("excerpt") or "").encode("utf-8")).hexdigest(),
     }
+
+
+def media_action_problem(item: ApplyItem, media_id: int | None) -> str | None:
+    """manifest の計画と ``--media-id`` が食い違うなら理由を返す (食い違えば書かない)。"""
+
+    if item.media_action is None:
+        return None  # W1.4 の manifest: 人が --media-id を決める
+    if item.media_action == "upload":
+        if media_id is not None:
+            return "the plan is to upload a new media; --media-id is not allowed"
+        return None
+    if item.media_action == "reuse":
+        if item.planned_media_id is None:
+            return "the plan says reuse but names no media"
+        if media_id != item.planned_media_id:
+            return f"the plan reuses media {item.planned_media_id}; pass --media-id to match"
+        return None
+    return f"media_action is {item.media_action!r}; a human must resolve it before applying"
 
 
 def resolve_post(client, item: ApplyItem) -> dict:
@@ -186,6 +217,9 @@ def apply_one(
 ) -> dict:
     """1 記事に適用する。途中で止まったら、そこまでの事実を記録して例外を上げる。"""
 
+    problem = media_action_problem(item, existing_media_id)
+    if problem:
+        raise FeaturedImageError(f"{item.slug}: {problem}")
     record_path = record_dir / f"{item.slug}.json"
     if record_path.exists():
         raise FeaturedImageError(f"{item.slug} already has an apply record; not uploading again")
@@ -305,6 +339,7 @@ __all__ = [
     "apply_one",
     "compare_snapshots",
     "load_manifest",
+    "media_action_problem",
     "verify_existing_media",
     "post_fingerprint",
     "resolve_post",

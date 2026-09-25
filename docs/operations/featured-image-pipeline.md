@@ -305,5 +305,8 @@ W1.5A で設計だけを用意した (画像は未作成、WordPress には未�
 - 制作ブリーフ: [`featured-image-w1.5-prompts.md`](featured-image-w1.5-prompts.md)
 - 確認と適用の段取り (5 バッチ、更新日の表示、media 99 の任意の片付け):
   [`featured-image-w1.5-review-plan.md`](featured-image-w1.5-review-plan.md)
+- W1.5G (2026-09-26): 5 バッチ・21 枚とも人が承認済み。WordPress を読むだけで 21 件の対象を
+  決め、適用の manifest を用意した (21/21 が 1 件に決まり、`featured_media = 0`、全件新しく
+  upload)。**本番への適用はまだ**。手順・巻き戻し・キャッシュ・更新日は review plan §6。
 - W1.5 で足した系統のアクセント: プロジェクト・タスク管理 = rose `#DB2777`、
   文字起こし寄りの記事 = deep sky `#0369A1` (議事録 `#0284C7` と形で見分け、明るさは補助)。

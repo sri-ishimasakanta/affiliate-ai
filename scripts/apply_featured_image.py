@@ -3,6 +3,9 @@
     # 対象と状態を確かめる (読むだけ。既定)
     uv run python scripts/apply_featured_image.py plan
 
+    # W1.5: 21 枚の manifest (scripts/plan_featured_image_rollout.py が作る) を使う
+    uv run python scripts/apply_featured_image.py --dir artifacts/featured-images/w1.5 plan
+
     # 全 post の状態を保存する (読むだけ。前後比較に使う)
     uv run python scripts/apply_featured_image.py snapshot --out before.json
 
@@ -30,8 +33,10 @@ from app.wordpress.featured_image import (  # noqa: E402
     apply_one,
     compare_snapshots,
     load_manifest,
+    media_action_problem,
     resolve_post,
     snapshot_posts,
+    verify_existing_media,
     verify_local,
 )
 
@@ -83,23 +88,22 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
         return EXIT_OK
 
     if args.command == "plan":
+        ready = 0
         for item in items:
             try:
-                verify_local(item, args.dir)
-                post = resolve_post(client, item)
-                print(
-                    f"article {item.article_id} {item.slug}: post {post['id']} "
-                    f"status={post['status']} featured_media={post.get('featured_media')} "
-                    f"title matches; local file OK -> ready"
-                )
+                ready += _plan_one(client, item, args.dir)
             except FeaturedImageError as exc:
                 print(f"article {item.article_id} {item.slug}: STOP ({exc})")
-        print("\nPLAN only: nothing was uploaded or changed.")
+        print(f"\n{ready}/{len(items)} ready. PLAN only: nothing was uploaded or changed.")
         return EXIT_OK
 
     item = next((i for i in items if i.slug == args.slug), None)
     if item is None:
         print(f"refused: {args.slug} is not in the apply manifest")
+        return EXIT_STOPPED
+    problem = media_action_problem(item, args.media_id)
+    if problem:
+        print(f"refused: {problem}")
         return EXIT_STOPPED
     if not args.execute:
         verify_local(item, args.dir)
@@ -136,6 +140,34 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
         )
     )
     return EXIT_OK
+
+
+def _plan_one(client, item, directory: Path) -> int:
+    """1 記事の PLAN (読むだけ)。書く内容をすべて表示する。適用できる状態なら 1。"""
+
+    problem = media_action_problem(item, item.planned_media_id)
+    if problem:
+        raise FeaturedImageError(problem)
+    verify_local(item, directory)
+    post = resolve_post(client, item)
+    if item.media_action == "reuse":
+        verify_existing_media(client, item, item.planned_media_id)
+        media = f"reuse media {item.planned_media_id} (byte-identical, verified now)"
+        change = f"featured_media {post.get('featured_media')} -> {item.planned_media_id}"
+    else:
+        media = f"upload {item.file} once"
+        change = f"featured_media {post.get('featured_media')} -> <new media id>"
+    print(
+        f"article {item.article_id} {item.slug}: post {post['id']} status={post['status']} "
+        f"title matches\n"
+        f"    local {item.source or item.file} sha256={item.sha256[:16]}… "
+        f"{item.width}x{item.height} OK\n"
+        f"    media: {media}\n"
+        f"    alt_text: {item.alt_text}\n"
+        f"    media title: {item.title} アイキャッチ\n"
+        f"    change: {change} (no write performed)"
+    )
+    return 1
 
 
 if __name__ == "__main__":

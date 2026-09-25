@@ -215,6 +215,8 @@ def test_client_exposes_only_approved_operations() -> None:
         # W1.4 featured image: exact contracts + read-only checks only.
         "find_published_posts_by_slug",
         "list_post_states",
+        # W1.5: read-only media listing for the duplicate / filename-collision check.
+        "list_media_items",
         "get_media",
         "fetch_media_file",
         "upload_featured_image_exact",
