@@ -217,6 +217,9 @@ def test_client_exposes_only_approved_operations() -> None:
         "list_post_states",
         # W1.5: read-only media listing for the duplicate / filename-collision check.
         "list_media_items",
+        # W2: read-only category / tag listing for the taxonomy plan.
+        "list_categories",
+        "list_tags",
         "get_media",
         "fetch_media_file",
         "upload_featured_image_exact",

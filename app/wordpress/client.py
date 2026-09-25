@@ -302,6 +302,48 @@ class WordPressClient:
                 return items
             page += 1
 
+    def list_categories(self) -> list[dict]:
+        """カテゴリの全件を read-only GET で列挙する (W2 のカテゴリ整理の計画専用)。"""
+
+        return self._list_view_terms(f"{self._base_url}/wp-json/wp/v2/categories")
+
+    def list_tags(self) -> list[dict]:
+        """タグの全件を read-only GET で列挙する (W2 のカテゴリ整理の計画専用)。"""
+
+        return self._list_view_terms(f"{self._base_url}/wp-json/wp/v2/tags")
+
+    def _list_view_terms(self, url: str) -> list[dict]:
+        items: list[dict] = []
+        page = 1
+        while True:
+            response = _check_status(
+                self._send(
+                    "GET",
+                    url,
+                    params={
+                        "context": "view",
+                        "per_page": "100",
+                        "page": str(page),
+                        "orderby": "id",
+                        "order": "asc",
+                        "hide_empty": "false",
+                    },
+                    ambiguous_on_no_response=False,
+                ),
+                expected_status=200,
+            )
+            try:
+                batch = response.json()
+            except ValueError as exc:
+                raise ExternalProviderError(_PROVIDER, "response was not valid JSON") from exc
+            if not isinstance(batch, list):
+                raise ExternalProviderError(_PROVIDER, "unexpected response shape")
+            items.extend(item for item in batch if isinstance(item, dict))
+            total_pages = int(response.headers.get("X-WP-TotalPages", "1") or "1")
+            if page >= total_pages or not batch:
+                return items
+            page += 1
+
     def get_media(self, media_id: int) -> dict:
         """upload 後の read-back 専用 read-only GET。"""
 
