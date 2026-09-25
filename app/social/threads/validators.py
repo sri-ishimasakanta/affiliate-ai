@@ -37,6 +37,11 @@ _URL_RE = re.compile(r"https?://[^\s<>\"']+")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?])\s*")
 #: 絵文字のおおよその範囲 (装飾記号・顔文字・ピクトグラム)。
 _EMOJI_RE = re.compile("[\U0001f300-\U0001f9ff\U0001fa00-\U0001faff☀-➿⬀-⯿]")
+#: 文体の警告 (助言) のために URL の範囲を見つける (T6.1)。和文の句読点・括弧で終わる。
+#: リンクの検査 (``_URL_RE``) とは別物で、あちらは変えない。
+_STYLE_URL_RE = re.compile(r"https?://[^\s<>\"'「」『』（）【】、。！？]+")
+#: URL の末尾に付いた ASCII の句読点は、URL ではなく文章の側に残す。
+_STYLE_URL_TRAILING = ".,;:!?)]"
 
 
 @dataclass
@@ -129,6 +134,23 @@ def _check_links(
 
 
 # -- style lint (warnings only) -------------------------------------------------
+def style_analysis_text(text: str) -> str:
+    """文体の警告を数えるための文章 (T6.1)。**公開される文字列は変えない。**
+
+    URL の範囲を空白 1 つに置き換える。URL の中の ``?`` は問いかけではなく、長い URL は
+    長い文ではないため。URL の直後に続く句読点 (``。`` や末尾の ``?`` など) は文章として残す。
+    使うのは助言の警告 (文の数・文の長さ・丁寧語の連続・絵文字・問いかけ) だけで、
+    禁止表現・文字数の上限・リンクの検査・重複の判定には使わない。
+    """
+
+    def mask(match: re.Match) -> str:
+        url = match.group(0)
+        kept = url.rstrip(_STYLE_URL_TRAILING)
+        return " " + url[len(kept) :]
+
+    return _STYLE_URL_RE.sub(mask, text)
+
+
 def _check_style(text: str, policy: ThreadsStylePolicy, result: ValidationResult) -> None:
     for phrase in policy.banned_phrases:
         if phrase and phrase in text:
@@ -139,7 +161,9 @@ def _check_style(text: str, policy: ThreadsStylePolicy, result: ValidationResult
         if phrase and phrase in text:
             result.warnings.append(f"article-style phrasing: {phrase}")
 
-    sentences = [s for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+    # ここから下は助言の警告。URL は文章として数えない (禁止表現は上で本文そのものを見た)。
+    prose = style_analysis_text(text)
+    sentences = [s for s in _SENTENCE_SPLIT_RE.split(prose) if s.strip()]
     if len(sentences) > policy.max_sentences:
         result.warnings.append(
             f"{len(sentences)} sentences; the policy prefers at most {policy.max_sentences}"
@@ -166,11 +190,11 @@ def _check_style(text: str, policy: ThreadsStylePolicy, result: ValidationResult
         else:
             run = 0
 
-    emoji = _EMOJI_RE.findall(text)
+    emoji = _EMOJI_RE.findall(prose)
     if len(emoji) > policy.max_emoji:
         result.warnings.append(f"{len(emoji)} emoji; the policy allows at most {policy.max_emoji}")
 
-    questions = text.count("？") + text.count("?")
+    questions = prose.count("？") + prose.count("?")
     if questions > policy.max_questions:
         result.warnings.append(f"{questions} questions; one natural hook is enough")
 
