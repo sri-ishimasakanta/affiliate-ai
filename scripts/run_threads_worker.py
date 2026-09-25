@@ -12,9 +12,17 @@
     # 承認依頼のまとめ送りを有効にする (T4.2、**本番では人の確認を経てから**)
     uv run python scripts/run_threads_worker.py --resident --send-approval-digests
 
-**投稿はしない。** 自動公開の経路はコードで無効にしてあり、この CLI に
-``--execute`` は無い。Threads への書き込み・WordPress への書き込み・
-タスクスケジューラの変更は、どのモードでも 0 件。
+    # 携帯での決定を中継から取り込む (T4.3)
+    uv run python scripts/run_threads_worker.py --resident --sync-approvals
+
+    # 自動公開 (T4.3)。**ポリシーが有効でなければ、このフラグだけでは公開しない。**
+    uv run python scripts/run_threads_worker.py --resident --auto-publish
+
+自動公開はポリシー ``automatic_publication.enabled`` (コミット済みの値は False) と
+``--auto-publish`` の両方がそろい、ロック・設定・読み取りの事前確認・queue の評価が
+すべて通ったときだけ、1 回に 1 本だけ T3 の経路で公開する。既定ではどのモードでも
+Threads への書き込みは 0 件。WordPress への書き込み・タスクスケジューラの変更は
+どのモードでも 0 件。
 
 外に作用するフラグ (``--collect-insights`` / ``--send-approval-digests``) を付けた
 ときは、``--once`` でも worker のロックを取る。2 つのプロセスが同時に digest を
@@ -57,6 +65,16 @@ def main(
         help="期限が来た投稿の指標を読むだけで取得する (Threads への書き込みはしない)",
     )
     parser.add_argument(
+        "--sync-approvals",
+        action="store_true",
+        help="携帯での決定を中継から取り込む (承認は queue に入るだけ)",
+    )
+    parser.add_argument(
+        "--auto-publish",
+        action="store_true",
+        help="自動公開を worker として許す (ポリシーも有効なときだけ実際に公開する)",
+    )
+    parser.add_argument(
         "--send-approval-digests",
         action="store_true",
         help="期限が来たら承認依頼のまとめ送りを 1 通送る (人が明示したときだけ)",
@@ -69,10 +87,17 @@ def main(
         settings=settings or get_settings(),
         collect_insights=args.collect_insights,
         send_approval_digests=args.send_approval_digests,
+        sync_approvals=args.sync_approvals,
+        auto_publish=args.auto_publish,
         **(overrides or {}),
     )
     now = datetime.now(UTC)
-    external = args.collect_insights or args.send_approval_digests
+    external = (
+        args.collect_insights
+        or args.send_approval_digests
+        or args.sync_approvals
+        or args.auto_publish
+    )
 
     if not args.resident:
         lock = service.build_lock() if external else None
@@ -131,7 +156,6 @@ def _print_status(status: dict, *, mode: str) -> None:
     for issue in threads["config_issues"]:
         print(f"  CONFIG: {issue}")
     print(f"configuration healthy = {threads['healthy']}")
-    print(f"automatic publication = {status['automatic_publication_enabled']} (T4.1: always)")
     print(f"max posts per cycle   = {status['max_publications_per_cycle']}")
 
     pw = status["publication_window"]
@@ -144,7 +168,12 @@ def _print_status(status: dict, *, mode: str) -> None:
     caps = status["capabilities"]
     print(
         f"capabilities          = collect_insights={caps['collect_insights']} "
-        f"send_approval_digests={caps['send_approval_digests']} publish={caps['publish']}"
+        f"send_approval_digests={caps['send_approval_digests']} "
+        f"sync_approvals={caps['sync_approvals']}"
+    )
+    print(
+        f"automatic publication = flag={caps['auto_publish_flag']} "
+        f"policy={caps['auto_publish_policy']} -> can publish={caps['publish']}"
     )
 
     latest = status["latest_publication"]
@@ -200,6 +229,16 @@ def _print_status(status: dict, *, mode: str) -> None:
                 f"insights refresh      = publication {item['publication_id']}: "
                 f"{item['result']}{reason}"
             )
+
+    dry = status.get("publication_dry_run") or {}
+    print("\n--- automatic publication dry run (no network, no write) ---")
+    gates = ", ".join(f"{name}={value}" for name, value in (dry.get("gates") or {}).items())
+    print(f"  gates: {gates}")
+    print(f"  next candidate: {dry.get('proposal_id') or '(none)'}")
+    for reason in dry.get("blocked_reasons") or []:
+        print(f"  BLOCKED: {reason}")
+    for note in dry.get("notes") or []:
+        print(f"  note: {note}")
 
     print("\n--- subsystems (each owns its own next run) ---")
     for sub in status["subsystems"]:

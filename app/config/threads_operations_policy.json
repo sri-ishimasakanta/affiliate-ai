@@ -1,5 +1,5 @@
 {
-  "policy_version": "t4.2",
+  "policy_version": "t4.3",
   "notes": [
     "Threads operating choices for the resident worker. These are our own editorial/operational choices, not Meta limits.",
     "Timezone is NOT defined here. It is read from operations_policy.json (the same setting C8 and C9.5 use).",
@@ -8,7 +8,8 @@
     "Human approval means 'this content may be published'. It does not mean 'publish now'. Selection and timing are separate decisions.",
     "T4.1 is PLAN-only: automatic publication is disabled in code, not only here.",
     "T4.2: approval requests are batched into ONE digest email. Each proposal in a digest keeps its own review session and its own approve/reject decision; there is no approve-all.",
-    "T4.2: approval TTL starts when the request is actually sent, never when the proposal was generated. Nighttime generation does not consume the TTL."
+    "T4.2: approval TTL starts when the request is actually sent, never when the proposal was generated. Nighttime generation does not consume the TTL.",
+    "T4.3: automatic publication exists in code but is OFF. It needs ALL of: automatic_publication.enabled=true in this file, the worker started with --auto-publish, the worker lock, Threads state ready, a successful read-only preflight, and a queue evaluation with no blocker. At most one post per cycle, through the T3 path."
   ],
   "publication_window": {
     "start": "07:00",
@@ -49,6 +50,10 @@
         "enabled": true,
         "idle_interval_minutes": 30,
         "note": "Evaluates whether a digest is due. Sending also requires the worker to be started with --send-approval-digests."
+      },
+      "approval_sync": {
+        "interval_minutes": 5,
+        "note": "Pulls phone decisions from the relay (read + local record through the existing sync). Runs only when the worker is started with --sync-approvals."
       }
     }
   },
@@ -70,5 +75,10 @@
     "approved_days_low": 1,
     "approved_days_high": 3,
     "note": "Advisory coverage of approved-but-unpublished proposals, in days of the advisory daily target. Not a quota: above the high mark new approval requests are deferred, never deleted."
+  },
+  "automatic_publication": {
+    "enabled": false,
+    "preflight_read": true,
+    "note": "Committed disabled. Flip only after Meta API access is restored and a human has approved production activation. The worker flag alone never publishes."
   }
 }

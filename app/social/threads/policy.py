@@ -279,6 +279,21 @@ class ThreadsOperationsPolicy:
     def digest_preview_characters(self) -> int:
         return int(self.digest.get("preview_characters", 80))
 
+    # -- T4.3: automatic publication --------------------------------------------
+    @property
+    def automatic_publication_enabled(self) -> bool:
+        """ポリシー上、自動公開を許すか。**既定 (コミット済みの値) は False。**
+
+        これだけでは公開しない。worker の ``--auto-publish``・ロック・設定の健全性・
+        読み取りの事前確認・queue の評価がすべてそろったときだけ公開する。
+        """
+
+        return self.section("automatic_publication").get("enabled") is True
+
+    @property
+    def automatic_publication_preflight(self) -> bool:
+        return self.section("automatic_publication").get("preflight_read", True) is not False
+
     @property
     def stock_days_low(self) -> float:
         return float(self.section("stock").get("approved_days_low", 1))

@@ -17,8 +17,10 @@
 - **1 回の評価で選ぶのは最大 1 件。** 資格のある候補をまとめて出す API は無い。
   出したら状態が変わるので、次の 1 件は改めて評価し直す。
 
-T4.1 では自動公開そのものが無効 (``AUTOMATIC_PUBLICATION_ENABLED = False``)。
-評価結果の ``would_publish_now`` は常に False になる。
+自動公開は **既定で無効**。``evaluate_queue`` の ``publication_enabled`` を呼び出し側が
+明示的に True にしたときだけ ``would_publish_now`` が True になりうる (T4.3)。
+True にしてよいのは、ポリシー・worker のフラグ・ロック・事前確認がそろった
+自動公開の経路だけである。
 
 T4.2 で人の queue 操作と時刻の制約が加わった:
 
@@ -39,8 +41,6 @@ from app.operations.local_time import to_local
 from app.social.threads.policy import ThreadsOperationsPolicy
 from app.social.threads.schedule import PublicationTiming, publication_timing
 
-#: T4.1 の境界。自動公開は **コードで** 無効にしてある (設定では有効にできない)。
-AUTOMATIC_PUBLICATION_ENABLED = False
 #: 1 回の評価サイクルで公開してよい最大件数。**決して増やさない。**
 MAX_PUBLICATIONS_PER_CYCLE = 1
 
@@ -184,7 +184,8 @@ class QueueEvaluation:
     next_evaluation_at: datetime
     evidence_state: str
     ordering_basis: str
-    publication_enabled: bool = AUTOMATIC_PUBLICATION_ENABLED
+    #: 呼び出し側が明示したときだけ True (既定は無効)。
+    publication_enabled: bool = False
     max_publications_per_cycle: int = MAX_PUBLICATIONS_PER_CYCLE
     notes: tuple[str, ...] = field(default_factory=tuple)
 
@@ -314,7 +315,11 @@ def _order_key(verdict: CandidateVerdict) -> tuple:
 
 
 def evaluate_queue(
-    queue: QueueFacts, policy: ThreadsOperationsPolicy, tz: ZoneInfo
+    queue: QueueFacts,
+    policy: ThreadsOperationsPolicy,
+    tz: ZoneInfo,
+    *,
+    publication_enabled: bool = False,
 ) -> QueueEvaluation:
     now = _aware(queue.now) or datetime.now(UTC)
     verdicts = [_verdict(c, queue, policy) for c in queue.candidates]
@@ -335,7 +340,7 @@ def evaluate_queue(
     blockers.extend(r for r in timing.reasons)  # gap_not_elapsed / outside_publication_window
     if not eligible:
         blockers.append(BLOCKER_NO_ELIGIBLE_CANDIDATE)
-    if not AUTOMATIC_PUBLICATION_ENABLED:
+    if not publication_enabled:
         blockers.append(BLOCKER_AUTOMATIC_PUBLICATION_DISABLED)
 
     evidence = (
@@ -369,6 +374,7 @@ def evaluate_queue(
         ),
         evidence_state=evidence,
         ordering_basis="diversity_then_approval_order",
+        publication_enabled=publication_enabled,
         notes=tuple(notes),
     )
 
@@ -416,7 +422,6 @@ def _next_evaluation_at(
 
 
 __all__ = [
-    "AUTOMATIC_PUBLICATION_ENABLED",
     "CANDIDATE_REASONS",
     "EVIDENCE_INSUFFICIENT",
     "EVIDENCE_USABLE",

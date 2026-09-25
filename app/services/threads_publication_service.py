@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.article.draft_promotion_canonical import compute_text_hash
-from app.article.fact_freshness import to_storage_utc
+from app.article.fact_freshness import ensure_aware, to_storage_utc
 from app.exceptions import ApplicationError
 from app.models import (
     PUB_CONTAINER_CREATED,
@@ -37,6 +37,9 @@ from app.models import (
     PUB_PUBLISHED,
     PUB_PUBLISHING,
     PUB_RETRYABLE_STATES,
+    PUB_TRIGGER_AUTOMATIC,
+    PUB_TRIGGER_MANUAL,
+    PUB_TRIGGERS,
     PUB_UNCERTAIN,
     TP_APPROVED,
     Article,
@@ -55,6 +58,9 @@ from app.social.threads.models import (
 )
 from app.social.threads.service import ThreadsService
 
+#: 間隔の上書きを行える唯一の主体。自動の公開には使わせない。
+GAP_OVERRIDE_SOURCE_HUMAN_CLI = "human-cli"
+
 STEP_CREATE = "create_container"
 STEP_PUBLISH = "publish_container"
 STEP_READBACK = "readback"
@@ -65,6 +71,26 @@ class ThreadsPublicationError(ApplicationError):
     def __init__(self, reason: str) -> None:
         super().__init__(f"threads publication error: {reason}")
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class ManualGapOverride:
+    """人が明示した、120 分の間隔 **だけ** の上書き (T4.3)。
+
+    飛ばすのは「前回の公開からの間隔」だけ。承認・stale・中身の整合性・二重投稿
+    防止・他の公開の不確定状態 は、すべてそのまま効く。理由は必須で、公開の行に
+    残る。自動の公開は作れない (``source`` は human-cli だけ)。
+    """
+
+    reason: str
+    source: str = GAP_OVERRIDE_SOURCE_HUMAN_CLI
+
+    def __post_init__(self) -> None:
+        if self.source != GAP_OVERRIDE_SOURCE_HUMAN_CLI:
+            raise ValueError("only an explicit human CLI run may override the posting gap")
+        if not (self.reason or "").strip():
+            raise ValueError("a gap override needs a non-empty reason")
+        object.__setattr__(self, "reason", self.reason.strip()[:500])
 
 
 @dataclass(frozen=True)
@@ -120,6 +146,10 @@ class PublishPlan:
     threads_config: dict = field(default_factory=dict)
     blocked_reasons: list[str] = field(default_factory=list)
     would_call: list[str] = field(default_factory=list)
+    #: T4.3: 公開を始める主体と、間隔の判定。
+    trigger: str = PUB_TRIGGER_MANUAL
+    gap: dict = field(default_factory=dict)
+    gap_overridden_reason: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -143,6 +173,9 @@ class PublishPlan:
             "threads_config": self.threads_config,
             "blocked_reasons": list(self.blocked_reasons),
             "would_call": list(self.would_call),
+            "trigger": self.trigger,
+            "gap": dict(self.gap),
+            "gap_overridden_reason": self.gap_overridden_reason,
             "eligible": self.ok,
         }
 
@@ -187,16 +220,42 @@ class ThreadsPublicationService:
         settings,
         threads_service: ThreadsService | None = None,
         sleep=time.sleep,
+        gap_minutes: int | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
         self._threads = threads_service or ThreadsService(settings, sleep=sleep)
         self._sleep = sleep
+        if gap_minutes is None:
+            from app.social.threads.policy import get_operations_policy
+
+            gap_minutes = get_operations_policy().soft_min_gap_minutes
+        #: 前回の公開からの最小間隔 (T4.3 で書き込み経路に入れた)。
+        self._gap = timedelta(minutes=int(gap_minutes))
 
     # -- plan ------------------------------------------------------------------
-    def plan(self, *, proposal_id: int) -> PublishPlan:
-        """公開できるかだけを判定する。**Meta へは 1 度も書かない。**"""
+    def plan(
+        self,
+        *,
+        proposal_id: int,
+        now: datetime | None = None,
+        trigger: str = PUB_TRIGGER_MANUAL,
+        gap_override: ManualGapOverride | None = None,
+    ) -> PublishPlan:
+        """公開できるかだけを判定する。**Meta へは 1 度も書かない。**
 
+        T4.3 で、書き込み経路そのものに 2 つの条件を足した (手動でも自動でも同じ):
+
+        - **他の公開が不確定・照合待ちなら出さない。** 照合が済むまで次へ進まない。
+        - **前回の公開から 120 分空いていなければ出さない。** 人が理由を付けて明示した
+          ときだけ上書きできる。自動の公開は上書きできない。
+        """
+
+        now = ensure_aware(now or datetime.now(UTC))
+        if trigger not in PUB_TRIGGERS:
+            raise ThreadsPublicationError(f"unknown publication trigger {trigger!r}")
+        if trigger == PUB_TRIGGER_AUTOMATIC and gap_override is not None:
+            raise ThreadsPublicationError("automatic publication can never override the gap")
         proposal = self._require_proposal(proposal_id)
         article = self._session.get(Article, proposal.source_article_id)
         status = self._threads.describe()
@@ -253,6 +312,10 @@ class ThreadsPublicationService:
                     "(publish_threads_post.py --reconcile)"
                 )
 
+        plan.trigger = trigger
+        self._check_other_publications(plan, proposal.id)
+        self._check_gap(plan, proposal.id, now, gap_override)
+
         if plan.ok:
             plan.would_call = [
                 "POST /{user-id}/threads (media_type=TEXT) -- create the container",
@@ -264,12 +327,20 @@ class ThreadsPublicationService:
 
     # -- execute ---------------------------------------------------------------
     def publish(
-        self, *, proposal_id: int, execute: bool = False, now: datetime | None = None
+        self,
+        *,
+        proposal_id: int,
+        execute: bool = False,
+        now: datetime | None = None,
+        trigger: str = PUB_TRIGGER_MANUAL,
+        gap_override: ManualGapOverride | None = None,
     ) -> PublishOutcome:
         """``execute=True`` のときだけ外へ出す。既定は PLAN と同じ。"""
 
         now = now or datetime.now(UTC)
-        plan = self.plan(proposal_id=proposal_id)
+        plan = self.plan(
+            proposal_id=proposal_id, now=now, trigger=trigger, gap_override=gap_override
+        )
         outcome = PublishOutcome(
             proposal_id=proposal_id,
             executed=False,
@@ -281,6 +352,12 @@ class ThreadsPublicationService:
 
         proposal = self._require_proposal(proposal_id)
         row = self._claim(proposal, now)
+        if row is not None:
+            # 誰が始めたか・間隔を上書きしたか を、外へ出す前に記録する。
+            row.trigger = trigger
+            row.gap_override_reason = plan.gap_overridden_reason
+            row.gap_override_at = to_storage_utc(now) if plan.gap_overridden_reason else None
+            self._session.commit()
         if row is None:
             outcome.outcome = "blocked"
             outcome.blocked_reasons.append(
@@ -548,6 +625,71 @@ class ThreadsPublicationService:
             stale_reasons=tuple(stale_reasons),
             integrity_reasons=tuple(integrity),
             existing=self._existing(proposal.id),
+        )
+
+    def _check_other_publications(self, plan: PublishPlan, proposal_id: int) -> None:
+        """他の公開が不確定・照合待ちなら、**どの提案も** 出さない (T4.3)。"""
+
+        blocking = self._session.scalars(
+            select(ThreadsPublication)
+            .where(
+                ThreadsPublication.proposal_id != proposal_id,
+                or_(
+                    ThreadsPublication.status.in_(tuple(PUB_IN_FLIGHT_STATES)),
+                    ThreadsPublication.reconciliation_required.is_(True),
+                ),
+            )
+            .order_by(ThreadsPublication.id)
+        ).all()
+        for row in blocking:
+            plan.blocked_reasons.append(
+                f"publication {row.id} is {row.status!r}"
+                + (" and requires reconciliation" if row.reconciliation_required else "")
+                + "; reconcile it before publishing anything else"
+            )
+
+    def _check_gap(
+        self,
+        plan: PublishPlan,
+        proposal_id: int,
+        now: datetime,
+        gap_override: ManualGapOverride | None,
+    ) -> None:
+        """前回の **実際の** 公開から間隔が空いているか (T4.3、書き込み経路)。"""
+
+        last = self._session.scalars(
+            select(ThreadsPublication)
+            .where(
+                ThreadsPublication.proposal_id != proposal_id,
+                ThreadsPublication.status == PUB_PUBLISHED,
+                ThreadsPublication.published_at.is_not(None),
+            )
+            .order_by(ThreadsPublication.published_at.desc())
+            .limit(1)
+        ).first()
+        minutes = int(self._gap.total_seconds() // 60)
+        if last is None:
+            plan.gap = {"minutes": minutes, "last_publication_id": None, "elapsed": True}
+            return
+        last_at = ensure_aware(last.published_at)
+        earliest = last_at + self._gap
+        elapsed = now >= earliest
+        plan.gap = {
+            "minutes": minutes,
+            "last_publication_id": last.id,
+            "last_published_at": last_at.isoformat(),
+            "earliest_at": earliest.isoformat(),
+            "elapsed": elapsed,
+        }
+        if elapsed:
+            return
+        if gap_override is not None:
+            plan.gap_overridden_reason = gap_override.reason
+            plan.gap["overridden"] = True
+            return
+        plan.blocked_reasons.append(
+            f"the {minutes}-minute gap since publication {last.id} has not elapsed "
+            f"(earliest {earliest.isoformat()}); a human may override it with a reason"
         )
 
     def _existing(self, proposal_id: int) -> ThreadsPublication | None:

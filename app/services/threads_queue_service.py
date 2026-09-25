@@ -93,8 +93,17 @@ class ThreadsQueueService:
             minimum_mature_posts=self._measurement.minimum_mature_posts,
         )
 
-    def evaluate(self, *, now: datetime | None = None) -> QueueEvaluation:
-        return evaluate_queue(self.facts(now=now), self._policy, self._tz)
+    def evaluate(
+        self, *, now: datetime | None = None, publication_enabled: bool = False
+    ) -> QueueEvaluation:
+        """queue を評価する。``publication_enabled`` は自動公開の経路だけが True にする。"""
+
+        return evaluate_queue(
+            self.facts(now=now),
+            self._policy,
+            self._tz,
+            publication_enabled=publication_enabled,
+        )
 
     def approval_fingerprint(self) -> tuple:
         """queue の中身が変わったかを安く判定するための指紋 (id と状態だけ)。"""

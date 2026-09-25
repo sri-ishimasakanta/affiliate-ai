@@ -249,10 +249,7 @@ uv run python scripts/run_threads_worker.py --resident --send-approval-digests
 **T4.2 — 済み** (在庫・承認の時刻・まとめ送り・queue 操作・読むだけの指標取得・
 原子的なロック回収)。詳細は [threads-approval-digest.md](threads-approval-digest.md)。
 
-**T4.3 — 日中の動的な公開**
-
-- 承認済み queue からの自動公開 (1 回に 1 本)
-- 120 分の間隔を実際の書き込み経路で強制
-- 人の理由を残したうえでの間隔の上書き
-- 実際の公開につながる動的な並べ替え
-- 常駐 worker の本番有効化と、タスクスケジューラへの登録
+**T4.3 — 実装済み・本番では無効**。自動公開 (1 回に 1 本、ゲート付き)、書き込み経路での
+120 分の間隔、人による間隔の上書き (理由を記録)、携帯での決定の取り込み、ランチャと
+タスク登録の計画。詳細と、本番で有効にする前の確認事項は
+[threads-autopublish.md](threads-autopublish.md)。

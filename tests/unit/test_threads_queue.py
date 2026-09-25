@@ -21,7 +21,6 @@ from zoneinfo import ZoneInfo
 
 from app.social.threads.policy import get_operations_policy
 from app.social.threads.queue import (
-    AUTOMATIC_PUBLICATION_ENABLED,
     BLOCKER_AUTOMATIC_PUBLICATION_DISABLED,
     BLOCKER_GAP_NOT_ELAPSED,
     BLOCKER_NO_ELIGIBLE_CANDIDATE,
@@ -78,8 +77,12 @@ def _evaluate(facts: QueueFacts) -> QueueEvaluation:
 
 
 # == approval != publication ==================================================
-def test_automatic_publication_is_disabled_in_code() -> None:
-    assert AUTOMATIC_PUBLICATION_ENABLED is False
+def test_automatic_publication_is_disabled_by_default() -> None:
+    """既定の評価は公開しない。明示的に有効にした評価だけが「今なら出せる」と言える。"""
+
+    facts = _facts(_candidate(1))
+    assert _evaluate(facts).would_publish_now is False
+    assert evaluate_queue(facts, POLICY, JST, publication_enabled=True).would_publish_now is True
 
 
 def test_an_approved_eligible_proposal_is_still_not_published() -> None:

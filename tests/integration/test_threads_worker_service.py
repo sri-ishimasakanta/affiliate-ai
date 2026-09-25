@@ -458,7 +458,7 @@ def test_the_cli_default_is_read_only(session: Session, article: Article, capsys
     assert code == 0
     assert _counts(session) == before
     assert "PLAN" in out
-    assert "automatic publication = False" in out
+    assert "can publish=False" in out
     assert "threads_writes=0" in out
     assert _TOKEN not in out
 
@@ -717,3 +717,192 @@ def test_the_cli_shows_a_failed_last_attempt(session: Session, article: Article,
     assert "LAST ATTEMPT FAILED" in out
     assert "API access blocked." in out
     assert _TOKEN not in out
+
+
+# == T4.3: automatic publication through the worker ===========================
+class _PublishingThreads(_ReadOnlyThreads):
+    """公開できる Threads の代役 (外には出ない)。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._texts: dict[str, str] = {}
+        self._last = ""
+
+    def check_connection(self):
+        self.calls.append("preflight")
+        status = self.describe()
+        status.reachable = True
+        return status
+
+    @property
+    def client(self):
+        return self
+
+    def create_text_container(self, text):
+        from app.social.threads.models import ThreadsContainer
+
+        self.calls.append("create")
+        self._last = text
+        return ThreadsContainer(f"c{len(self.calls)}")
+
+    def publish_container(self, creation_id):
+        from app.social.threads.models import ThreadsPublication as Dto
+
+        self.calls.append("publish")
+        media = f"media{len(self.calls)}"
+        self._texts[media] = self._last
+        return Dto(media)
+
+    def fetch_publication(self, media_id):
+        return {"id": media_id, "text": self._texts.get(media_id, ""), "permalink": "https://x"}
+
+
+def _enabled_policy(tmp_path):
+    import json
+
+    from app.social.threads.policy import get_operations_policy, load_operations_policy
+
+    document = dict(get_operations_policy().raw)
+    document["automatic_publication"] = {"enabled": True, "preflight_read": True}
+    path = tmp_path / "enabled.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return load_operations_policy(path)
+
+
+def test_the_resident_worker_publishes_one_post_per_gap(
+    session: Session, article: Article, tmp_path
+) -> None:
+    for i in range(5):
+        proposal = _proposal(session, article, seed=f"q{i}", angle=f"angle{i}")
+        proposal.approved_at = _NOW - timedelta(hours=5 - i)
+    session.commit()
+
+    threads = _PublishingThreads()
+    clock = {"now": _NOW}
+
+    def sleep(seconds: float) -> None:
+        clock["now"] += timedelta(seconds=seconds)
+
+    service = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        threads_service=threads,
+        policy=_enabled_policy(tmp_path),
+        auto_publish=True,
+        publish_sleep=lambda _s: None,
+    )
+    lock = ThreadsWorkerLock(_factory(session), stale_after_minutes=15, owner_label="w")
+    run = service.build_worker(now=_NOW, clock=lambda: clock["now"], sleep=sleep, lock=lock).run(
+        max_cycles=60
+    )  # 約 5 時間
+
+    assert all(cycle.publications <= 1 for cycle in run.cycles)
+    rows = session.scalars(
+        select(ThreadsPublication).order_by(ThreadsPublication.published_at)
+    ).all()
+    assert 2 <= len(rows) <= 3
+    assert all(r.trigger == "automatic" for r in rows)
+    times = [r.published_at for r in rows]
+    for earlier, later in zip(times, times[1:], strict=False):
+        assert later - earlier >= timedelta(minutes=120)
+
+
+def test_the_worker_does_not_publish_without_the_lock(
+    session: Session, article: Article, tmp_path
+) -> None:
+    _proposal(session, article, seed="a")
+    threads = _PublishingThreads()
+    service = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        threads_service=threads,
+        policy=_enabled_policy(tmp_path),
+        auto_publish=True,
+        publish_sleep=lambda _s: None,
+    )
+    worker = service.build_worker(now=_NOW, clock=lambda: _NOW)  # ロック無し
+    worker.run_cycle()
+    summary = worker.schedule.state(SUBSYSTEM_PUBLICATION_EVALUATION).last_summary
+    assert summary["auto_publish"]["outcome"] == "gated"
+    assert "create" not in threads.calls
+    assert session.scalar(select(func.count()).select_from(ThreadsPublication)) == 0
+
+
+def test_the_committed_policy_keeps_the_worker_from_publishing(
+    session: Session, article: Article
+) -> None:
+    _proposal(session, article, seed="a")
+    threads = _PublishingThreads()
+    service = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        threads_service=threads,
+        auto_publish=True,
+        publish_sleep=lambda _s: None,
+    )
+    lock = ThreadsWorkerLock(_factory(session), stale_after_minutes=15, owner_label="w")
+    clock = {"now": _NOW}
+    service.build_worker(
+        now=_NOW,
+        clock=lambda: clock["now"],
+        sleep=lambda s: clock.__setitem__("now", clock["now"] + timedelta(seconds=s)),
+        lock=lock,
+    ).run(max_cycles=20)
+    assert service.capabilities["publish"] is False
+    assert "create" not in threads.calls
+    assert session.scalar(select(func.count()).select_from(ThreadsPublication)) == 0
+
+
+def test_the_status_carries_a_publication_dry_run(session: Session, article: Article) -> None:
+    proposal = _proposal(session, article, seed="a")
+    status = _once(_service(session))
+    dry = status["publication_dry_run"]
+    assert dry["proposal_id"] == proposal.id
+    assert dry["gates"]["policy_enabled"] is False
+    assert status["side_effects"]["threads_writes"] == 0
+
+
+# == T4.3: approval sync in the worker ========================================
+class _SyncRelay:
+    def __init__(self, decisions) -> None:
+        self._decisions = decisions
+
+    def fetch_decisions(self):
+        return list(self._decisions)
+
+    def acknowledge(self, *, relay_session_id, local_outcome):
+        return {"state": "consumed"}
+
+
+def test_approval_sync_runs_only_with_the_flag(session: Session, article: Article) -> None:
+    service = _service(session)
+    worker = service.build_worker(now=_NOW, clock=lambda: _NOW)
+    state = worker.schedule.state("approval_sync")
+    assert state.enabled is False
+    assert state.disabled_reason == "start with --sync-approvals"
+
+
+def test_approval_sync_pulls_the_publication_evaluation_forward(
+    session: Session, article: Article, monkeypatch
+) -> None:
+    from app.services.mobile_approval_service import MobileApprovalService, SyncOutcome
+
+    monkeypatch.setattr(
+        MobileApprovalService,
+        "sync",
+        lambda self, *, execute, now: SyncOutcome(fetched=1, applied=1, executed=execute),
+    )
+    service = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        threads_service=_ReadOnlyThreads(),
+        sync_approvals=True,
+        relay_client=_SyncRelay([]),
+    )
+    result = service.handlers()["approval_sync"](_NOW)
+    assert result.summary["applied"] == 1
+    assert result.wake == {
+        SUBSYSTEM_PUBLICATION_EVALUATION: _NOW,
+        SUBSYSTEM_QUEUE_OBSERVATION: _NOW,
+    }
+    assert result.next_run_at == _NOW + timedelta(minutes=5)

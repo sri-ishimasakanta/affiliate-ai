@@ -48,11 +48,12 @@ from app.social.threads.policy import (
 from app.social.threads.policy import (
     get_operations_policy as get_threads_operations_policy,
 )
-from app.social.threads.queue import AUTOMATIC_PUBLICATION_ENABLED, MAX_PUBLICATIONS_PER_CYCLE
+from app.social.threads.queue import MAX_PUBLICATIONS_PER_CYCLE
 from app.social.threads.schedule import daily_activity, publication_timing, window_is_open
 from app.social.threads.worker import (
     MODE_PLAN,
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
+    SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_HEALTH,
     SUBSYSTEM_INSIGHTS_REFRESH,
     SUBSYSTEM_PUBLICATION_EVALUATION,
@@ -148,6 +149,9 @@ class ThreadsWorkerService:
         send_approval_digests: bool = False,
         notifier=None,
         relay_client=None,
+        auto_publish: bool = False,
+        sync_approvals: bool = False,
+        publish_sleep=None,
     ) -> None:
         self._factory = session_factory
         self._settings = settings
@@ -163,14 +167,26 @@ class ThreadsWorkerService:
         self._notifier = notifier
         self._relay = relay_client
         #: この worker が実際に行った外部への作用 (固定の 0 ではなく数えた値)。
-        self._counters = {"network_calls": 0, "approval_emails": 0}
+        self._counters = {"network_calls": 0, "approval_emails": 0, "threads_writes": 0}
+        #: T4.3: 自動公開を worker として許すか。**ポリシーも有効でなければ公開しない。**
+        self._auto_publish = auto_publish
+        #: T4.3: 携帯での決定を中継から取り込むか。
+        self._sync_approvals = sync_approvals
+        #: T3 の「コンテナ作成後に待つ」ための sleep (試験で差し替える)。
+        self._publish_sleep = publish_sleep
+        #: build_worker で渡されたロック (自動公開のゲートに使う)。
+        self._lock = None
 
     @property
     def capabilities(self) -> dict:
         return {
             "collect_insights": self._collect_insights,
             "send_approval_digests": self._send_digests,
-            "publish": False,
+            "sync_approvals": self._sync_approvals,
+            "auto_publish_flag": self._auto_publish,
+            "auto_publish_policy": self._policy.automatic_publication_enabled,
+            # 公開しうるのは、フラグとポリシーの両方がそろったときだけ。
+            "publish": self._auto_publish and self._policy.automatic_publication_enabled,
         }
 
     # -- construction ------------------------------------------------------------
@@ -193,6 +209,12 @@ class ThreadsWorkerService:
             SUBSYSTEM_INSIGHTS_REFRESH,
         ):
             schedule.register(name, first_run_at=now)
+        schedule.register(
+            SUBSYSTEM_APPROVAL_SYNC,
+            first_run_at=now if self._sync_approvals else None,
+            enabled=self._sync_approvals,
+            disabled_reason=None if self._sync_approvals else "start with --sync-approvals",
+        )
         flush = self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH)
         enabled = bool(flush.get("enabled", False))
         schedule.register(
@@ -210,9 +232,11 @@ class ThreadsWorkerService:
             SUBSYSTEM_PUBLICATION_EVALUATION: self._publication_evaluation,
             SUBSYSTEM_INSIGHTS_REFRESH: self._insights_refresh,
             SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: self._approval_notification_flush,
+            SUBSYSTEM_APPROVAL_SYNC: self._approval_sync,
         }
 
     def build_worker(self, *, now: datetime, clock=None, sleep=None, lock=None) -> ThreadsWorker:
+        self._lock = lock
         return ThreadsWorker(
             handlers=self.handlers(),
             schedule=self.build_schedule(now),
@@ -266,13 +290,37 @@ class ThreadsWorkerService:
             ),
         )
 
+    def _auto_publisher(self, session):
+        from app.services.threads_auto_publisher import ThreadsAutoPublisher
+
+        threads = self._threads
+        if threads is None:
+            from app.social.threads.service import ThreadsService
+
+            threads = ThreadsService(self._settings)
+        extra = {"sleep": self._publish_sleep} if self._publish_sleep is not None else {}
+        return ThreadsAutoPublisher(
+            session,
+            settings=self._settings,
+            threads_service=threads,
+            policy=self._policy,
+            measurement_policy=self._measurement,
+            timezone=self._tz,
+            flag_enabled=self._auto_publish,
+            lock_held=bool(self._lock is not None and getattr(self._lock, "held", False)),
+            **extra,
+        )
+
     def _publication_evaluation(self, now: datetime) -> SubsystemResult:
+        """公開を評価する。自動公開はフラグ・ポリシー・ロックがそろったときだけ。
+
+        1 回の評価で公開を試みるのは最大 1 件。試みたら (成否によらず) 状態が変わる
+        ので、次の評価時刻は公開後の状態から計算し直す。
+        """
+
         with self._factory() as session:
             evaluation = self._queue(session).evaluate(now=now)
-        next_at = max(evaluation.next_evaluation_at, now + _MIN_RESCHEDULE)
-        return SubsystemResult(
-            next_run_at=next_at,
-            summary={
+            summary = {
                 "blockers": list(evaluation.blockers),
                 "problems": list(evaluation.problems),
                 "eligible_count": evaluation.eligible_count,
@@ -281,8 +329,56 @@ class ThreadsWorkerService:
                 ),
                 "would_publish_now": evaluation.would_publish_now,
                 "evidence_state": evaluation.evidence_state,
+                "auto_publish": None,
+            }
+            next_at = evaluation.next_evaluation_at
+            publications = 0
+            if self._auto_publish:
+                publisher = self._auto_publisher(session)
+                result = publisher.publish_one(now=now)
+                summary["auto_publish"] = result.as_dict()
+                self._counters["threads_writes"] += result.threads_writes
+                if result.preflight is not None:
+                    self._counters["network_calls"] += 1
+                self._counters["network_calls"] += result.threads_writes
+                if result.attempted:
+                    publications = 1
+                if result.next_evaluation_at is not None:
+                    next_at = result.next_evaluation_at
+        return SubsystemResult(
+            next_run_at=max(next_at, now + _MIN_RESCHEDULE),
+            summary=summary,
+            publications=publications,
+        )
+
+    def _approval_sync(self, now: datetime) -> SubsystemResult:
+        """携帯で下された決定を取り込む (T4.3)。既存の sync をそのまま使う。
+
+        承認は queue に入るだけで、ここからは公開しない。取り込めたら公開の評価と
+        queue の観測を前倒しする (承認を 5 分以内に反映する)。
+        """
+
+        from app.services.mobile_approval_service import MobileApprovalService
+
+        with self._factory() as session:
+            outcome = MobileApprovalService(
+                session, settings=self._settings, relay_client=self._relay
+            ).sync(execute=True, now=now)
+        self._counters["network_calls"] += 1
+        wake = (
+            {SUBSYSTEM_PUBLICATION_EVALUATION: now, SUBSYSTEM_QUEUE_OBSERVATION: now}
+            if outcome.applied
+            else {}
+        )
+        return SubsystemResult(
+            next_run_at=now + self._interval(SUBSYSTEM_APPROVAL_SYNC, 5),
+            summary={
+                "fetched": outcome.fetched,
+                "applied": outcome.applied,
+                "skipped": outcome.skipped,
+                "failed": outcome.failed,
             },
-            publications=0,
+            wake=wake,
         )
 
     def _insights_refresh(self, now: datetime) -> SubsystemResult:
@@ -510,7 +606,7 @@ class ThreadsWorkerService:
             "timezone": self._tz.key,
             "policy_version": self._policy.policy_version,
             "worker_mode": MODE_PLAN,
-            "automatic_publication_enabled": AUTOMATIC_PUBLICATION_ENABLED,
+            "automatic_publication_enabled": self.capabilities["publish"],
             "max_publications_per_cycle": MAX_PUBLICATIONS_PER_CYCLE,
             "threads": {
                 "state": config.state,
@@ -543,8 +639,9 @@ class ThreadsWorkerService:
             "problems": list(evaluation.problems),
             "subsystems": [self._subsystem_view(s) for s in schedule.states()] if schedule else [],
             "capabilities": self.capabilities,
+            "publication_dry_run": self._dry_run(now),
             "side_effects": {
-                "threads_writes": 0,
+                "threads_writes": self._counters["threads_writes"],
                 "network_calls": self._counters["network_calls"],
                 "approval_emails": self._counters["approval_emails"],
                 "wordpress_writes": 0,
@@ -552,6 +649,12 @@ class ThreadsWorkerService:
                 "scheduler_changes": 0,
             },
         }
+
+    def _dry_run(self, now: datetime) -> dict:
+        """自動公開が有効なら何が起きるか。**外にも DB にも触れない。**"""
+
+        with self._factory() as session:
+            return self._auto_publisher(session).dry_run(now=now).as_dict()
 
     def _subsystem_view(self, state) -> dict:
         view = state.as_dict()

@@ -66,6 +66,11 @@ PUB_TERMINAL_STATES = frozenset({PUB_PUBLISHED})
 #: 照合のうえで再試行してよい状態。
 PUB_RETRYABLE_STATES = frozenset({PUB_PLANNED, PUB_FAILED})
 
+# -- T4.3: 公開を始めた主体 ------------------------------------------------------
+PUB_TRIGGER_MANUAL = "manual"
+PUB_TRIGGER_AUTOMATIC = "automatic"
+PUB_TRIGGERS = (PUB_TRIGGER_MANUAL, PUB_TRIGGER_AUTOMATIC)
+
 
 class ThreadsPublication(Base):
     __tablename__ = "threads_publications"
@@ -107,6 +112,16 @@ class ThreadsPublication(Base):
 
     status: Mapped[str] = mapped_column(String(24), nullable=False, default=PUB_PLANNED)
     status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # -- T4.3: 誰が公開を始めたか / 間隔の上書き -----------------------------------
+    #: ``manual`` (人が publish_threads_post.py --execute) か ``automatic`` (常駐 worker)。
+    trigger: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PUB_TRIGGER_MANUAL, server_default=PUB_TRIGGER_MANUAL
+    )
+    #: 人が 120 分の間隔を明示的に上書きした理由。NULL = 上書きなし。
+    #: 自動の公開は上書きできない (理由があるのは常に人の操作)。
+    gap_override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gap_override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: 読み戻した本文が承認内容と違ったときに立てる (提案は書き換えない)。
     reconciliation_required: Mapped[bool] = mapped_column(default=False, nullable=False)
     reconciliation_note: Mapped[str | None] = mapped_column(Text, nullable=True)

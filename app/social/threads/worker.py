@@ -17,11 +17,13 @@
   起きても、公開の評価は走らない。
 - 仕事の失敗は worker を止めない。その仕事だけを heartbeat 後に再試行する。
 
-T4.1 の境界:
+境界:
 
-- **自動公開はしない。** ``publisher`` を渡すと起動を拒否する (T4.3 の仕事)。
+- 公開の経路は ``publication_evaluation`` の handler の中にある、ゲート付きの自動公開
+  (T4.3) だけ。外から ``publisher`` を差し込むと起動を拒否する (ゲートを迂回させない)。
 - 1 回のサイクルで公開してよいのは最大 1 件、という不変条件をここに固定する。
-- ネットワークにも、メールにも、WordPress にも、タスクスケジューラにも触れない。
+- worker の骨組み自体は、ネットワークにもメールにも WordPress にもタスク
+  スケジューラにも触れない (外への作用はすべて handler 側の明示的なフラグ次第)。
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from app.social.threads.queue import AUTOMATIC_PUBLICATION_ENABLED, MAX_PUBLICATIONS_PER_CYCLE
+from app.social.threads.queue import MAX_PUBLICATIONS_PER_CYCLE
 
 # -- subsystem names -----------------------------------------------------------
 SUBSYSTEM_HEALTH = "health"
@@ -38,9 +40,12 @@ SUBSYSTEM_QUEUE_OBSERVATION = "queue_observation"
 SUBSYSTEM_PUBLICATION_EVALUATION = "publication_evaluation"
 SUBSYSTEM_INSIGHTS_REFRESH = "insights_refresh"
 SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH = "approval_notification_flush"
-#: 同じ時刻に期限が来たときの実行順。queue を観測してから公開を評価する。
+#: 携帯での決定を中継から取り込む (T4.3)。
+SUBSYSTEM_APPROVAL_SYNC = "approval_sync"
+#: 同じ時刻に期限が来たときの実行順。決定を取り込み、queue を観測してから公開を評価する。
 SUBSYSTEM_ORDER = (
     SUBSYSTEM_HEALTH,
+    SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_QUEUE_OBSERVATION,
     SUBSYSTEM_PUBLICATION_EVALUATION,
     SUBSYSTEM_INSIGHTS_REFRESH,
@@ -57,7 +62,7 @@ EXIT_LOCK_LOST = 5
 
 
 class AutomaticPublicationUnavailable(RuntimeError):
-    """T4.1 では自動公開の経路そのものを持たない。"""
+    """ゲートを迂回する公開の経路は作らせない。"""
 
 
 @dataclass
@@ -217,10 +222,11 @@ class ThreadsWorker:
         publisher=None,
         mode: str = MODE_PLAN,
     ) -> None:
-        if publisher is not None or AUTOMATIC_PUBLICATION_ENABLED:
-            # T4.1 は PLAN 専用。公開の経路を後から差し込めないようにしておく。
+        if publisher is not None:
+            # 公開はゲート付きの handler の中だけで起きる。外から経路を足させない。
             raise AutomaticPublicationUnavailable(
-                "automatic Threads publication is not available in T4.1 (PLAN only)"
+                "an external publisher cannot be plugged into the worker; publication only "
+                "happens through the gated publication_evaluation handler"
             )
         if mode not in WORKER_MODES:
             raise ValueError(f"unsupported worker mode: {mode}")
@@ -319,6 +325,7 @@ __all__ = [
     "EXIT_OK",
     "MODE_PLAN",
     "SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH",
+    "SUBSYSTEM_APPROVAL_SYNC",
     "SUBSYSTEM_HEALTH",
     "SUBSYSTEM_INSIGHTS_REFRESH",
     "SUBSYSTEM_ORDER",
