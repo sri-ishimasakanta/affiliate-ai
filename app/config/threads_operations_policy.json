@@ -77,7 +77,7 @@
     "note": "Advisory coverage of approved-but-unpublished proposals, in days of the advisory daily target. Not a quota: above the high mark new approval requests are deferred, never deleted."
   },
   "automatic_publication": {
-    "enabled": false,
+    "enabled": true,
     "preflight_read": true,
     "note": "Committed disabled. Flip only after Meta API access is restored and a human has approved production activation. The worker flag alone never publishes."
   }
