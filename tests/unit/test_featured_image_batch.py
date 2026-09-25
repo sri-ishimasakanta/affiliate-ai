@@ -1,0 +1,210 @@
+"""W1.5B: 1 バッチ分の featured image 制作パッケージ (pure。WordPress にも DB にも触らない)。
+
+pin する契約:
+
+- パッケージは W1.5 manifest の写し。設計の値 (見出し・補助語・色・モチーフ・構図・alt・
+  media の title・ファイル名・見分け方) は 1 文字も変えない。
+- バッチ 1 は 7 → 2 → 6 → 8 → 9 の順 (一覧の見本も同じ順)。
+- 画像生成の文は manifest の文 + 決まった「文字なし」の文。日本語を含まない。
+- 組版の座標は W1 の規則 (印 (72, 250)・見出しの上端 282・104px・行間 1.2・補助語 44px・
+  下端の帯 y = 663) から決まり、下の余白に入らない。
+- manifest と違うパッケージ (古い版・並べ替え・書き換え) は検査で止まる。
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+from app.wordpress.featured_image_batch import (
+    NEGATIVE_GUARD,
+    TEXTLESS_SUFFIX,
+    build_batch_package,
+    layout_positions,
+    render_checklist_markdown,
+    render_handoff_markdown,
+    sha256_of,
+    shape_summary,
+    typesetting_plan,
+    validate_batch_package,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+MANIFEST_PATH = ROOT / "docs" / "operations" / "featured-image-w1.5-manifest.json"
+JAPANESE = re.compile(r"[぀-ヿ㐀-鿿＀-￯]")
+
+
+@pytest.fixture(scope="module")
+def manifest() -> dict:
+    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def digest() -> str:
+    return sha256_of(MANIFEST_PATH)
+
+
+@pytest.fixture
+def package(manifest, digest) -> dict:
+    return build_batch_package(
+        manifest, 1, manifest_path="docs/operations/x.json", manifest_sha256=digest
+    )
+
+
+def test_batch_1_is_the_five_meeting_notes_articles_in_order(package, manifest, digest) -> None:
+    assert [i["article_id"] for i in package["items"]] == [7, 2, 6, 8, 9]
+    assert package["contact_sheet_order"] == [7, 2, 6, 8, 9]
+    assert [i["order"] for i in package["items"]] == [1, 2, 3, 4, 5]
+    assert validate_batch_package(package, manifest, manifest_sha256=digest) == []
+
+
+def test_design_values_are_copied_exactly(package, manifest) -> None:
+    by_id = {a["article_id"]: a for a in manifest["articles"]}
+    for item in package["items"]:
+        article = by_id[item["article_id"]]
+        for key in (
+            "slug",
+            "title",
+            "headline",
+            "sublabel",
+            "accent",
+            "motif",
+            "composition",
+            "alt_text",
+            "media_title",
+            "planned_file",
+            "distinguish_from",
+            "generation_prompt",
+            "typesetting",
+        ):
+            assert item[key] == article[key], (item["article_id"], key)
+        stem = article["planned_file"].removesuffix(".webp")
+        assert item["files"] == {
+            "background": f"backgrounds/{stem}-bg.png",
+            "proof": f"proofs/{stem}-typeset-proof.png",
+            "master_png": f"{stem}.png",
+            "final_webp": article["planned_file"],
+        }
+
+
+def test_the_five_images_keep_their_distinct_shapes(package) -> None:
+    shapes = {i["article_id"]: shape_summary(i) for i in package["items"]}
+    assert "概念図" in shapes[7]
+    assert "2 枚のカード" in shapes[2]
+    assert "比較表" in shapes[6]
+    assert "∞" in shapes[8] and "砂時計" in shapes[8]
+    assert "見積もりシート" in shapes[9] and "切り替え" in shapes[9]
+    motifs = {i["article_id"]: i["motif"] for i in package["items"]}
+    assert "concept" in motifs[7].lower() or "satellite" in motifs[7]
+    assert "infinity" in motifs[8] and "hourglass" in motifs[8]
+    assert "estimate sheet" in motifs[9] and "toggle" in motifs[9]
+
+
+def test_generation_prompts_are_textless_and_keep_the_committed_text(package) -> None:
+    for item in package["items"]:
+        gen = item["generation"]
+        assert gen["textless"] is True
+        assert gen["prompt"] == f"{item['generation_prompt']}; {TEXTLESS_SUFFIX}"
+        assert not JAPANESE.search(gen["prompt"] + gen["negative_prompt"])
+        # 個々の禁止事項に「, 」を含むもの ("$, ¥, amounts") があるので、文字列として確かめる。
+        assert gen["negative_prompt"].startswith(", ".join(item["negative_constraints"]))
+        negatives = gen["negative_prompt"].split(", ")
+        for term in (*NEGATIVE_GUARD, "text", "logo", "product screenshot", "people", "robot"):
+            assert term in negatives
+        assert gen["single_prompt"].startswith(gen["prompt"])
+        # 見出し・補助語を画像モデルに描かせない。
+        for line in item["headline"]["lines"]:
+            assert line not in gen["single_prompt"]
+        assert item["sublabel"] not in gen["single_prompt"]
+
+
+def test_the_typesetting_plan_follows_the_w1_layout(package) -> None:
+    plan = package["items"][0]["typesetting_plan"]
+    assert (plan["mark"]["x"], plan["mark"]["y"]) == (72, 250)
+    assert (plan["mark"]["width"], plan["mark"]["height"]) == (64, 8)
+    head = plan["headline"]
+    assert head["size_px"] == 104 and head["line_pitch_px"] == 124.8 and head["palt"] is True
+    assert [line["em_top"] for line in head["lines"]] == [282, 406.8]
+    assert [line["baseline_y"] for line in head["lines"]] == [374, 498]
+    assert [line["x"] for line in head["lines"]] == [72, 72]
+    sub = plan["sublabel"]
+    assert (sub["size_px"], sub["em_top"], sub["baseline_y"]) == (44, 559.6, 598)
+    assert sub["em_bottom"] <= plan["safe_bottom_y"] == 615
+    assert plan["accent_bar"] == {"x": 0, "y": 663, "width": 1200, "height": 12, "color": "#0284C7"}
+    for item in package["items"]:
+        assert item["typesetting_plan"]["mark"]["color"] == item["accent"]["color"]
+
+
+def test_a_one_line_headline_moves_the_sublabel_up() -> None:
+    typesetting = {
+        "headline_size_px": 104,
+        "sublabel_size_px": 44,
+        "headline_color": "#12263F",
+        "sublabel_color": "#4A5B70",
+        "column_width_px": 568,
+        "headline_mark": {"color": "#000000"},
+        "accent_bar": {"color": "#000000"},
+    }
+    plan = typesetting_plan(typesetting, ["AI議事録"], "補助語")
+    assert plan["sublabel"]["em_top"] == 434.8
+
+
+def test_layout_positions_apply_palt_adjustments() -> None:
+    metrics = {"の": (1000, -1, -14), "A": (600, 0, 0)}
+    positions, width = layout_positions("Aの", metrics, size=100, units_per_em=1000)
+    assert positions == [("A", 0.0), ("の", 59.9)]
+    assert width == 158.6
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda p: p["items"][0]["headline"]["lines"].__setitem__(0, "別の見出し"), "headline"),
+        (lambda p: p["items"].reverse(), "do not match batch order"),
+        (lambda p: p["source"].__setitem__("sha256", "0" * 64), "different manifest version"),
+        (lambda p: p["items"][1]["generation"].__setitem__("prompt", "a robot"), "generation"),
+        (
+            lambda p: p["items"][2]["typesetting_plan"]["mark"].__setitem__("y", 300),
+            "typesetting_plan",
+        ),
+        (lambda p: p["items"][3]["files"].__setitem__("final_webp", "x.webp"), "final file"),
+        (lambda p: p.__setitem__("contact_sheet_order", [2, 7, 6, 8, 9]), "contact_sheet"),
+    ],
+)
+def test_validation_stops_a_package_that_drifted(package, manifest, digest, change, message):
+    drifted = copy.deepcopy(package)
+    change(drifted)
+    problems = validate_batch_package(drifted, manifest, manifest_sha256=digest)
+    assert any(message in p for p in problems), problems
+
+
+def test_the_handoff_and_checklist_carry_every_prompt(package) -> None:
+    handoff = render_handoff_markdown(package)
+    checklist = render_checklist_markdown(package)
+    assert "7 → 2 → 6 → 8 → 9" in handoff and "7 → 2 → 6 → 8 → 9" in checklist
+    for item in package["items"]:
+        assert item["generation"]["prompt"] in handoff
+        assert item["generation"]["negative_prompt"] in handoff
+        assert item["files"]["final_webp"] in checklist
+
+
+def test_the_cli_writes_the_package_and_validates_it(tmp_path, capsys) -> None:
+    from scripts.prepare_featured_image_batch import main
+
+    assert main(["package", "--batch", "1", "--out-root", str(tmp_path)]) == 0
+    out = tmp_path / "batch-1"
+    assert (out / "batch-manifest.json").exists()
+    assert (out / "README.md").exists() and (out / "validation-checklist.md").exists()
+    assert len(list((out / "prompts").glob("*.prompt.txt"))) == 5
+    assert (out / "backgrounds").is_dir() and (out / "proofs").is_dir()
+    assert "validation: ok" in capsys.readouterr().out
+
+    package = json.loads((out / "batch-manifest.json").read_text(encoding="utf-8"))
+    package["items"][0]["sublabel"] = "書き換え"
+    (out / "batch-manifest.json").write_text(json.dumps(package), encoding="utf-8")
+    assert main(["validate", "--batch", "1", "--out-root", str(tmp_path)]) == 1
+    assert "sublabel differs" in capsys.readouterr().out

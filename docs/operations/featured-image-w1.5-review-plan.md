@@ -63,6 +63,44 @@ W1.5A (この文書を書いた段階) は **設計だけ**。画像は作って
 11. **記録**: `featured-image-pipeline.md` にバッチの適用結果 (post ID・media ID・時刻・確認)
     を足し、W1.5 manifest の該当記事の `status` を `applied` にする。
 
+### 2.1 道具 (W1.5B で用意)
+
+リポジトリには W1.3/W1.4 の組版の道具が無かった (試作 4 枚は完成品として受け取った) ので、
+W1.5B で足した。どれも WordPress にも DB にも触らない。
+
+```bash
+uv run python scripts/prepare_featured_image_batch.py package --batch 1
+uv run python scripts/prepare_featured_image_batch.py validate --batch 1
+uv run --no-project --with pillow --with fonttools python scripts/compose_featured_image.py --dir artifacts/featured-images/w1.5/batch-1 proof
+uv run --no-project --with pillow --with fonttools python scripts/compose_featured_image.py --dir artifacts/featured-images/w1.5/batch-1 compose
+uv run --no-project --with pillow --with fonttools python scripts/compose_featured_image.py --dir artifacts/featured-images/w1.5/batch-1 contact-sheet --with-pilots
+```
+
+- `package`: manifest のバッチを写した `batch-manifest.json`・README・確認項目・画像生成の文
+  (`prompts/`) を作る。`validate`: 今の manifest の写しのままかを確かめる。
+- `compose`: `backgrounds/<file>-bg.png` (文字なし) に、`typesetting_plan` の座標で組む。
+  見出しの palt は font の GPOS から読む (この環境の Pillow には libraqm が無いため)。
+  16:9 から 3% より外れた背景は使わない。左上のラベル予約域と見出しの列に何か描かれて
+  いれば報告する。既にある完成のファイルは `--force` なしでは上書きしない。
+- 組版は決定的 (同じ背景・同じ font なら同じバイト列)。font は
+  `C:\Windows\Fonts\NotoSansJP-VF.ttf` を wght 700 / 500 に固定したものを
+  `artifacts/featured-images/w1.5/.font-cache/` に作って使う。
+
+### 2.2 確かめたい点: 試作 4 枚の実際の配置
+
+試作 4 枚 (適用済み) は、仕様の座標とは違う配置で作られていた (画像から測った値):
+
+| 項目 | 仕様 (W1.5 の組版) | 試作 4 枚 |
+| --- | --- | --- |
+| 見出しの印 | 64 × 8、(72, 250) | 約 128 × 17〜20、x ≈ 63、y ≈ 297〜352 |
+| 見出しの位置 | 上端 y = 282 から下へ | 下に寄せてある (最終行の下端 y ≈ 575〜618) |
+| 下端の帯 | 高さ 12 | 高さ 17〜22 |
+
+W1.5B は仕様 (manifest) のとおりに組む。試作と並べたとき見出しが高く、印と帯が細く見える。
+合わせるかどうかは、バッチ 1 の一覧の見本 (`contact-sheet --with-pilots`) を見て人が決める。
+合わせる場合は manifest の `typesetting` を直し、パッケージを作り直す (道具は座標を
+manifest と `featured_image_batch.py` の定数から取る)。
+
 止める条件 (W1.4 と同じ):
 
 - slug で公開済みの post が 1 件に決まらない、タイトルが manifest と完全一致しない、
