@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
 from app.project_state.provenance import provenance, unavailable
+from app.project_state.runtime_records import lock_pid
+from app.social.threads.queue import MAX_PUBLICATIONS_PER_CYCLE
 
 THREADS_POLICY = Path("app/config/threads_operations_policy.json")
 WORKER_LAUNCHER = Path("scripts/run_threads_worker_task.cmd")
@@ -28,6 +29,8 @@ RELAY_README = Path("wordpress/mu-plugins/bizfluxlab-approval-relay.README.md")
 WORKER_LOCK = "threads_worker"
 PERFORMANCE_RERUN_NEW_6H = 3
 PERFORMANCE_MAX_AGE = timedelta(days=7)
+RECENT_RUNS = 7
+RUN_KEYS = ("id", "status", "effective_date", "started_at", "finished_at")
 
 
 def readonly_engine(database_url: str):
@@ -240,6 +243,12 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
         "from threads_publications order by id",
     )
     published = [p for p in pubs if p["status"] == "published"]
+    last_24h = [
+        p
+        for p in published
+        if (t := _parse(p["remote_timestamp"]) or _parse(p["published_at"]))
+        and timedelta(0) <= now - t <= timedelta(hours=24)
+    ]
     approved_unpublished = _rows(
         conn,
         "select p.id from threads_post_proposals p where p.status = 'approved' and not exists "
@@ -270,13 +279,15 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
         age = (now - heartbeat).total_seconds() if heartbeat else None
         worker.update(
             lock_owner=row["owner_label"],
+            lock_pid=lock_pid(row["owner_label"]),
             lock_acquired_at=_iso(row["acquired_at"]),
             heartbeat_at=_iso(row["heartbeat_at"]),
             heartbeat_age_seconds=round(age) if age is not None else None,
             heartbeat_max_seconds=max_age,
             running=row["released_at"] is None and age is not None and age <= max_age,
             lock_label_note=(
-                "owner_label says mode=plan while the task runs the publish profile (label only)"
+                "owner_label mode=plan names the worker core's only mode; publishing is a "
+                "capability (flags + policy), see docs/operations/threads-worker.md"
             )
             if "mode=plan" in (row["owner_label"] or "")
             else None,
@@ -305,6 +316,9 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "approval_notification_window": policy.get("approval_notification_window"),
             "soft_min_gap_minutes": policy.get("soft_min_gap_minutes"),
             "automatic_publication_enabled": auto.get("enabled"),
+            "policy_note": auto.get("note"),
+            "daily_activity_target": policy.get("daily_activity_target"),
+            "max_publications_per_cycle": MAX_PUBLICATIONS_PER_CYCLE,
             "one_publication_per_cycle": True,
             "one_publication_per_cycle_source": (
                 "docs/operations/threads-worker.md (enforced in code)"
@@ -320,6 +334,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "total": len(pubs),
             "by_status": dict(sorted(Counter(p["status"] for p in pubs).items())),
             "by_trigger": dict(sorted(Counter(p["trigger"] for p in pubs).items())),
+            "published_last_24h": len(last_24h),
             "latest": {
                 "id": latest["id"],
                 "published_at": _iso(latest["remote_timestamp"] or latest["published_at"]),
@@ -378,11 +393,6 @@ def collect_approvals(root: Path, conn, *, now: datetime) -> dict:
     )
     render_line = next((ln for ln in stock_doc.splitlines() if "実物の携帯表示" in ln), "")
     observed = None if not render_line else "未確認" not in render_line
-    discrepancies = []
-    if "NOT DEPLOYED" in readme and "T6.1 deployment record" in readme:
-        discrepancies.append(
-            "relay README header says NOT DEPLOYED but the same file records the T6.1 deployment"
-        )
     return {
         "provenance": provenance(
             "local_db",
@@ -405,7 +415,6 @@ def collect_approvals(root: Path, conn, *, now: datetime) -> dict:
         "relay_t6_1_deployment_recorded": "T6.1 deployment record" in readme,
         "genuine_mobile_render_observed": observed,
         "evidence": f"{STOCK_DOC} (row 実物の携帯表示), {RELAY_README}",
-        "discrepancies": discrepancies,
     }
 
 
@@ -419,6 +428,14 @@ def collect_analytics(conn, *, now: datetime) -> dict:
     latest = {}
     for run in runs:
         latest.setdefault(run["profile"], run)
+
+    def recent(profile):
+        return [
+            {k: _iso(r[k]) if k.endswith("_at") else r[k] for k in RUN_KEYS}
+            for r in runs
+            if r["profile"] == profile
+        ][:RECENT_RUNS]
+
     daily = latest.get("daily")
     steps = (
         _rows(
@@ -529,6 +546,8 @@ def collect_analytics(conn, *, now: datetime) -> dict:
         }
         if latest.get("weekly")
         else None,
+        "recent_daily_runs": recent("daily"),
+        "recent_weekly_runs": recent("weekly"),
         "alerts": {
             "active": len(active),
             "resolved": len(alerts) - len(active),
@@ -561,29 +580,3 @@ def collect_db_sections(root: Path, database_url: str, *, now: datetime, engine=
             name: {"provenance": unavailable("local_db", reason)}
             for name in ("monetization", "threads", "approvals", "analytics")
         }
-
-
-def phase_discrepancies(root: Path, sections: Mapping) -> list[str]:
-    """リポジトリの記述どうし / 記述と実際の値の食い違い (隠さずに出す)。"""
-
-    out = []
-    threads = sections.get("threads") or {}
-    if (threads.get("policy") or {}).get("automatic_publication_enabled"):
-        doc = root / "docs/operations/threads-autopublish.md"
-        if doc.exists() and "本番では無効" in doc.read_text(encoding="utf-8"):
-            out.append(
-                "threads_operations_policy.json has automatic_publication.enabled=true, but "
-                "docs/operations/threads-autopublish.md still says 本番では無効 (disabled in "
-                "production)"
-            )
-    out += (sections.get("approvals") or {}).get("discrepancies") or []
-    stock_doc = root / STOCK_DOC
-    if stock_doc.exists() and "33d93394f342" in stock_doc.read_text(encoding="utf-8"):
-        out.append(
-            "docs/operations/threads-proposal-stock.md mentions the production DB at 33d93394f342; "
-            "compare with the observed database revision"
-        )
-    note = (threads.get("worker") or {}).get("lock_label_note")
-    if note:
-        out.append(note)
-    return out

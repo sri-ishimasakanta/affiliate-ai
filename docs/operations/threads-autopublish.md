@@ -1,8 +1,13 @@
-# Threads 自動公開 (T4.3: 実装済み・本番では無効)
+# Threads 自動公開 (T4.3: 実装済み・本番で有効)
 
-T4.3 で、承認済み queue から自動で公開する経路を実装した。**本番では無効のまま**
-コミットしてある。有効にするのは、下の「本番で有効にする前に」をすべて人が確認して
-からである。
+<!-- state-corrected: 2026-09-26 T7B: the header said production was disabled; policy enabled=true (7aa8990) and the worker start-up record (can_publish=True) show it is enabled -->
+
+T4.3 で、承認済み queue から自動で公開する経路を実装した。T4.3 の時点では無効のまま
+コミットし、下の「本番で有効にする前に」を人が確認したうえで、2026-09-25 12:44 JST の
+コミット `7aa8990` (`ops: enable threads automatic publication`) で
+`automatic_publication.enabled` を `true` にした。**今の本番は有効**: 常駐 worker は
+`publish` プロファイル (`--auto-publish`) で動き、起動の記録は `auto_publish_policy=enabled
+can_publish=True` を示す。下の「本番で有効にする前に」は、そのときの確認の手順として残す。
 
 2026-09-25 06:30–08:50 JST ごろ、Meta 側で Threads API のアクセスが止められていた
 (`HTTP 400 / Graph code 200 / "API access blocked."`)。08:58 JST には回復している
@@ -12,7 +17,7 @@ T4.3 で、承認済み queue から自動で公開する経路を実装した�
 
 | # | 条件 | どこで決まるか |
 | --- | --- | --- |
-| 1 | ポリシー `automatic_publication.enabled` が `true` | `app/config/threads_operations_policy.json` (**コミット済みは `false`**) |
+| 1 | ポリシー `automatic_publication.enabled` が `true` | `app/config/threads_operations_policy.json` (**コミット済みは `true`**。2026-09-25 の `7aa8990` から。T4.3 の時点では `false`) |
 | 2 | worker が `--auto-publish` で起動されている | CLI / ランチャの `publish` プロファイル |
 | 3 | worker のロックを持っている | `ThreadsWorkerLock` (原子的な回収、所有者の証明) |
 | 4 | Threads の設定が `ready` | `ThreadsService.describe()` |

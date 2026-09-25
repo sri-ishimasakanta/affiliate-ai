@@ -3,8 +3,13 @@
 - 警告: ``id`` / ``severity`` / ``area`` / ``message`` / ``evidence`` / ``action_required`` /
   ``blocking``。同じ ``id`` は 1 つにまとめる。意図した設計 (在庫の保守を無効にしている、
   など) は誤りとして扱わず ``info`` にする。
-- 次の行動: 優先度 → id の順に並べる。外部に取り返しのつかない決定を自動でしない
-  (本番に書く行動・人の確認が要る行動はそう明示する)。
+- 警告の元: 食い違い (``drift``)・破れた不変条件 (``invariants``。advisory は警告にしない)・
+  時間で決まる状態 (``timing``)・そのほかの観測。
+- 次の行動: 止めるべき食い違い → 進行中の劣化 → 時刻の来た確認 → そのほか、の順 (優先度 →
+  id)。時刻の来ていない確認は ``due: false`` と ``due_at`` を付ける。前提の済んでいない行動
+  (C10・在庫の運用の決定) は出さないか、前提を付ける。解決済みの alert・意図した状態
+  (在庫の保守 OFF・author の権限・media 99) を「直す」行動は出さない。外部に取り返しの
+  つかない決定を自動でしない (本番に書く行動・人の確認が要る行動はそう明示する)。
 """
 
 from __future__ import annotations
@@ -54,11 +59,11 @@ def build_warnings(state: Mapping) -> list[dict]:
         out.append(
             warning(
                 "git-ahead-of-remote",
-                "medium" if ahead >= 10 else "low",
+                "low",
                 "git",
                 f"local branch is {ahead} commit(s) ahead of {git.get('remote')} (not pushed)",
                 evidence="git rev-list --left-right --count",
-                action_required="human decides when to push",
+                action_required="none required (a human decides when to push)",
             )
         )
     if git.get("tracked_changes"):
@@ -98,19 +103,6 @@ def build_warnings(state: Mapping) -> list[dict]:
                 action_required="run with --with-tests",
             )
         )
-    db = state.get("database") or {}
-    if db.get("pending_migrations"):
-        out.append(
-            warning(
-                "db-pending-migrations",
-                "high",
-                "database",
-                f"database is behind the code head: {db['pending_migrations']}",
-                evidence="alembic",
-                action_required="a human applies migrations explicitly",
-                blocking=True,
-            )
-        )
     fi = state.get("featured_images") or {}
     if fi.get("without_featured_image"):
         out.append(
@@ -123,20 +115,7 @@ def build_warnings(state: Mapping) -> list[dict]:
                 action_required="plan a featured-image batch",
             )
         )
-    if fi.get("declared_vs_live_disagreements"):
-        out.append(
-            warning(
-                "wp-featured-image-drift",
-                "high",
-                "featured_images",
-                "live featured_media differs from the W1 manifests",
-                evidence=str(fi["declared_vs_live_disagreements"]),
-                action_required="investigate",
-                blocking=True,
-            )
-        )
-    media_99 = fi.get("media_99") or {}
-    if media_99.get("exists"):
+    if (fi.get("media_99") or {}).get("exists"):
         out.append(
             warning(
                 "wp-media-99-duplicate",
@@ -150,29 +129,19 @@ def build_warnings(state: Mapping) -> list[dict]:
                 action_required="optional: a human deletes it in wp-admin",
             )
         )
-    taxonomy = state.get("taxonomy") or {}
-    if taxonomy.get("matches_plan") is False:
+    if state.get("taxonomy"):
         out.append(
             warning(
-                "wp-taxonomy-drift",
-                "high",
-                "taxonomy",
-                f"live categories differ from the W2 plan: {taxonomy.get('assignment_mismatches')}",
-                evidence="live WordPress",
-                action_required="investigate before any taxonomy change",
-                blocking=True,
+                "wp-api-user-author-role",
+                "info",
+                "wordpress",
+                "the WordPress API user has the author role and cannot create categories "
+                "(by design)",
+                evidence="docs/operations/taxonomy-w2.md §9.1",
+                action_required="create new categories manually in wp-admin; do not broaden the "
+                "role",
             )
         )
-    out.append(
-        warning(
-            "wp-api-user-author-role",
-            "info",
-            "wordpress",
-            "the WordPress API user has the author role and cannot create categories (by design)",
-            evidence="docs/operations/taxonomy-w2.md §9.1",
-            action_required="create new categories manually in wp-admin; do not broaden the role",
-        )
-    ) if taxonomy else None
     money = state.get("monetization") or {}
     missing = money.get("missing_tracking") or []
     if missing:
@@ -199,39 +168,20 @@ def build_warnings(state: Mapping) -> list[dict]:
                 action_required="none (design choice)",
             )
         )
-    perf = threads.get("performance") or {}
-    if perf.get("rerun_recommended"):
+    diagnostic = _get(state, "timing", "diagnostic") or {}
+    if diagnostic.get("state") in ("due", "overdue"):
         out.append(
             warning(
                 "threads-performance-diagnostic-stale",
-                "low",
+                "medium" if diagnostic["state"] == "overdue" else "low",
                 "threads",
-                f"performance diagnostic is stale: {perf.get('rerun_reason')}",
+                f"performance diagnostic is {diagnostic['state']}: "
+                f"{_get(threads, 'performance', 'rerun_reason') or 'report too old'}",
                 evidence="reports/threads_performance_diagnostic_latest.json",
                 action_required="re-run the read-only diagnostic",
             )
         )
-    daily = _get(state, "analytics", "latest_daily_run") or {}
-    if daily and daily.get("status") not in ("succeeded", None):
-        unclean = [
-            f"{s['step_name']}={s['status']}"
-            for s in daily.get("steps") or []
-            if s.get("status") != "succeeded"
-        ]
-        active = _get(state, "analytics", "alerts", "active", default=0)
-        resolved = _get(state, "analytics", "alerts", "resolved", default=0)
-        out.append(
-            warning(
-                "ops-latest-daily-run-not-clean",
-                "medium",
-                "operations",
-                f"latest daily run #{daily.get('id')} ({daily.get('effective_date')}) was "
-                f"{daily.get('status')}: {', '.join(unclean) or 'no failed step recorded'}; "
-                f"active alerts {active}, resolved {resolved}",
-                evidence="operations_runs / operations_step_runs",
-                action_required="confirm the next scheduled daily run succeeds",
-            )
-        )
+    out += _daily_warnings(state)
     for alert in _get(state, "analytics", "latest_daily_run", "alerts", default=[]) or []:
         out.append(
             warning(
@@ -243,8 +193,28 @@ def build_warnings(state: Mapping) -> list[dict]:
                 action_required=alert.get("action", "a human checks"),
             )
         )
+    weekly = _get(state, "timing", "weekly") or {}
+    if weekly.get("state") == "missing":
+        out.append(
+            warning(
+                "ops-weekly-run-missing",
+                "medium",
+                "operations",
+                f"the weekly task ran but no weekly run is recorded ({weekly.get('reason')})",
+                evidence="Get-ScheduledTaskInfo + operations_runs",
+                action_required="read D:/Logs/affiliate-ai/operations-weekly.log (do not change "
+                "the task)",
+            )
+        )
+    explained = _get(state, "timing", "daily", "state") in ("latest_partial", "latest_failed")
     for name, task in (_get(state, "scheduler", "tasks", default={}) or {}).items():
         for text in task.get("warnings") or []:
+            if (
+                explained
+                and name == "affiliate-ai-operations-daily"
+                and text.startswith("last run result")
+            ):
+                continue  # 最後の daily の実行の状態 (ops の警告) で説明済み
             out.append(
                 warning(
                     f"scheduler-{name}",
@@ -294,7 +264,111 @@ def build_warnings(state: Mapping) -> list[dict]:
                     action_required="re-run when the source is reachable",
                 )
             )
-    return dedupe(w for w in out if w)
+    out += _drift_warnings(state)
+    out += _invariant_warnings(state)
+    return _drop_covered(dedupe(out))
+
+
+def _daily_warnings(state: Mapping) -> list[dict]:
+    """最後の daily の実行がうまくいかなかったとき (新しい成功で置き換わっていなければ)。"""
+
+    timing = _get(state, "timing", "daily") or {}
+    daily = _get(state, "analytics", "latest_daily_run") or {}
+    if timing.get("state") not in ("latest_partial", "latest_failed") or not daily:
+        return []
+    unclean = [
+        f"{s['step_name']}={s['status']}"
+        for s in daily.get("steps") or []
+        if s.get("status") != "succeeded"
+    ]
+    active = _get(state, "analytics", "alerts", "active", default=0)
+    resolved = _get(state, "analytics", "alerts", "resolved", default=0)
+    follow = timing.get("follow_up")
+    severity = {"not_due": "low", "due": "medium", "overdue": "high"}.get(follow, "medium")
+    if active and severity == "low":
+        severity = "medium"
+    if follow == "not_due":
+        when = f"awaiting the next scheduled run (check after {timing.get('check_after')})"
+    else:
+        when = (
+            f"follow-up {follow}: no newer daily run recorded after "
+            f"{timing.get('expected_superseding_run')}"
+        )
+    return [
+        warning(
+            "ops-latest-daily-run-not-clean",
+            severity,
+            "operations",
+            f"latest daily run #{daily.get('id')} ({daily.get('effective_date')}) was "
+            f"{daily.get('status')}: {', '.join(unclean) or 'no failed step recorded'}; "
+            f"active alerts {active}, resolved {resolved}; {when}",
+            evidence="operations_runs / operations_step_runs + scheduler next run",
+            action_required="confirm the next scheduled daily run succeeds",
+        )
+    ]
+
+
+_DRIFT_LABEL = {"expected_difference": "expected difference", "stale_doc": "stale documentation"}
+
+
+def _drift_warnings(state: Mapping) -> list[dict]:
+    out = []
+    for f in state.get("drift") or []:
+        label = _DRIFT_LABEL.get(f["classification"], f["classification"].replace("_", " "))
+        out.append(
+            warning(
+                f"drift-{f['id']}",
+                f["severity"],
+                f["area"],
+                f"{label}: {f['field']} — {f['conflicting_source']} says "
+                f"{f['conflicting_value']}; {f['authoritative_source']} says "
+                f"{f['authoritative_value']}",
+                evidence=f"{f['authoritative_source']} vs {f['conflicting_source']}",
+                action_required=f["recommended_resolution"],
+                blocking=f["blocking"],
+            )
+        )
+    return out
+
+
+# 不変条件の失敗のうち、ほかの警告がもう同じことを言っているもの。
+_COVERED_BY = {
+    "wordpress-featured-images-complete": "wp-missing-featured-images",
+    "wordpress-taxonomy-matches-plan": "drift-wp-taxonomy-drift",
+    "threads-stock-maintenance-off": "drift-threads-stock-maintenance-on",
+}
+
+
+def _invariant_warnings(state: Mapping) -> list[dict]:
+    out = []
+    for inv in _get(state, "invariants", "results", default=[]) or []:
+        if inv["level"] == "advisory" or inv["result"] != "fail":
+            continue
+        out.append(
+            warning(
+                f"invariant-{inv['id']}",
+                inv["severity"],
+                "invariants",
+                f"{inv['level']} invariant failed: {inv['description']} (expected "
+                f"{inv['expected']}, observed {inv['observed']})",
+                evidence=inv["source"],
+                action_required="a human investigates; T7 does not change production",
+                blocking=inv["level"] == "hard" and inv["severity"] == "critical",
+            )
+        )
+    return out
+
+
+def _drop_covered(items: list[dict]) -> list[dict]:
+    ids = {w["id"] for w in items}
+    return [
+        w
+        for w in items
+        if not (
+            w["id"].startswith("invariant-")
+            and _COVERED_BY.get(w["id"].removeprefix("invariant-")) in ids
+        )
+    ]
 
 
 def build_known_issues(state: Mapping, warnings: list[dict]) -> list[dict]:
@@ -327,6 +401,8 @@ def action(
     blocking=False,
     production_write_required=False,
     human_checkpoint_required=False,
+    due=True,
+    due_at=None,
 ) -> dict:
     return {
         "id": aid,
@@ -338,24 +414,29 @@ def action(
         "blocking": blocking,
         "production_write_required": production_write_required,
         "human_checkpoint_required": human_checkpoint_required,
+        "due": due,
+        "due_at": due_at,
     }
 
 
 def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
     ids = {w["id"] for w in warnings}
     out = []
-    if any(w["blocking"] for w in warnings):
+    blocking = sorted(w["id"] for w in warnings if w["blocking"])
+    if blocking:
         out.append(
             action(
                 "resolve-blocking-warnings",
                 "P0",
                 "project",
-                "resolve the blocking warnings before starting any new production phase",
-                why=", ".join(sorted(w["id"] for w in warnings if w["blocking"])),
+                "resolve the blocking drift / warnings before starting any new production phase "
+                "(investigate; T7 never mutates production to make the report green)",
+                why=", ".join(blocking),
                 blocking=True,
                 human_checkpoint_required=True,
             )
         )
+    # 進行中の劣化
     active_alerts = sorted(i for i in ids if i.startswith("ops-alert-"))
     if active_alerts:
         out.append(
@@ -368,37 +449,92 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 human_checkpoint_required=True,
             )
         )
-    if "ops-latest-daily-run-not-clean" in ids:
+    if "invariant-threads-worker-running" in ids:
         out.append(
             action(
-                "confirm-next-daily-run",
+                "check-threads-worker",
                 "P1",
-                "operations",
-                "after the next scheduled daily run (06:30 JST), confirm it succeeded; if not, "
-                "read D:/Logs/affiliate-ai/operations-daily.log (do not change the task)",
-                why="the latest daily run was not clean (see the operations warning)",
+                "threads",
+                "read D:/Logs/affiliate-ai/threads-worker.log to see why the worker has no fresh "
+                "heartbeat (the scheduled task recovers it; do not restart it by hand from T7)",
+                why="the resident worker is not running",
+                human_checkpoint_required=True,
+            )
+        )
+    daily = _get(state, "timing", "daily") or {}
+    if "ops-latest-daily-run-not-clean" in ids:
+        follow = daily.get("follow_up")
+        if follow in ("due", "overdue", "unknown"):
+            out.append(
+                action(
+                    "check-daily-run",
+                    "P1",
+                    "operations",
+                    "read D:/Logs/affiliate-ai/operations-daily.log: no newer daily run is "
+                    "recorded after the scheduled time (do not change the task)",
+                    why=f"daily follow-up is {follow}",
+                    due_at=daily.get("check_after"),
+                )
+            )
+        else:
+            out.append(
+                action(
+                    "confirm-next-daily-run",
+                    "P2",
+                    "operations",
+                    f"after {daily.get('check_after')}, confirm that the next scheduled daily run "
+                    "succeeded; a newer success supersedes the partial run (do not wait or re-run "
+                    "it by hand)",
+                    why="the latest daily run was partial and has not been superseded yet",
+                    due=False,
+                    due_at=daily.get("check_after"),
+                )
+            )
+    if any(i.startswith("drift-doc-") for i in ids):
+        out.append(
+            action(
+                "correct-stale-docs",
+                "P2",
+                "documentation",
+                "correct the stale documents listed in documentation_health (documentation only)",
+                why="a document states a current state that the live sources contradict",
+            )
+        )
+    if any(i.startswith("drift-config-note-") for i in ids):
+        out.append(
+            action(
+                "review-policy-note-text",
+                "P3",
+                "documentation",
+                "a human updates the stale explanatory note in threads_operations_policy.json "
+                "(the value is correct; T7 does not edit runtime configuration)",
+                why="the note inside the runtime configuration contradicts the value next to it",
+                human_checkpoint_required=True,
             )
         )
     out.append(
         action(
             "t7-validate-project-state",
-            "P1",
+            "P2",
             "project",
-            "T7: review this report against reality and harden the generator (T7B)",
-            why="T7 is the active phase; C10 depends on a trustworthy state report",
+            "T7B: review the drift report and documentation health against reality; close T7B",
+            why="T7B is the active phase; C10 depends on a trustworthy state report",
         )
     )
-    if "threads-performance-diagnostic-stale" in ids:
+    diagnostic = _get(state, "timing", "diagnostic") or {}
+    if diagnostic.get("state") in ("due", "overdue"):
         out.append(
             action(
                 "rerun-threads-performance-diagnostic",
                 "P2",
                 "threads",
                 "re-run scripts/analyze_threads_performance.py (read-only)",
-                why="newer publications have matured past the diagnostic checkpoints",
+                why=f"diagnostic is {diagnostic['state']}: enough publications matured past 6h",
             )
         )
-    if "approvals-mobile-render-unobserved" in ids:
+    approvals = state.get("approvals") or {}
+    observed = approvals.get("genuine_mobile_render_observed")
+    if observed is False:
         out.append(
             action(
                 "observe-mobile-approval-render",
@@ -409,6 +545,8 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 human_checkpoint_required=True,
             )
         )
+    stock_on = _get(state, "threads", "worker", "stock_maintenance_enabled")
+    if observed is True and stock_on is False:
         out.append(
             action(
                 "decide-proposal-stock-routine",
@@ -418,8 +556,7 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                     "decide the proposal-stock operating routine (keep --maintain-proposal-stock "
                     "OFF until decided)"
                 ),
-                why="depends on the mobile approval observation",
-                prerequisites=["observe-mobile-approval-render"],
+                why="the genuine mobile approval rendering has been observed",
                 human_checkpoint_required=True,
             )
         )

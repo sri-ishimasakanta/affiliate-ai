@@ -13,7 +13,11 @@ from datetime import datetime
 
 from app.project_state.provenance import provenance, unavailable
 
-TASKS = ("affiliate-ai-operations-daily", "affiliate-ai-threads-worker")
+TASKS = (
+    "affiliate-ai-operations-daily",
+    "affiliate-ai-operations-weekly",
+    "affiliate-ai-threads-worker",
+)
 # 読むだけの PowerShell (Get-* だけ)。タスク名は固定の値だけを埋め込む。
 _SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
@@ -27,7 +31,8 @@ foreach ($n in @(%NAMES%)) {
     multiple_instances = [string]$t.Settings.MultipleInstances
     triggers = @($t.Triggers | ForEach-Object { [pscustomobject]@{
       kind = $_.CimClass.CimClassName; start = [string]$_.StartBoundary
-      repetition = [string]$_.Repetition.Interval } })
+      repetition = [string]$_.Repetition.Interval
+      days_of_week = $(if ($_.DaysOfWeek) { [int]$_.DaysOfWeek } else { $null }) } })
     action = [string]$t.Actions[0].Execute; arguments = [string]$t.Actions[0].Arguments
     last_run = $i.LastRunTime.ToString('o'); last_result = [int64]$i.LastTaskResult
     next_run = $(if ($i.NextRunTime) { $i.NextRunTime.ToString('o') } else { $null })
@@ -45,6 +50,13 @@ RESULT_MEANINGS = {
 }
 
 Reader = Callable[[], str]
+
+
+def _clock(start) -> str | None:
+    """``2026-09-23T06:30:00`` → ``06:30``。"""
+
+    text = str(start or "")
+    return text[11:16] if len(text) >= 16 and text[10] == "T" else None
 
 
 def default_reader() -> str:
@@ -102,6 +114,15 @@ def summarize(raw: str, *, now: datetime) -> dict:
                 )
             },
             "last_result_meaning": RESULT_MEANINGS.get(code),
+            "trigger_details": [
+                {
+                    "kind": t.get("kind", "").replace("MSFT_Task", ""),
+                    "start_time": _clock(t.get("start")),
+                    "days_of_week": t.get("days_of_week"),
+                    "repetition": t.get("repetition") or None,
+                }
+                for t in triggers
+            ],
             "triggers": [
                 f"{t.get('kind', '').replace('MSFT_Task', '')} from {t.get('start')}"
                 + (f" every {t['repetition']}" if t.get("repetition") else "")

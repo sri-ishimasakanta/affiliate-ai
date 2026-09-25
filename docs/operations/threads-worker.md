@@ -196,6 +196,23 @@ heartbeat が所有権の喪失を返したら、worker はその場で止まる
   回収したことは戻り値で分かる (黙って奪わない)。
 - 既定の 1 回評価はロックを取らない (DB に何も書かない)。
 
+### ロックの表示 (`owner_label`) の `mode=plan`
+
+ロックの `owner_label` は `threads-worker pid=<pid> host=<host> mode=plan` の形になる
+(`app/services/threads_worker_service.py` の `default_owner_label()`)。**`publish` プロファイルで
+自動公開している worker でも `mode=plan` と出る。これは正しい** (T7B の分類: 「正しいが紛らわしい
+表示」。直すべき食い違いではない):
+
+- `mode` は worker の核の動き方 (`app/social/threads/worker.py` の `WORKER_MODES = ("plan",)`、
+  唯一の値) を表す。公開するかどうかは mode ではなく **能力** (capability) で決まる:
+  CLI の flag (`--auto-publish` など) とポリシー (`automatic_publication.enabled`) の組み合わせ。
+- 表示は人が読むためだけに使う (二重起動のときの `already_running` の出力)。ロックの所有の
+  証明は `owner_token`、古さの判定は heartbeat で、表示は判定に使わない。
+- 実際の能力は、そのロックを持つ pid の起動の記録
+  (`threads-worker.log` の `event=started ... capabilities=... can_publish=...`) を見る。
+  プロジェクトの状態の報告 (T7B) はこの記録を使い、`mode=plan` を `expected_difference` として出す。
+- 表示を変えるための worker の再起動・ロックの書き換えはしない (動いている worker に影響する)。
+
 ## CLI
 
 ```bash

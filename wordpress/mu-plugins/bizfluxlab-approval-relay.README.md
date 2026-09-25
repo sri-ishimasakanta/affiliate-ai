@@ -1,8 +1,15 @@
 # BizFluxLab Approval Relay — deployment notes
 
-**Status: NOT DEPLOYED.** C8.8 built and tested this plugin in the repository
-only. Publishing a new public approval endpoint is a production infrastructure
-change and needs explicit approval before it goes to XServer.
+**Status: DEPLOYED (T6.1, 2026-09-25, human-authorized).** See
+"T6.1 deployment record" below for the commits, the backup, the deployed file
+hashes and the read-only verification. Any further change to the public approval
+endpoint is still a production infrastructure change and needs explicit approval
+before it goes to XServer.
+
+<!-- state-corrected: 2026-09-26 T7B: the header said NOT DEPLOYED while this file records the T6.1 deployment; the deployment evidence below is unchanged -->
+
+History: C8.8 first built and tested this plugin in the repository only (it was
+not deployed at that point); the deployments are recorded below.
 
 ## What it is
 

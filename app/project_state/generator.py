@@ -3,13 +3,16 @@
 入口: ``scripts/generate_project_state.py``。外部への読み取り (WordPress の REST・スケジューラ・
 DB) は ``StateContext`` から差し込む。offline では WordPress を読まない (呼ばない)。
 
-報告の形 (``generator_version = project-state/1``):
+報告の形 (``generator_version = project-state/2``。キーは ``strict.TOP_KEYS``):
 
 ``generated_at`` / ``generator_version`` / ``mode`` / ``project`` / ``git`` / ``quality`` /
 ``database`` / ``wordpress`` / ``featured_images`` / ``taxonomy`` / ``monetization`` / ``threads`` /
-``approvals`` / ``analytics`` / ``scheduler`` / ``warnings`` / ``decisions`` / ``known_issues`` /
+``approvals`` / ``analytics`` / ``scheduler`` / ``facts`` / ``drift`` / ``invariants`` /
+``timing`` / ``documentation_health`` / ``warnings`` / ``decisions`` / ``known_issues`` /
 ``next_actions`` / ``source_freshness``。主要なセクションは ``provenance`` を持つ。
-Markdown は同じ dict から作る (JSON と食い違わない)。
+T7B: ``facts`` は出どころの強さ付きの事実、``drift`` は食い違い (``precedence.finding``)、
+``invariants`` は不変条件、``timing`` は時間で決まる状態、``documentation_health`` は
+ドキュメントの健康。Markdown は同じ dict から作る (JSON と食い違わない)。
 """
 
 from __future__ import annotations
@@ -21,14 +24,26 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from app.project_state import db_state, local_state, scheduler_state, wordpress_state
+from app.project_state import (
+    db_state,
+    docs_health,
+    invariants,
+    local_state,
+    runtime_records,
+    scheduler_state,
+    wordpress_state,
+)
 from app.project_state.decisions import check_support
+from app.project_state.drift import detect_drift
+from app.project_state.facts import build_facts
 from app.project_state.findings import build_known_issues, build_next_actions, build_warnings
+from app.project_state.precedence import AUTHORITY_LEVELS
 from app.project_state.provenance import provenance
 from app.project_state.redaction import redact
 from app.project_state.roadmap import load_roadmap, verify_phases
+from app.project_state.timing import build_timing
 
-GENERATOR_VERSION = "project-state/1"
+GENERATOR_VERSION = "project-state/2"
 SECTIONS = (
     "project",
     "git",
@@ -45,7 +60,6 @@ SECTIONS = (
 )
 REPORT_JSON = Path("reports/project_state_latest.json")
 REPORT_MD = Path("reports/project_state_latest.md")
-OLD_DB_REVISION = "33d93394f342"
 
 
 @dataclass
@@ -60,6 +74,7 @@ class StateContext:
     scheduler_reader: Callable | None = None
     db_engine: object | None = None
     commit_exists: Callable[[str], bool] | None = None
+    worker_log_path: Path | None = None
     extra: dict = field(default_factory=dict)
 
 
@@ -95,22 +110,31 @@ def _read_live(ctx: StateContext):
         return None, f"WordPress not readable ({type(exc).__name__})"
 
 
-def _discrepancies(root: Path, db_sections: dict, database: dict) -> list[str]:
-    found = db_state.phase_discrepancies(root, db_sections)
-    revisions = database.get("db_revisions") or []
-    kept = []
-    for text in found:
-        if OLD_DB_REVISION in text:
-            if revisions and OLD_DB_REVISION not in revisions:
-                kept.append(
-                    text.replace(
-                        "compare with the observed database revision",
-                        f"the database is actually at {revisions}",
-                    )
-                )
-            continue
-        kept.append(text)
-    return kept
+def _worker_start_record(ctx: StateContext, threads: dict) -> dict:
+    """ロックを持つ pid の最後の起動の記録 (worker のログの末尾を読むだけ)。"""
+
+    path = ctx.worker_log_path or runtime_records.DEFAULT_WORKER_LOG
+    pid = (threads.get("worker") or {}).get("lock_pid")
+    base = {"source": path.name, "lock_pid": pid, "freshness": "recorded"}
+    try:
+        text = runtime_records.read_tail(path)
+    except OSError as exc:
+        return {**base, "found": False, "reason": f"not readable ({type(exc).__name__})"}
+    if text is None:
+        return {**base, "found": False, "reason": "log file not found"}
+    event = runtime_records.last_started(text, pid=pid) if pid else None
+    if event is None:
+        return {**base, "found": False, "reason": "no start-up event for the lock pid"}
+    return {**base, "found": True, **event}
+
+
+def _discrepancies(drift: list[dict]) -> list[str]:
+    return [
+        f"{f['classification']}: {f['conflicting_source']} says {f['conflicting_value']}; "
+        f"{f['authoritative_source']} says {f['authoritative_value']}"
+        for f in drift
+        if f["classification"] != "expected_difference"
+    ]
 
 
 def build_report(ctx: StateContext) -> dict:
@@ -136,6 +160,9 @@ def build_report(ctx: StateContext) -> dict:
         root, ctx.database_url, now=now, engine=ctx.db_engine
     )
     scheduler = scheduler_state.collect_scheduler(ctx.scheduler_reader, now=now)
+    threads = db_sections.get("threads") or {}
+    if isinstance(threads.get("worker"), dict):
+        threads["worker"]["runtime_start"] = _worker_start_record(ctx, threads)
 
     project = {
         "provenance": provenance(
@@ -154,7 +181,7 @@ def build_report(ctx: StateContext) -> dict:
         "deferred_phases": roadmap["deferred"],
         "phases": roadmap["phases"],
         "roadmap_problems": roadmap["problems"],
-        "source_discrepancies": _discrepancies(root, db_sections, database),
+        "source_precedence": list(AUTHORITY_LEVELS),
     }
     report = {
         "generated_at": now.isoformat(timespec="seconds"),
@@ -170,6 +197,15 @@ def build_report(ctx: StateContext) -> dict:
         **db_sections,
         "scheduler": scheduler,
     }
+    report["timing"] = build_timing(report, now=now)
+    doc_findings = docs_health.check_claims(root, report)
+    drift = detect_drift(report, doc_findings=doc_findings)
+    report["drift"] = drift
+    project["source_discrepancies"] = _discrepancies(drift)
+    results = invariants.evaluate(report)
+    report["invariants"] = {"results": results, "summary": invariants.summary(results)}
+    report["facts"] = build_facts(report, drift)
+    report["documentation_health"] = docs_health.documentation_health(root, report, doc_findings)
     report["decisions"] = check_support(root, commit_exists=commit_exists)
     report["source_freshness"] = {
         name: report[name]["provenance"]
@@ -225,6 +261,16 @@ def _md_summary(report: dict) -> list[str]:
         f"- WordPress: {_fmt(wp.get('published_count'))} published; featured images "
         f"{_fmt(fi.get('with_featured_image'))}/{_fmt(fi.get('published'))}; "
         f"taxonomy matches the W2 plan: {_fmt(tax.get('matches_plan'))}",
+        f"- Drift: {len(report['drift'])} finding(s) "
+        f"({sum(1 for f in report['drift'] if f['blocking'])} blocking); invariants "
+        + ", ".join(
+            f"{level} {c['pass']} pass / {c['fail']} fail / {c['unknown']} unknown"
+            for level, c in report["invariants"]["summary"].items()
+        ),
+        f"- Daily operations: {report['timing']['daily'].get('state')} (follow-up "
+        f"{report['timing']['daily'].get('follow_up')}); weekly "
+        f"{report['timing']['weekly'].get('state')}; diagnostic "
+        f"{report['timing']['diagnostic'].get('state')}",
         f"- Warnings: {len(warnings)} ({len(blocking)} blocking); first next action: "
         f"{actions[0]['action'] if actions else '—'}",
         "",
@@ -379,6 +425,7 @@ def _md_threads(threads: dict) -> list[str]:
         pol, worker, pubs = threads["policy"], threads["worker"], threads["publications"]
         perf = threads.get("performance") or {}
         latest = pubs.get("latest") or {}
+        start = worker.get("runtime_start") or {}
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
             f" — {perf['rerun_reason']}"
@@ -395,6 +442,13 @@ def _md_threads(threads: dict) -> list[str]:
             f"{_fmt(worker.get('heartbeat_age_seconds'))} s ago, max "
             f"{worker.get('heartbeat_max_seconds')} s); stock maintenance: {stock}",
             f"- publish flags: {_fmt(worker.get('publish_profile_flags'))}",
+            f"- start-up record for lock pid {_fmt(worker.get('lock_pid'))}: "
+            + (
+                f"can_publish {_fmt(start.get('can_publish'))}, capabilities "
+                f"{_fmt(start.get('capabilities'))} (at {start.get('at')})"
+                if start.get("found")
+                else f"not found ({start.get('reason')})"
+            ),
             f"- proposals: {threads.get('proposals')}; awaiting approval "
             f"{threads.get('awaiting_approval')}; approved not published: "
             f"{_fmt(threads.get('approved_not_published'))}",
@@ -457,6 +511,59 @@ def _md_scheduler(scheduler: dict) -> list[str]:
             f"  - action `{task.get('action')} {task.get('arguments')}`",
         ]
     return [*lines, "", _prov(scheduler), ""]
+
+
+def _md_quality_of_state(report: dict) -> list[str]:
+    lines = [
+        "## Facts (source precedence)",
+        "",
+        f"Precedence: {' > '.join(report['project']['source_precedence'])}",
+        "",
+        "| fact | value | authority | confidence | conflicts |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for name, f in report["facts"].items():
+        conflicts = ", ".join(c["finding"] for c in f["conflicts"]) or "—"
+        value = f["value"]
+        if isinstance(value, dict):
+            value = "; ".join(f"{k}={_fmt(v)}" for k, v in value.items())
+        lines.append(
+            f"| {name} | {_fmt(value)} | {f['authority']} | {f['confidence']} | {conflicts} |"
+        )
+    lines += ["", "## Drift", ""]
+    for f in report["drift"]:
+        lines.append(
+            f"- **{f['severity']}** `{f['classification']}` {f['field']}: "
+            f"{f['conflicting_source']} vs {f['authoritative_source']} → "
+            f"{f['recommended_resolution']}" + (" (blocking)" if f["blocking"] else "")
+        )
+    if not report["drift"]:
+        lines.append("- none")
+    lines += ["", "## Invariants", "", "| id | level | result | severity |"]
+    lines.append("| --- | --- | --- | --- |")
+    for i in report["invariants"]["results"]:
+        lines.append(f"| {i['id']} | {i['level']} | {i['result']} | {i['severity']} |")
+    timing = report["timing"]
+    daily, weekly, diag = timing["daily"], timing["weekly"], timing["diagnostic"]
+    lines += [
+        "",
+        "## Timing",
+        "",
+        f"- daily: {daily.get('state')}; follow-up {daily.get('follow_up')}; check after "
+        f"{_fmt(daily.get('check_after'))}; superseded runs "
+        f"{_fmt(daily.get('superseded_non_success_run_ids'))}",
+        f"- weekly: {weekly.get('state')}; next {_fmt(weekly.get('next_expected_run'))}",
+        f"- diagnostic: {diag.get('state')}; newly past 6h {_fmt(diag.get('newly_past_6h'))} "
+        f"(due at {diag.get('needed_for_due')})",
+    ]
+    health = report["documentation_health"]
+    lines += ["", "## Documentation Health", ""]
+    lines += [f"- stale: {d['path']} — {d['claims']}" for d in health["stale_documents"]]
+    lines += [f"- corrected: {d['path']} — {d['note']}" for d in health["corrected_documents"]]
+    lines += [
+        f"- unresolved: {d['where']} — {d['resolution']}" for d in health["unresolved_mismatches"]
+    ]
+    return [*lines, ""]
 
 
 def _md_lists(report: dict) -> list[str]:
@@ -526,6 +633,7 @@ def render_markdown(report: dict) -> str:
         *_md_approvals(report["approvals"]),
         *_md_analytics(report["analytics"]),
         *_md_scheduler(report["scheduler"]),
+        *_md_quality_of_state(report),
         *_md_lists(report),
     ]
     return "\n".join(lines) + "\n"

@@ -29,6 +29,7 @@ import pytest
 from app.project_state import decision_log, findings, local_state, redaction, scheduler_state
 from app.project_state.db_state import readonly_engine, worker_flags
 from app.project_state.generator import SECTIONS, StateContext, build_report, render_markdown
+from app.project_state.wordpress_state import declared_featured_images
 from app.wordpress.taxonomy_plan import CHILDREN
 
 REPO = Path(__file__).resolve().parents[2]
@@ -36,11 +37,15 @@ NOW = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)
 TOP_KEYS = {
     "generated_at", "generator_version", "mode", "project", "git", "quality", "database",
     "wordpress", "featured_images", "taxonomy", "monetization", "threads", "approvals",
-    "analytics", "scheduler", "warnings", "decisions", "known_issues", "next_actions",
-    "source_freshness",
+    "analytics", "scheduler", "facts", "drift", "invariants", "timing", "documentation_health",
+    "warnings", "decisions", "known_issues", "next_actions", "source_freshness",
 }  # fmt: skip
 CHILD_IDS = {c["slug"]: 5 + i for i, c in enumerate(CHILDREN)}
 TRACKING_URL = "https://aff.example.test/go/SECRET-TOKEN-123"
+# W1 の manifest に記録された post / media (偽の WordPress はそれと一致させる)
+_DECLARED = declared_featured_images(REPO)["mapping"]
+POST_IDS = {a: (_DECLARED.get(a) or {}).get("wordpress_post_id") or 100 + a for a in range(1, 26)}
+MEDIA_IDS = {a: (_DECLARED.get(a) or {}).get("media_id") or 1000 + a for a in range(1, 26)}
 
 
 # == fixtures =====================================================================
@@ -56,6 +61,21 @@ def _repo_copy(tmp_path: Path) -> Path:
     readme = root / "wordpress/mu-plugins/bizfluxlab-approval-relay.README.md"
     readme.parent.mkdir(parents=True)
     shutil.copy2(REPO / "wordpress/mu-plugins/bizfluxlab-approval-relay.README.md", readme)
+    (root / "reports").mkdir()
+    (root / "reports/threads_performance_diagnostic_latest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-09-25T18:00:00+00:00",
+                "as_of": "2026-09-25T18:00:00+00:00",
+                "publication_count": 1,
+                "diagnostic": {"status": "insufficient_data"},
+                "publications": [
+                    {"publication_id": 1, "checkpoints": {"6h": {"comparable": True}}}
+                ],
+            }
+        ),  # fmt: skip
+        encoding="utf-8",
+    )
     return root
 
 
@@ -106,20 +126,24 @@ def _db(tmp_path: Path, *, heartbeat_age=timedelta(seconds=60)) -> Path:
     db = sqlite3.connect(path)
     db.executescript(_DDL)
     for a in range(1, 26):
-        db.execute("insert into articles values (?, ?, ?, ?)", (a, f"記事 {a}", f"a-{a}", 100 + a))
+        db.execute(
+            "insert into articles values (?, ?, ?, ?)", (a, f"記事 {a}", f"a-{a}", POST_IDS[a])
+        )
     db.executemany(
         "insert into affiliate_programs (id, name, provider, status, tracking_url) "
         "values (?,?,?,?,?)",
         [(1, "Make", "make", "active", TRACKING_URL), (5, "HubSpot", "hubspot", "active", None),
          (8, "ClickUp", "clickup", "active", None), (14, "Krisp", "krisp", "active", None)],
     )  # fmt: skip
-    primary = [(10, 1), (11, 1), (4, 5), (5, 5), (13, 8)] + [(a, 14) for a in (2, 3, 6, 7, 8, 9)]
+    primary = [(1, 1), (10, 1), (11, 1), (4, 5), (5, 5), (13, 8)] + [
+        (a, 14) for a in (2, 3, 6, 7, 8, 9)
+    ]
     db.executemany(
         "insert into article_affiliate_programs (article_id, affiliate_program_id, is_primary) "
         "values (?, ?, 1)",
         primary,
     )
-    for i, a in enumerate((10, 11), start=1):
+    for i, a in enumerate((1, 10, 11), start=1):
         db.execute(
             "insert into affiliate_link_targets values (?, 'tok', ?, 1, ?, 'active')",
             (i, a, TRACKING_URL),
@@ -135,7 +159,8 @@ def _db(tmp_path: Path, *, heartbeat_age=timedelta(seconds=60)) -> Path:
     )
     heartbeat = (NOW - heartbeat_age).strftime("%Y-%m-%d %H:%M:%S")
     db.execute(
-        "insert into operations_locks values (1, 'threads_worker', 'threads-worker pid=1', "
+        "insert into operations_locks values (1, 'threads_worker', "
+        "'threads-worker pid=4242 host=test mode=plan', "
         "'2026-09-25 09:43:43', ?, null, 'SECRET-LOCK-TOKEN')",
         (heartbeat,),
     )
@@ -169,10 +194,10 @@ class FakeWP:
             if taxonomy_drift and a == 7:
                 cats = [4]
             self.posts.append({
-                "id": 100 + a, "status": "publish", "slug": f"a-{a}", "categories": cats,
-                "tags": [], "featured_media": 0 if a in featured_missing else 1000 + a,
+                "id": POST_IDS[a], "status": "publish", "slug": f"a-{a}", "categories": cats,
+                "tags": [], "featured_media": 0 if a in featured_missing else MEDIA_IDS[a],
             })  # fmt: skip
-            self.media.append({"id": 1000 + a, "post": None})
+            self.media.append({"id": MEDIA_IDS[a], "post": None})
         self.media.append({"id": 99, "post": None})
         self.categories = [
             {"id": 1, "name": "未分類", "slug": "uncategorized", "parent": 0, "count": 0},
@@ -227,32 +252,58 @@ def _runner(outputs=None):
     return run
 
 
-SCHEDULER_JSON = json.dumps([
+SCHEDULER_ROWS = [
     {"name": "affiliate-ai-operations-daily", "exists": True, "state": "Ready", "enabled": True,
+     "multiple_instances": "IgnoreNew",
      "triggers": [{"kind": "MSFT_TaskWeeklyTrigger", "start": "2026-09-23T06:30:00",
-                   "repetition": ""}], "action": "run_operations_task.cmd", "arguments": "daily",
-     "last_run": "2026-09-25T06:30:00+09:00", "last_result": 1, "next_run": "x"},
+                   "repetition": "", "days_of_week": 126}],
+     "action": "D:/repo/scripts/run_operations_task.cmd", "arguments": "daily",
+     "last_run": "2026-09-25T06:30:00.0000000+09:00", "last_result": 1,
+     "next_run": "2026-09-26T06:30:00.0000000+09:00"},
+    {"name": "affiliate-ai-operations-weekly", "exists": True, "state": "Ready", "enabled": True,
+     "multiple_instances": "IgnoreNew",
+     "triggers": [{"kind": "MSFT_TaskWeeklyTrigger", "start": "2026-09-23T07:30:00",
+                   "repetition": "", "days_of_week": 1}],
+     "action": "D:/repo/scripts/run_operations_task.cmd", "arguments": "weekly",
+     "last_run": "1999-11-30T00:00:00.0000000+09:00", "last_result": 267011,
+     "next_run": "2026-09-27T07:30:00.0000000+09:00"},
     {"name": "affiliate-ai-threads-worker", "exists": True, "state": "Running", "enabled": True,
+     "multiple_instances": "IgnoreNew",
      "triggers": {"kind": "MSFT_TaskTimeTrigger", "start": "2026-09-25T10:10:00",
-                  "repetition": "PT15M"}, "action": "run_threads_worker_task.cmd",
-     "arguments": "publish", "last_run": "y", "last_result": 2147946720, "next_run": "z"},
-])  # fmt: skip
+                  "repetition": "PT15M"},
+     "action": "D:/repo/scripts/run_threads_worker_task.cmd", "arguments": "publish",
+     "last_run": "2026-09-26T11:55:01.0000000+09:00", "last_result": 2147946720,
+     "next_run": "2026-09-26T12:10:00.0000000+09:00"},
+]  # fmt: skip
+SCHEDULER_JSON = json.dumps(SCHEDULER_ROWS)
+WORKER_LOG = (
+    "2026-09-25T18:43:43+0900 threads-worker INFO event=started mode=resident pid=4242 "
+    "policy=t6.0 capabilities=collect_insights,sync_approvals,send_approval_digests "
+    "auto_publish_flag=True auto_publish_policy=enabled can_publish=True\n"
+)
 
 
-def _context(tmp_path, *, offline=False, wp=None, runner=None, factory=None, **kw):
+def _context(
+    tmp_path, *, offline=False, wp=None, runner=None, factory=None, scheduler=None,
+    worker_log=WORKER_LOG, now=NOW, **kw,
+):  # fmt: skip
     root = _repo_copy(tmp_path)
     db_path = _db(tmp_path, **kw)
     wp = wp or FakeWP()
+    log_path = tmp_path / "threads-worker.log"
+    if worker_log is not None:
+        log_path.write_text(worker_log, encoding="utf-8")
     return (
         StateContext(
             root=root,
-            now=NOW,
+            now=now,
             database_url=f"sqlite:///{db_path.as_posix()}",
             offline=offline,
             runner=runner or _runner(),
             wordpress_client_factory=factory or (lambda: wp),
-            scheduler_reader=lambda: SCHEDULER_JSON,
+            scheduler_reader=scheduler or (lambda: SCHEDULER_JSON),
             commit_exists=lambda sha: True,
+            worker_log_path=log_path,
         ),
         wp,
         db_path,
@@ -264,7 +315,7 @@ def test_the_report_has_the_documented_top_level_contract(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
     report = build_report(ctx)
     assert set(report) == TOP_KEYS
-    assert report["generator_version"] == "project-state/1" and report["mode"] == "live"
+    assert report["generator_version"] == "project-state/2" and report["mode"] == "live"
     assert set(report["source_freshness"]) == set(SECTIONS)
     for prov in report["source_freshness"].values():
         assert {"source", "kind", "status", "observed_at", "freshness"} <= set(prov)
@@ -329,7 +380,7 @@ def test_missing_featured_images_and_taxonomy_drift_are_warnings(tmp_path) -> No
     ctx, _, _ = _context(tmp_path, wp=FakeWP(featured_missing=(3,), taxonomy_drift=True))
     report = build_report(ctx)
     ids = {w["id"] for w in report["warnings"]}
-    assert {"wp-missing-featured-images", "wp-taxonomy-drift"} <= ids
+    assert {"wp-missing-featured-images", "drift-wp-taxonomy-drift"} <= ids
     assert report["taxonomy"]["matches_plan"] is False
     assert any(a["id"] == "resolve-blocking-warnings" for a in report["next_actions"])
 
@@ -340,7 +391,7 @@ def test_missing_affiliate_tracking_is_surfaced_and_tracking_urls_never_appear(t
     report = build_report(ctx)
     money = report["monetization"]
     assert money["live_programs"] == ["Make"]
-    assert [m["article_id"] for m in money["monetized_articles"]] == [10, 11]
+    assert [m["article_id"] for m in money["monetized_articles"]] == [1, 10, 11]
     assert money["missing_tracking"] == [
         {"program": "ClickUp", "article_ids": [13]},
         {"program": "HubSpot", "article_ids": [4, 5]},

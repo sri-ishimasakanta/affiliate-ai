@@ -134,6 +134,58 @@ DECISIONS = (
         "resulting_state": "自動公開の対象は承認済みの提案だけ",
         "follow_up": None,
     },
+    {
+        "id": "project-state-live-outranks-stale-prose",
+        "area": "project-state",
+        "decision": ("T7B: 観測した本番の状態と実行の設定は、古い文章より強い (source precedence)"),
+        "rationale": (
+            "自動公開・中継の配備・DB の revision で、ドキュメントの見出しが本番と食い違っていた。"
+            "どれを信じるかを決まった順で決める"
+        ),
+        "evidence": ["docs/operations/project-state.md"],
+        "phrase": "観測した本番の状態と実行の設定は、古い文章より強い",
+        "resulting_state": "古いドキュメントは stale_doc として出し、ドキュメントだけを直す",
+        "follow_up": "policy の automatic_publication.note の古い説明は人が直す",
+    },
+    {
+        "id": "project-state-docs-never-mutate-production",
+        "area": "project-state",
+        "decision": "T7B: ドキュメントの食い違いを理由に本番を変えない",
+        "rationale": (
+            "報告を緑にするために本番を変えると、正しい本番の状態を古い文章に合わせてしまう"
+        ),
+        "evidence": ["docs/operations/project-state.md"],
+        "phrase": "ドキュメントの食い違いを理由に本番を変えない",
+        "resulting_state": (
+            "policy・worker・スケジューラ・DB・WordPress は変えず、ドキュメントを直した"
+        ),
+        "follow_up": None,
+    },
+    {
+        "id": "make-tracking-articles-1-10-11",
+        "area": "monetization",
+        "decision": "Make の tracking は article 1・10・11 (article 1 は Make が主のプログラム)",
+        "rationale": "DB の有効な target と mapping が根拠。指示の想定 (10・11 だけ) より強い",
+        "evidence": ["docs/operations/project-state.md"],
+        "phrase": "Make の tracking は article 1・10・11",
+        "resulting_state": "3 記事が Make の tracking を持つ",
+        "follow_up": None,
+    },
+    {
+        "id": "threads-worker-lock-label-mode-plan",
+        "area": "threads/worker",
+        "decision": (
+            "worker のロックの表示 mode=plan は正しい (核の唯一の mode。公開は能力で決まる)"
+        ),
+        "rationale": (
+            "表示は人が読むためだけ。所有は owner_token、古さは heartbeat で判定する。"
+            "表示のために worker を再起動しない"
+        ),
+        "evidence": ["docs/operations/threads-worker.md"],
+        "phrase": "`mode=plan` と出る。これは正しい",
+        "resulting_state": "報告は mode=plan を expected_difference として出す",
+        "follow_up": None,
+    },
 )
 
 

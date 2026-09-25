@@ -1,7 +1,7 @@
 {
   "schema": "project-roadmap/1",
   "note": "Repository-declared phase status. scripts/generate_project_state.py verifies each phase's evidence (the files mention the phase id; the commits exist) and reports disagreements. Update this file when a phase changes state; do not rewrite history.",
-  "current_phase": "T7",
+  "current_phase": "T7B",
   "phases": [
     {"id": "C8.7", "title": "Email alerts + weekly reports", "status": "complete",
      "evidence": {"files": ["app/services/operations_weekly_report_service.py", "app/services/operations_notification_service.py"], "commits": ["dcad98d"]}},
@@ -40,14 +40,15 @@
      "evidence": {"files": ["docs/operations/featured-image-pipeline.md"], "commits": ["09a4a39", "c48dbd6"]}},
     {"id": "W2", "title": "Category taxonomy (parent + five children)", "status": "complete",
      "evidence": {"files": ["docs/operations/taxonomy-w2.md"], "commits": ["cc7da50", "e31de8b", "cdb4c6e"]}},
-    {"id": "T7", "title": "Autonomous project state", "status": "active",
-     "evidence": {"files": ["docs/project-roadmap.json"], "commits": []},
-     "note": "T7A: project state foundation"},
-    {"id": "N0", "title": "N0 preparation", "status": "planned", "prerequisites": ["T7"],
+    {"id": "T7A", "title": "Autonomous project state foundation", "status": "complete",
+     "evidence": {"files": ["docs/operations/project-state.md"], "commits": ["7edc394"]}},
+    {"id": "T7B", "title": "Project state quality, source precedence and drift detection", "status": "active",
+     "evidence": {"files": ["docs/operations/project-state.md"], "commits": []}},
+    {"id": "N0", "title": "N0 preparation", "status": "planned", "prerequisites": ["T7B"],
      "evidence": {"files": [], "commits": []}, "note": "declared by the human in T7A; no repository work yet"},
     {"id": "N1-N3", "title": "Note work N1/N2/N3", "status": "planned", "prerequisites": ["N0"],
      "evidence": {"files": [], "commits": []}, "note": "declared by the human in T7A; no repository work yet"},
-    {"id": "C10", "title": "C10", "status": "planned", "prerequisites": ["T7", "N0"],
+    {"id": "C10", "title": "C10", "status": "planned", "prerequisites": ["T7B", "N0"],
      "evidence": {"files": [], "commits": []}, "note": "declared by the human in T7A: T7 must happen before C10; only after maturity"}
   ]
 }
