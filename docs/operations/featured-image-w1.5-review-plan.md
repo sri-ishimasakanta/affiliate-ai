@@ -46,8 +46,8 @@ WordPress には何も書いていない。manifest の各記事の `status` は
 | 1 | 7 / 2 / 6 / 8 / 9 | **承認済み** (W1.5B のあと、人の報告) | まだ |
 | 2 | 3 / 12 / 13 / 15 | **承認済み** (W1.5C のあと、人の報告)。rose `#DB2777` もプロジェクト・タスク管理の色として承認 | まだ |
 | 3 | 1 / 4 / 5 / 14 | **承認済み** (W1.5D のあと、人の報告)。orange `#EA580C` (CRM・SFA) も目で見て承認 | まだ |
-| 4 | 10 / 11 / 16 / 17 / 18 | 制作パッケージを用意 (W1.5E)。背景はまだ | まだ |
-| 5 | 19 / 21 / 22 | — | まだ |
+| 4 | 10 / 11 / 16 / 17 / 18 | **承認済み** (W1.5E のあと、人の報告)。green `#16A34A` (RPA・自動化) も承認 | まだ |
+| 5 | 19 / 21 / 22 | 制作パッケージを用意 (W1.5F)。背景はまだ | まだ |
 
 承認した画像 (`artifacts/featured-images/w1.5/batch-<N>/` の WebP。`compose-report.json` の値と
 一致を確認済み)。適用の manifest にはこの SHA-256 を入れ、違うファイルは使わない:
@@ -67,6 +67,11 @@ WordPress には何も書いていない。manifest の各記事の `status` は
 | 4 | featured-4-crm-tools.webp | `256366d3e274864f86e65e61400778dd1e97e296cb8b2439034f7140cf29d31a` |
 | 5 | featured-5-hubspot-pricing.webp | `d3fbaa0dfa81de0ba3debaacff08e30848250419188448eec31f733a10a7de3e` |
 | 14 | featured-14-crm-sfa-difference.webp | `3b63aecf2fb1bd20ed7b818fe41db11196ae1f913c52dc3d38fe94468da9ba76` |
+| 10 | featured-10-make-how-to.webp | `96d635f8172916b5d3df0087c7d33c62eb09af30fb0c1b6e38fff898fa76d869` |
+| 11 | featured-11-make-pricing.webp | `9822f2f87400ed4dcc92d009f9a3d7759c53feb26f9625a61ae6f1ef557bec58` |
+| 16 | featured-16-rpa-tools.webp | `4ecc6d8ff7e76bf07cfca6b26b4020d8121977222e102cfafac6cea1c42374fb` |
+| 17 | featured-17-rpa-comparison.webp | `51b82f2b52d558c76e417738d12d87d5d400e887b02937ba6b44f7060a218987` |
+| 18 | featured-18-rpa-implementation.webp | `3d9d580272cefe841d7c3418d4019151a0a8753112964da0196270b6c70ffc38` |
 
 W1.5D での manifest の変更 (設計は変えていない): article 5 の禁止語 `'月額' as text` を
 `monthly-fee wording` にした (画像生成の文に日本語を入れないため。W1.5A の検査が negative の

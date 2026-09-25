@@ -334,3 +334,25 @@ def test_batch_4_is_the_green_automation_family_and_checks_every_pair(manifest, 
     for first, second in ((10, 18), (10, 16), (16, 17), (11, 17), (11, 18)):
         assert f"{first} と {second} が 126×71 でも形で" in checklist
     assert checklist.count("126×71 でも形で見分けられる (見出しの語") == 10
+
+
+# == batch 5 ===================================================================
+def test_batch_5_is_genai_and_governance_and_keeps_the_shield_out_of_22(manifest, digest):
+    package = build_batch_package(manifest, 5, manifest_path="x", manifest_sha256=digest)
+    ids = [i["article_id"] for i in package["items"]]
+    assert ids == package["contact_sheet_order"] == [19, 21, 22]
+    assert len({i["slug"] for i in package["items"]}) == 3
+    assert validate_batch_package(package, manifest, manifest_sha256=digest) == []
+    colors = {i["article_id"]: i["accent"]["color"] for i in package["items"]}
+    assert colors == {19: "#4F46E5", 21: "#475569", 22: "#475569"}
+    by_id = {i["article_id"]: i for i in package["items"]}
+    for item in package["items"]:
+        assert not JAPANESE.search(item["generation"]["single_prompt"]), item["article_id"]
+    # 22 は盾を使わない (盾は試作 20 と 21 のもの)。
+    assert "shield" not in by_id[22]["generation"]["prompt"]
+    assert "shield or lock" in by_id[22]["generation"]["negative_prompt"]
+    assert "shield" in by_id[21]["motif"]  # manifest の設計どおり (21 は隅に小さな盾)
+    checklist = render_checklist_markdown(package)
+    assert "21 と 22 が 126×71 でも形で" in checklist
+    for article_id, other in ((19, 24), (21, 20), (22, 20)):
+        assert f"{article_id} を {other} (試作または別のバッチ) と並べても形で" in checklist
