@@ -310,3 +310,27 @@ def test_batch_3_is_general_and_crm_in_order_and_checks_every_pair(manifest, dig
         assert f"{first} と {second} が 126×71 でも形で" in checklist
     assert "(見出しの語や色だけに頼らない): (manifest に規則なし) 5 = " in checklist
     assert "1 を 25 (試作または別のバッチ) と並べても形で" in checklist
+
+
+# == batch 4 ===================================================================
+def test_batch_4_is_the_green_automation_family_and_checks_every_pair(manifest, digest) -> None:
+    package = build_batch_package(manifest, 4, manifest_path="x", manifest_sha256=digest)
+    ids = [i["article_id"] for i in package["items"]]
+    assert ids == package["contact_sheet_order"] == [10, 11, 16, 17, 18]
+    assert len({i["slug"] for i in package["items"]}) == 5
+    assert not set(ids) & {1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15, 20, 23, 24, 25}
+    assert validate_batch_package(package, manifest, manifest_sha256=digest) == []
+    assert {i["accent"]["color"] for i in package["items"]} == {"#16A34A"}
+    for item in package["items"]:
+        gen = item["generation"]
+        assert not JAPANESE.search(gen["single_prompt"]), item["article_id"]
+        assert "robot" in gen["negative_prompt"].split(", ")
+        assert "Make logo" in gen["negative_prompt"] or item["article_id"] not in (10, 11)
+    shapes = {i["article_id"]: shape_summary(i) for i in package["items"]}
+    assert "モジュール" in shapes[10] and "階段" in shapes[18]
+    assert "漏斗" in shapes[16] and "格子" in shapes[17] and "プランカード" in shapes[11]
+    checklist = render_checklist_markdown(package)
+    # 同じ緑の 5 枚は形で見分ける: 指定の 5 組を含む、バッチの中の 10 組すべて。
+    for first, second in ((10, 18), (10, 16), (16, 17), (11, 17), (11, 18)):
+        assert f"{first} と {second} が 126×71 でも形で" in checklist
+    assert checklist.count("126×71 でも形で見分けられる (見出しの語") == 10

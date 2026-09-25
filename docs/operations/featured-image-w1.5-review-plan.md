@@ -45,8 +45,8 @@ WordPress には何も書いていない。manifest の各記事の `status` は
 | --- | --- | --- | --- |
 | 1 | 7 / 2 / 6 / 8 / 9 | **承認済み** (W1.5B のあと、人の報告) | まだ |
 | 2 | 3 / 12 / 13 / 15 | **承認済み** (W1.5C のあと、人の報告)。rose `#DB2777` もプロジェクト・タスク管理の色として承認 | まだ |
-| 3 | 1 / 4 / 5 / 14 | 制作パッケージを用意 (W1.5D)。背景はまだ | まだ |
-| 4 | 10 / 11 / 16 / 17 / 18 | — | まだ |
+| 3 | 1 / 4 / 5 / 14 | **承認済み** (W1.5D のあと、人の報告)。orange `#EA580C` (CRM・SFA) も目で見て承認 | まだ |
+| 4 | 10 / 11 / 16 / 17 / 18 | 制作パッケージを用意 (W1.5E)。背景はまだ | まだ |
 | 5 | 19 / 21 / 22 | — | まだ |
 
 承認した画像 (`artifacts/featured-images/w1.5/batch-<N>/` の WebP。`compose-report.json` の値と
@@ -63,6 +63,10 @@ WordPress には何も書いていない。manifest の各記事の `status` は
 | 12 | featured-12-ai-transcription-free.webp | `91bf4c676c978f511e85dd22dd04d0dce1dc3cd01f28fe8ccda602f7cc03b828` |
 | 13 | featured-13-project-management-tools.webp | `d9ae0d0ba90b787f9f511193d587e92b90bce8b2015e5680cd48f32ac90630a8` |
 | 15 | featured-15-notion-task-management.webp | `92703cbeecf6e6bbb8a9bea86a1eed9a7a83f7539607d7acd84b98da4eb86654` |
+| 1 | featured-1-business-efficiency-tools-roundup.webp | `ceec18880792a9b1340a5aa800f0ed89e98bd50bd64af36bdb7384143adfefcd` |
+| 4 | featured-4-crm-tools.webp | `256366d3e274864f86e65e61400778dd1e97e296cb8b2439034f7140cf29d31a` |
+| 5 | featured-5-hubspot-pricing.webp | `d3fbaa0dfa81de0ba3debaacff08e30848250419188448eec31f733a10a7de3e` |
+| 14 | featured-14-crm-sfa-difference.webp | `3b63aecf2fb1bd20ed7b818fe41db11196ae1f913c52dc3d38fe94468da9ba76` |
 
 W1.5D での manifest の変更 (設計は変えていない): article 5 の禁止語 `'月額' as text` を
 `monthly-fee wording` にした (画像生成の文に日本語を入れないため。W1.5A の検査が negative の
