@@ -14,6 +14,10 @@
 
 **承認も公開もしない。** 保存されるのは ``awaiting_approval`` の案だけで、承認は
 ``send_mobile_approval.py`` が携帯へ送り、公開は T3 の別操作である。
+
+T5.5: prompt には T5 の学習からの **弱い参考** が入る (証拠が足りなければ中立)。
+``--print-prompt`` が出す ``--learning-as-of`` と ``--guidance-fingerprint`` を
+``--input`` のときにも渡すと、prompt と同じ参考であることを確かめてから記録する。
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from datetime import UTC, datetime  # noqa: E402
 
 from app.config.database import SessionLocal  # noqa: E402
 from app.services.threads_proposal_service import (  # noqa: E402
@@ -36,7 +42,7 @@ EXIT_OK = 0
 EXIT_REFUSED = 2
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, session_factory=None, service_overrides=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--article-id", type=int, required=True)
     parser.add_argument(
@@ -49,11 +55,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", dest="input_path", help="生成結果 (JSON) のパス")
     parser.add_argument("--execute", action="store_true", help="検査を通った案を保存する")
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
+    parser.add_argument(
+        "--learning-as-of",
+        help="学習の参考を作る時刻 (ISO 8601。既定は現在)。prompt と同じ値を渡す",
+    )
+    parser.add_argument(
+        "--guidance-fingerprint",
+        help="prompt を作ったときの参考の指紋。違えば拒否する",
+    )
     args = parser.parse_args(argv)
 
     policy = get_policy()
-    with SessionLocal() as session:
-        service = ThreadsProposalService(session, policy=policy)
+    with (session_factory or SessionLocal)() as session:
+        service = ThreadsProposalService(session, policy=policy, **(service_overrides or {}))
         try:
             payload = _dispatch(service, policy, args)
         except ThreadsProposalError as exc:
@@ -69,11 +83,25 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _dispatch(service: ThreadsProposalService, policy, args) -> dict:
+    # 学習の参考は、省略時も 1 つの時刻に固定する (prompt と検査で同じ参考を使う)。
+    as_of = (
+        datetime.fromisoformat(args.learning_as_of)
+        if args.learning_as_of
+        else datetime.now(UTC).replace(microsecond=0)
+    )
     if args.print_prompt:
-        package = service.build_prompt(article_id=args.article_id, angles=args.angles)
+        package = service.build_prompt(
+            article_id=args.article_id, angles=args.angles, learning_as_of=as_of
+        )
         print(package.rendered_prompt)
         print(f"\n--- prompt_hash: {package.prompt_hash} ---")
-        print("この prompt を外部で実行し、返ってきた JSON を --input で渡す。")
+        for line in format_learning(package.guidance.as_dict()):
+            print(line)
+        print("\nこの prompt を外部で実行し、返ってきた JSON を次のように渡す:")
+        print(
+            f"  --input out.json --learning-as-of {as_of.isoformat()} "
+            f"--guidance-fingerprint {package.guidance.fingerprint}"
+        )
         return package.as_dict()
 
     if not args.input_path:
@@ -81,13 +109,20 @@ def _dispatch(service: ThreadsProposalService, policy, args) -> dict:
     generated = Path(args.input_path).read_text(encoding="utf-8")
 
     if not args.execute:
-        prepared = service.plan(article_id=args.article_id, generated_output=generated)
+        prepared = service.plan(
+            article_id=args.article_id,
+            generated_output=generated,
+            learning_as_of=as_of,
+            expected_guidance=args.guidance_fingerprint,
+        )
         print("=== threads post proposals (PLAN) ===")
         print(f"article            = {prepared.source_article_id} {prepared.source_article_title}")
         print(f"body hash (frozen) = {prepared.source_article_body_hash[:16]}")
         print(f"policy / generator = {prepared.policy_version} / {prepared.generator_version}")
         print(f"would create       = {prepared.acceptable}")
         print(f"rejected           = {len(prepared.rejected)}")
+        for line in format_learning(prepared.learning):
+            print(line)
         for candidate in prepared.candidates:
             print(
                 f"\n  [{candidate['angle']}] {candidate['character_count']} chars "
@@ -103,7 +138,12 @@ def _dispatch(service: ThreadsProposalService, policy, args) -> dict:
         print("保存しても承認にはならない。承認は send_mobile_approval.py。")
         return prepared.as_dict()
 
-    rows = service.persist(article_id=args.article_id, generated_output=generated)
+    rows = service.persist(
+        article_id=args.article_id,
+        generated_output=generated,
+        learning_as_of=as_of,
+        expected_guidance=args.guidance_fingerprint,
+    )
     print("=== threads post proposals stored ===")
     for row in rows:
         print(
@@ -129,6 +169,55 @@ def _dispatch(service: ThreadsProposalService, policy, args) -> dict:
             for row in rows
         ]
     }
+
+
+def format_learning(learning: dict) -> list[str]:
+    """学習の参考を短く見せる (通常の出力を埋めない)。理由は 1 行ずつ出す。"""
+
+    lines = [
+        "",
+        f"learning policy      = {learning['source_policy_version']} ({learning['source_schema']})",
+        f"learning as_of       = {learning['as_of_local'] or learning['as_of']}",
+        f"learning evidence    = {learning['evidence_status']}",
+        f"guidance applied     = {learning['mode']}",
+        f"guidance fingerprint = {learning['fingerprint'][:16]}",
+    ]
+    if "verified_against_prompt" in learning:
+        lines.append(
+            f"guidance verified    = {learning['verified_against_prompt']} "
+            "(matches the prompt's fingerprint)"
+            if learning["verified_against_prompt"]
+            else "guidance verified    = False (pass --guidance-fingerprint to check)"
+        )
+    for preference in learning["preferences"]:
+        flags = ["weak"]
+        if preference["tentative"]:
+            flags.append("tentative")
+        if not preference["actionable"]:
+            flags.append("informational: the generator cannot produce this value")
+        context = (
+            " [publication context only; the worker's timing is unchanged]"
+            if preference["dimension"] in ("topic", "daypart", "weekday")
+            else ""
+        )
+        lines.append(
+            f"  {' '.join(flags)} {preference['direction']} "
+            f"{preference['dimension']}={preference['value']}{context}"
+        )
+        for evidence in preference["evidence"]:
+            lines.append(
+                f"    evidence: n={evidence['mature_posts']} vs n={evidence['other_mature_posts']} "
+                f"mature posts; median {evidence['metric']} {evidence['median']} vs "
+                f"{evidence['other_median']} ({evidence['compared_with']})"
+                + ("; narrowing" if evidence["weakening"] else "")
+            )
+    for neutral in learning["neutral_dimensions"]:
+        lines.append(f"  {neutral['dimension']}: neutral ({neutral['reason']})")
+    for note in learning.get("diversity_notes", ()):
+        lines.append(f"  diversity: {note}")
+    for note in learning["notes"]:
+        lines.append(f"  note: {note}")
+    return lines
 
 
 if __name__ == "__main__":

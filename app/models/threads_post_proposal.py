@@ -103,6 +103,13 @@ class ThreadsPostProposal(Base):
     #: 人の確認画面に出す注意 (自動では落とさなかったもの)。
     warnings_json: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
+    #: 生成に使った学習の参考の小さな来歴 (T5.5): 適用したか・指紋・as_of・証拠の状態。
+    #: 分析の中身は複写しない (as_of から作り直せる)。**deferred**: 通常の読み込みでは
+    #: 読まないので、この列を足す前の DB でも提案を読む処理 (常駐 worker など) は動く。
+    learning_guidance_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True, deferred=True
+    )
+
     #: 反映された人の判断 (C8.8 の承認レコード)。
     change_request_approval_id: Mapped[int | None] = mapped_column(
         ForeignKey("change_request_approvals.id", ondelete="RESTRICT"), nullable=True

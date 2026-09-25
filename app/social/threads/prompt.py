@@ -11,7 +11,11 @@ prompt には:
 - 記事の事実 (本文) -- **これが事実の境界**
 - 切り口 (angle) ごとの指示
 - 文体ポリシー (版つき)
+- 多様性の規則と、学習からの弱い参考 (T5.5。``guidance`` を渡したときだけ)
 - 出力形式 (JSON)
+
+学習の節は、事実の境界・文体・多様性より **弱い** と明記した別の節に置く。
+``guidance`` を渡さなければ、T5.5 より前とまったく同じ prompt になる。
 
 を入れる。同じ入力からは必ず同じ prompt が出る (``prompt_hash`` で確認できる)。
 """
@@ -22,6 +26,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
+from app.social.threads.guidance import ThreadsGenerationGuidance, render_prompt_sections
 from app.social.threads.policy import ThreadsStylePolicy
 from app.social.threads.proposal import LINK_MODES, LINK_PLACEHOLDER
 
@@ -48,6 +53,8 @@ class ThreadsPromptPackage:
     angles: tuple[str, ...]
     policy_version: str
     rendered_prompt: str
+    #: この prompt に入れた学習の参考 (T5.5)。無ければ ``None``。
+    guidance: ThreadsGenerationGuidance | None = None
 
     @property
     def prompt_hash(self) -> str:
@@ -61,6 +68,7 @@ class ThreadsPromptPackage:
             "angles": list(self.angles),
             "policy_version": self.policy_version,
             "prompt_hash": self.prompt_hash,
+            "learning_guidance": self.guidance.as_dict() if self.guidance else None,
         }
 
 
@@ -72,6 +80,7 @@ def build_prompt(
     source_article_body_hash: str,
     angles,
     policy: ThreadsStylePolicy,
+    guidance: ThreadsGenerationGuidance | None = None,
 ) -> ThreadsPromptPackage:
     """決定的に prompt を組み立てる (外部呼び出しはしない)。"""
 
@@ -128,6 +137,10 @@ def build_prompt(
         f"link_mode は {' か '.join(LINK_MODES)} のどちらか。",
         "リンクが宣伝臭くなる投稿では none にしてよい。",
         "",
+    ]
+    if guidance is not None:
+        lines += [*render_prompt_sections(guidance), ""]
+    lines += [
         "## 出力形式",
         "次の形の JSON だけを返す。説明文は付けない。",
         json.dumps(
@@ -152,6 +165,7 @@ def build_prompt(
         angles=wanted,
         policy_version=policy.policy_version,
         rendered_prompt="\n".join(lines),
+        guidance=guidance,
     )
 
 
