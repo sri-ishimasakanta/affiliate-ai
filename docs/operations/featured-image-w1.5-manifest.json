@@ -1,0 +1,3200 @@
+{
+  "schema": "featured-image-w1.5/1",
+  "spec": "docs/operations/featured-image-pipeline.md",
+  "pilot_manifest": "docs/operations/featured-image-pilot-manifest.json",
+  "brief": "docs/operations/featured-image-w1.5-prompts.md",
+  "review_plan": "docs/operations/featured-image-w1.5-review-plan.md",
+  "created_at": "2026-09-25",
+  "phase": "W1.5A",
+  "status": "planned (design only: nothing generated, uploaded or applied)",
+  "excluded_article_ids": {
+    "ids": [
+      20,
+      23,
+      24,
+      25
+    ],
+    "reason": "W1.4 pilots, already applied"
+  },
+  "canvas": {
+    "width": 1200,
+    "height": 675,
+    "aspect": "16:9",
+    "format": "WebP (PNG master kept locally)",
+    "theme": "Cocoon (thumb-wide, object-fit: cover)",
+    "outer_margin_px": {
+      "top": 60,
+      "bottom": 60,
+      "left": 72,
+      "right": 72
+    },
+    "reserved_label_area_px": {
+      "x": 0,
+      "y": 0,
+      "width": 560,
+      "height": 170,
+      "reason": "Cocoon category label overlays the top-left of list thumbnails",
+      "keep_out": [
+        "text",
+        "faces or human figures",
+        "the centre of the main motif"
+      ]
+    },
+    "headline_px": {
+      "min": 96,
+      "max": 112,
+      "hard_floor": 90
+    },
+    "sub_label_px": {
+      "min": 40,
+      "max": 48
+    },
+    "layout": "A: headline bottom-left, motif right, light background, thin accent bar at the bottom",
+    "base_colors": {
+      "background": "#F5F7FA",
+      "text": "#12263F",
+      "sub_text": "#4A5B70"
+    },
+    "text_rendering": "typeset afterwards (SVG / Pillow); never let an image model draw Japanese text",
+    "text_role": "a short hook about what the reader gets; never the full SEO title",
+    "readable_at_px": [
+      [
+        320,
+        180
+      ],
+      [
+        160,
+        90
+      ],
+      [
+        126,
+        71
+      ]
+    ]
+  },
+  "shared_prompt": {
+    "positive_suffix": "flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color {ACCENT} with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+    "negative": [
+      "text",
+      "letters",
+      "numbers",
+      "captions",
+      "watermark",
+      "logo",
+      "brand mark",
+      "product screenshot",
+      "user interface of a real product",
+      "photo",
+      "photorealistic",
+      "people",
+      "faces",
+      "hands",
+      "robot",
+      "humanoid",
+      "neon",
+      "glow",
+      "heavy gradient",
+      "rainbow colors",
+      "clutter",
+      "emoji",
+      "3d render",
+      "stock photo"
+    ]
+  },
+  "families": {
+    "general": {
+      "name": "AI・業務効率化 (ツール総論)",
+      "accent": "#0D9488",
+      "accent_name": "teal",
+      "sub_motif": "a set of different tool-category tiles",
+      "shared_with_pilot": [
+        25
+      ],
+      "article_ids": [
+        1
+      ]
+    },
+    "meeting": {
+      "name": "議事録・文字起こし",
+      "accent": "#0284C7",
+      "accent_name": "sky",
+      "sub_motif": "audio waveform + document lines",
+      "shared_with_pilot": [],
+      "article_ids": [
+        2,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    "transcription": {
+      "name": "議事録・文字起こし (文字起こし寄り)",
+      "accent": "#0369A1",
+      "accent_name": "deep sky",
+      "sub_motif": "audio waveform turning into text lines",
+      "shared_with_pilot": [],
+      "article_ids": [
+        3,
+        12
+      ]
+    },
+    "crm": {
+      "name": "CRM・SFA",
+      "accent": "#EA580C",
+      "accent_name": "orange",
+      "sub_motif": "funnel / deal pipeline / contact card",
+      "shared_with_pilot": [],
+      "article_ids": [
+        4,
+        5,
+        14
+      ]
+    },
+    "project": {
+      "name": "プロジェクト・タスク管理",
+      "accent": "#DB2777",
+      "accent_name": "rose (new in W1.5; confirm at batch review)",
+      "sub_motif": "board columns / timeline bars / task table",
+      "shared_with_pilot": [],
+      "article_ids": [
+        13,
+        15
+      ]
+    },
+    "automation": {
+      "name": "RPA・自動化",
+      "accent": "#16A34A",
+      "accent_name": "green",
+      "sub_motif": "Make: round app modules on a connected line / RPA: desktop window with a loop arrow",
+      "shared_with_pilot": [],
+      "article_ids": [
+        10,
+        11,
+        16,
+        17,
+        18
+      ]
+    },
+    "genai": {
+      "name": "AIエージェント・生成AI",
+      "accent": "#4F46E5",
+      "accent_name": "indigo",
+      "sub_motif": "panels showing how the AI is used",
+      "shared_with_pilot": [
+        24
+      ],
+      "article_ids": [
+        19
+      ]
+    },
+    "governance": {
+      "name": "ガイドライン・ガバナンス",
+      "accent": "#475569",
+      "accent_name": "slate",
+      "sub_motif": "document + check (guideline) / cycle + flag (governance)",
+      "shared_with_pilot": [],
+      "article_ids": [
+        21,
+        22
+      ]
+    }
+  },
+  "batches": [
+    {
+      "batch": 1,
+      "family": "議事録",
+      "article_ids": [
+        7,
+        2,
+        6,
+        8,
+        9
+      ],
+      "why": "同じ 2 ツールを扱う最大の系統で、見分けがいちばん難しいので最初に確かめる"
+    },
+    {
+      "batch": 2,
+      "family": "文字起こし + プロジェクト・タスク管理",
+      "article_ids": [
+        3,
+        12,
+        13,
+        15
+      ],
+      "why": "バッチ 1 の隣で sky の系統を仕上げ、新しい rose のアクセントを 2 記事だけで試す"
+    },
+    {
+      "batch": 3,
+      "family": "CRM・SFA + ツール総論",
+      "article_ids": [
+        1,
+        4,
+        5,
+        14
+      ],
+      "why": "article 1 は HubSpot と Pipedrive も扱うので、CRM のカードと試作 25 の隣で確かめる"
+    },
+    {
+      "batch": 4,
+      "family": "RPA・自動化 (Make + RPA)",
+      "article_ids": [
+        10,
+        11,
+        16,
+        17,
+        18
+      ],
+      "why": "1 色のアクセントに 2 種類の印 (Make の丸いモジュール / RPA のデスクトップの窓)。まとめて確かめる"
+    },
+    {
+      "batch": 5,
+      "family": "生成AI・ガイドライン・ガバナンス",
+      "article_ids": [
+        19,
+        21,
+        22
+      ],
+      "why": "試作 24 (indigo の概念図) と試作 20 (slate の管理画面 + 盾) の隣で確かめる"
+    }
+  ],
+  "articles": [
+    {
+      "article_id": 1,
+      "slug": "業務効率化-ツール-おすすめ-roundup",
+      "title": "業務効率化ツールおすすめ｜選び方と目的別に比較",
+      "url": "https://bizfluxlab.com/%e6%a5%ad%e5%8b%99%e5%8a%b9%e7%8e%87%e5%8c%96-%e3%83%84%e3%83%bc%e3%83%ab-%e3%81%8a%e3%81%99%e3%81%99%e3%82%81-roundup/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": null,
+      "wordpress_post_id_hint": 25,
+      "batch": 3,
+      "family": "general",
+      "headline": {
+        "text": "業務効率化ツール選び",
+        "lines": [
+          "業務効率化",
+          "ツール選び"
+        ],
+        "backup_candidates": [
+          "目的別に選ぶ",
+          "ツールの絞り方"
+        ]
+      },
+      "sublabel": "用途別に候補を絞る",
+      "motif": "A 3x2 grid of rounded tiles, each holding a different simple tool-category glyph (calendar, checklist, kanban columns, funnel, connected blocks, clock). Two tiles are lifted and ringed in teal with a small check: narrowing many categories down to a few candidates.",
+      "visual_keywords": [
+        "tool categories",
+        "grid",
+        "shortlist",
+        "checkmark",
+        "purpose"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          150,
+          448,
+          420
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0D9488",
+        "name": "teal",
+        "family_name": "AI・業務効率化 (ツール総論)"
+      },
+      "list_intent": "Reads as 'choose work-efficiency tools by purpose' (a multi-category roundup), not a single product.",
+      "distinguish_from": [
+        {
+          "article_id": 25,
+          "rule": "pilot 25 is a two-lane workflow; this is a static grid of tiles"
+        },
+        {
+          "article_id": 16,
+          "rule": "16 filters identical desktop windows through a funnel; this grid mixes different category glyphs and has no funnel"
+        }
+      ],
+      "alt_text": "業務効率化ツールを目的別に選ぶことを表すツールカテゴリのタイル図",
+      "media_title": "業務効率化ツールおすすめ｜選び方と目的別に比較 アイキャッチ",
+      "planned_file": "featured-1-business-efficiency-tools-roundup.webp",
+      "generation_prompt": "a neat 3 by 2 grid of six rounded square tiles, each tile with a different simple glyph (a calendar, a checklist, three kanban columns, a funnel, two connected blocks, a clock dial without numbers); two of the tiles are slightly raised with a teal #0D9488 ring and a small checkmark badge; placed on the right half of the canvas, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0D9488 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Make, HubSpot, ClickUp, monday.com, Pipedrive, Reclaim.ai or Todoist logos or screens",
+        "more than 6 tiles"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          520,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0D9488"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 396,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0D9488"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article compares 7 tools across CRM, project, task, iPaaS and AI scheduling; the category glyphs stand for that spread without naming any product.",
+        "DB article_type is null; treated as recommendation_roundup from the title and structure.",
+        "WordPress stores the Japanese slug percent-encoded; the apply manifest must use the slug exactly as the REST API returns it (see the review plan)."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 2,
+      "slug": "ai-meeting-notes-tools",
+      "title": "AI議事録おすすめ｜選び方と目的別の比較",
+      "url": "https://bizfluxlab.com/ai-meeting-notes-tools/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": "recommendation_roundup",
+      "wordpress_post_id_hint": 36,
+      "batch": 1,
+      "family": "meeting",
+      "headline": {
+        "text": "AI議事録の選び方",
+        "lines": [
+          "AI議事録",
+          "の選び方"
+        ],
+        "backup_candidates": [
+          "AI議事録を選ぶ",
+          "目的別に選ぶ"
+        ]
+      },
+      "sublabel": "目的別の比較",
+      "motif": "Two meeting-note document cards standing side by side, each topped with a short waveform strip. The left card has a small headset glyph (online meetings), the right card a small magnifier over list lines (finding and sharing). A check badge sits at the foot of each card: two options, each fitting a purpose.",
+      "visual_keywords": [
+        "meeting notes",
+        "two options",
+        "waveform",
+        "purpose",
+        "document cards"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          690,
+          150,
+          438,
+          420
+        ],
+        "motif_centre_px": [
+          909,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0284C7",
+        "name": "sky",
+        "family_name": "議事録・文字起こし"
+      },
+      "list_intent": "Reads as 'how to choose an AI meeting-notes tool' (roundup by purpose).",
+      "distinguish_from": [
+        {
+          "article_id": 6,
+          "rule": "6 is a comparison table with rows; this is two separate standing cards with purpose glyphs"
+        },
+        {
+          "article_id": 7,
+          "rule": "7 is a node map around one central document"
+        }
+      ],
+      "alt_text": "AI議事録の選び方を表す2枚の議事録カードの図",
+      "media_title": "AI議事録おすすめ｜選び方と目的別の比較 アイキャッチ",
+      "planned_file": "featured-2-ai-meeting-notes-tools.webp",
+      "generation_prompt": "two tall document cards standing side by side, each card topped by a short audio waveform strip and filled with blank grey lines; the left card has a small headset glyph, the right card a small magnifying glass over list lines; a round checkmark badge at the bottom of each card; sky blue #0284C7 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0284C7 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Krisp or Fireflies.ai logos or screens",
+        "video-call grids with faces"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          413,
+          416
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0284C7"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 264,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0284C7"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article covers Krisp and Fireflies.ai only; the two cards reflect 'two options' without naming them."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 3,
+      "slug": "ai-transcription-tools",
+      "title": "文字起こしAIおすすめ｜選び方と目的別の比較",
+      "url": "https://bizfluxlab.com/ai-transcription-tools/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": "recommendation_roundup",
+      "wordpress_post_id_hint": 37,
+      "batch": 2,
+      "family": "transcription",
+      "headline": {
+        "text": "文字起こしAIの選び方",
+        "lines": [
+          "文字起こし",
+          "AIの選び方"
+        ],
+        "backup_candidates": [
+          "文字起こしAI",
+          "音声をテキストに"
+        ]
+      },
+      "sublabel": "言語とファイル対応",
+      "motif": "A wide audio waveform band enters from the left of the motif area, passes through a slim converter bar and leaves on the right as horizontal text lines. Below it, two small parallel panels: an audio-file card with an upload arrow, and a globe (languages).",
+      "visual_keywords": [
+        "transcription",
+        "waveform to text",
+        "file upload",
+        "languages"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          140,
+          448,
+          440
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0369A1",
+        "name": "deep sky",
+        "family_name": "議事録・文字起こし (文字起こし寄り)"
+      },
+      "list_intent": "Reads as 'choosing a transcription AI' (input-focused: audio files and languages), not meeting minutes.",
+      "distinguish_from": [
+        {
+          "article_id": 2,
+          "rule": "2 shows finished meeting-note cards (output); this shows audio becoming text (conversion) and uses the deeper sky"
+        },
+        {
+          "article_id": 12,
+          "rule": "12 is a clipboard checklist with a caution mark"
+        }
+      ],
+      "alt_text": "文字起こしAIの選び方を表す音声波形がテキストになる図",
+      "media_title": "文字起こしAIおすすめ｜選び方と目的別の比較 アイキャッチ",
+      "planned_file": "featured-3-ai-transcription-tools.webp",
+      "generation_prompt": "a wide audio waveform band flowing from left to right through a slim vertical converter bar and turning into neat horizontal grey placeholder lines like a transcript; below it two small rounded panels side by side, one an audio file card with an upward upload arrow, the other a simple globe; deep sky blue #0369A1 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0369A1 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Krisp or Fireflies.ai logos or screens",
+        "microphone with a person",
+        "letters inside the text lines"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          520,
+          517
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0369A1"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 396,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0369A1"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article compares by supported languages, audio-file handling and price; the file card and globe reflect the first two."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 4,
+      "slug": "crm-tools",
+      "title": "CRMおすすめ｜選び方と目的別の比較",
+      "url": "https://bizfluxlab.com/crm-tools/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": "recommendation_roundup",
+      "wordpress_post_id_hint": 38,
+      "batch": 3,
+      "family": "crm",
+      "headline": {
+        "text": "CRMの選び方",
+        "lines": [
+          "CRMの",
+          "選び方"
+        ],
+        "backup_candidates": [
+          "CRMを選ぶ",
+          "CRM選び"
+        ]
+      },
+      "sublabel": "無料範囲と有料プラン",
+      "motif": "Two parallel panels: the left shows a central contact card linked to four small plain contact circles (customer information in one place); the right shows a deal pipeline of three columns with small cards moving to the right.",
+      "visual_keywords": [
+        "CRM",
+        "contacts",
+        "deal pipeline",
+        "two options"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          160,
+          448,
+          400
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#EA580C",
+        "name": "orange",
+        "family_name": "CRM・SFA"
+      },
+      "list_intent": "Reads as 'how to choose a CRM' (roundup), orange CRM family.",
+      "distinguish_from": [
+        {
+          "article_id": 14,
+          "rule": "14 is two overlapping areas (Venn); this is two separate panels"
+        },
+        {
+          "article_id": 5,
+          "rule": "5 is stepped plan cards with a detached one-time tag"
+        }
+      ],
+      "alt_text": "CRMの選び方を表す顧客管理と商談パイプラインの図",
+      "media_title": "CRMおすすめ｜選び方と目的別の比較 アイキャッチ",
+      "planned_file": "featured-4-crm-tools.webp",
+      "generation_prompt": "two rounded panels side by side; the left panel shows one contact card in the centre linked by thin lines to four small plain circles; the right panel shows three narrow pipeline columns with small blank cards and a right-pointing arrow; orange #EA580C accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #EA580C with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "HubSpot or Pipedrive logos or screens",
+        "handshake",
+        "business people"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          332,
+          312
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#EA580C"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 440,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#EA580C"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article covers HubSpot and Pipedrive: a customer platform and a sales pipeline; the two panels mirror that difference without names."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 5,
+      "slug": "hubspot-pricing",
+      "title": "HubSpot料金｜プラン別の費用と選び方",
+      "url": "https://bizfluxlab.com/hubspot-pricing/",
+      "article_type": "pricing",
+      "article_type_in_db": "pricing",
+      "wordpress_post_id_hint": 39,
+      "batch": 3,
+      "family": "crm",
+      "headline": {
+        "text": "HubSpotプラン選び",
+        "lines": [
+          "HubSpot",
+          "プラン選び"
+        ],
+        "backup_candidates": [
+          "HubSpot料金",
+          "プランと費用"
+        ]
+      },
+      "sublabel": "月額と初期費用",
+      "motif": "Three stepped plan cards (each a little taller) with seat icons 1, 2 and 4 on top and a small funnel glyph on each card header; beside the two taller cards a small detached tag with a single flag, joined by a dotted line (a one-time onboarding cost). No amounts.",
+      "visual_keywords": [
+        "pricing tiers",
+        "seats",
+        "one-time fee",
+        "funnel"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          670,
+          170,
+          458,
+          400
+        ],
+        "motif_centre_px": [
+          899,
+          380
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#EA580C",
+        "name": "orange",
+        "family_name": "CRM・SFA"
+      },
+      "list_intent": "Reads as 'HubSpot plans and costs'; the detached tag is the article's point (a one-time onboarding fee on upper plans).",
+      "distinguish_from": [
+        {
+          "article_id": 23,
+          "rule": "pilot 23 has blue cards and no tag; this is orange with the detached one-time tag"
+        },
+        {
+          "article_id": 11,
+          "rule": "11 cards contain module chains and clocks"
+        }
+      ],
+      "alt_text": "HubSpotの料金プランと初期費用を表すプランカードの図",
+      "media_title": "HubSpot料金｜プラン別の費用と選び方 アイキャッチ",
+      "planned_file": "featured-5-hubspot-pricing.webp",
+      "generation_prompt": "three blank plan cards in a row, each slightly taller than the previous, with small seat icons on top of each card and a tiny funnel glyph in each card header; next to the two tallest cards a small detached tag with a single flag connected by a dotted line; no numbers; orange #EA580C accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #EA580C with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "HubSpot sprocket logo or orange brand shapes",
+        "$, ¥, amounts, '月額' as text",
+        "calendar dates"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          453,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#EA580C"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 308,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#EA580C"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "'HubSpot' is plain type in the headline (no logo lettering). Prices are 'as of 2026-09' and must never appear in the image."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 6,
+      "slug": "ai-meeting-notes-comparison",
+      "title": "AI議事録比較｜違い・料金・選び方",
+      "url": "https://bizfluxlab.com/ai-meeting-notes-comparison/",
+      "article_type": "comparison_listicle",
+      "article_type_in_db": "comparison_listicle",
+      "wordpress_post_id_hint": 40,
+      "batch": 1,
+      "family": "meeting",
+      "headline": {
+        "text": "AI議事録違いを比較",
+        "lines": [
+          "AI議事録",
+          "違いを比較"
+        ],
+        "backup_candidates": [
+          "2つの違い",
+          "違いの見方"
+        ]
+      },
+      "sublabel": "無料範囲・料金・機能",
+      "motif": "A blank comparison table: two tall columns separated by a centre divider, five rows. Each cell holds a check, a dash or a short bar of different length; the two column headers are small waveform glyphs (no names).",
+      "visual_keywords": [
+        "comparison table",
+        "two columns",
+        "axes",
+        "waveform"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          700,
+          130,
+          420,
+          450
+        ],
+        "motif_centre_px": [
+          910,
+          355
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0284C7",
+        "name": "sky",
+        "family_name": "議事録・文字起こし"
+      },
+      "list_intent": "Reads as 'the differences between AI meeting-notes tools, axis by axis'.",
+      "distinguish_from": [
+        {
+          "article_id": 2,
+          "rule": "2 is two standing cards with purpose glyphs; this is one table with rows"
+        },
+        {
+          "article_id": 17,
+          "rule": "17 is a wider 5-column matrix in green"
+        }
+      ],
+      "alt_text": "AI議事録の違いを比較する表の図",
+      "media_title": "AI議事録比較｜違い・料金・選び方 アイキャッチ",
+      "planned_file": "featured-6-ai-meeting-notes-comparison.webp",
+      "generation_prompt": "a clean blank comparison table with two tall columns separated by a thin centre divider and five rows; cells contain checkmarks, short dashes and small horizontal bars of different lengths; each column header is a small audio waveform glyph; sky blue #0284C7 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0284C7 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Krisp or Fireflies.ai logos",
+        "letters or numbers in the table"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          413,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0284C7"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 440,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0284C7"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article compares only two tools on five axes (free range, price band, annual discount, features, uses)."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 7,
+      "slug": "ai-meeting-notes",
+      "title": "AI議事録｜意味・種類・選び方の基礎知識",
+      "url": "https://bizfluxlab.com/ai-meeting-notes/",
+      "article_type": "category_landing",
+      "article_type_in_db": "category_landing",
+      "wordpress_post_id_hint": 50,
+      "batch": 1,
+      "family": "meeting",
+      "headline": {
+        "text": "AI議事録とは",
+        "lines": [
+          "AI議事録",
+          "とは"
+        ],
+        "backup_candidates": [
+          "AI議事録入門",
+          "種類と観点"
+        ]
+      },
+      "sublabel": "種類と選ぶ観点",
+      "motif": "A central document node with a waveform header, linked by thin lines to three satellite nodes: a microphone (capture), an uploaded audio file (import) and a checklist (tasks extracted). Concept-map style that mirrors the article's three processing stages.",
+      "visual_keywords": [
+        "concept map",
+        "meeting notes",
+        "capture",
+        "transcribe",
+        "tasks"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          690,
+          120,
+          438,
+          470
+        ],
+        "motif_centre_px": [
+          909,
+          355
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0284C7",
+        "name": "sky",
+        "family_name": "議事録・文字起こし"
+      },
+      "list_intent": "Reads as 'what AI meeting notes are' (the category entry), calmer than the product articles.",
+      "distinguish_from": [
+        {
+          "article_id": 24,
+          "rule": "pilot 24 is an indigo map with calendar/document/table/message; this is sky with waveform, microphone and file"
+        },
+        {
+          "article_id": 2,
+          "rule": "2 is two parallel cards"
+        }
+      ],
+      "alt_text": "AI議事録の仕組みを表す概念図",
+      "media_title": "AI議事録｜意味・種類・選び方の基礎知識 アイキャッチ",
+      "planned_file": "featured-7-ai-meeting-notes.webp",
+      "generation_prompt": "a concept map: one central rounded document node with a small audio waveform on top, linked by thin lines to three smaller round nodes containing a microphone, an audio file with an arrow, and a short checklist; sky blue #0284C7 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0284C7 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "microphone held by a hand",
+        "meeting room with people",
+        "tool logos"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          413,
+          208
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0284C7"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 308,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0284C7"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "Headline mirrors pilot 24 ('AIエージェント/とは') on purpose: category-landing articles share the 'とは' pattern."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 8,
+      "slug": "ai-meeting-notes-free",
+      "title": "AI議事録無料｜プラン別の料金と選び方",
+      "url": "https://bizfluxlab.com/ai-meeting-notes-free/",
+      "article_type": "pricing",
+      "article_type_in_db": "pricing",
+      "wordpress_post_id_hint": 52,
+      "batch": 1,
+      "family": "meeting",
+      "headline": {
+        "text": "AI議事録無料の範囲",
+        "lines": [
+          "AI議事録",
+          "無料の範囲"
+        ],
+        "backup_candidates": [
+          "無料で使う",
+          "無料プラン"
+        ]
+      },
+      "sublabel": "無料プランとトライアル",
+      "motif": "Two cards side by side: the left card carries an infinity loop (free with no time limit), the right card an hourglass above a short strip of blank calendar squares (a time-limited trial). A thin bracket spans both cards. No numbers.",
+      "visual_keywords": [
+        "free plan",
+        "free trial",
+        "infinity",
+        "hourglass"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          690,
+          160,
+          438,
+          400
+        ],
+        "motif_centre_px": [
+          909,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0284C7",
+        "name": "sky",
+        "family_name": "議事録・文字起こし"
+      },
+      "list_intent": "Reads as 'what you can do for free with AI meeting notes' (free plan vs trial).",
+      "distinguish_from": [
+        {
+          "article_id": 12,
+          "rule": "12 is a clipboard checklist with a caution mark; this is two cards (infinity vs hourglass)"
+        },
+        {
+          "article_id": 9,
+          "rule": "9 is an estimate sheet with seat icons and a toggle"
+        }
+      ],
+      "alt_text": "AI議事録の無料プランと無料トライアルの違いを表す図",
+      "media_title": "AI議事録無料｜プラン別の料金と選び方 アイキャッチ",
+      "planned_file": "featured-8-ai-meeting-notes-free.webp",
+      "generation_prompt": "two rounded cards side by side; the left card shows a bold infinity loop symbol, the right card shows an hourglass above a short row of blank calendar squares; a thin bracket line under both cards; no numbers; sky blue #0284C7 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0284C7 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "the word FREE",
+        "price tags with numbers",
+        "day counts"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          413,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0284C7"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 484,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0284C7"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article's core is 'Free forever' vs a 7-day trial; the day count must not appear (it can change)."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 9,
+      "slug": "ai-meeting-notes-pricing",
+      "title": "AI議事録料金｜プラン別の費用と選び方",
+      "url": "https://bizfluxlab.com/ai-meeting-notes-pricing/",
+      "article_type": "pricing",
+      "article_type_in_db": "pricing",
+      "wordpress_post_id_hint": 54,
+      "batch": 1,
+      "family": "meeting",
+      "headline": {
+        "text": "AI議事録料金の見方",
+        "lines": [
+          "AI議事録",
+          "料金の見方"
+        ],
+        "backup_candidates": [
+          "料金の見方",
+          "費用の見積もり"
+        ]
+      },
+      "sublabel": "人数・月払い・年払い",
+      "motif": "A small stack of seat icons feeding into an estimate sheet (blank lines with a waveform glyph in its header); above the sheet a two-position toggle switch (monthly / annual billing); the sheet's last line is a dotted outline (an upper plan without a published price).",
+      "visual_keywords": [
+        "estimate",
+        "per seat",
+        "billing toggle",
+        "pricing"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          690,
+          130,
+          438,
+          450
+        ],
+        "motif_centre_px": [
+          909,
+          355
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0284C7",
+        "name": "sky",
+        "family_name": "議事録・文字起こし"
+      },
+      "list_intent": "Reads as 'how to read AI meeting-notes pricing' (per seat, monthly vs annual).",
+      "distinguish_from": [
+        {
+          "article_id": 8,
+          "rule": "8 is two cards (infinity vs hourglass)"
+        },
+        {
+          "article_id": 23,
+          "rule": "pilot 23 is three stepped blue cards; this is one estimate sheet with a toggle"
+        }
+      ],
+      "alt_text": "AI議事録の料金の見方を表す見積もりシートの図",
+      "media_title": "AI議事録料金｜プラン別の費用と選び方 アイキャッチ",
+      "planned_file": "featured-9-ai-meeting-notes-pricing.webp",
+      "generation_prompt": "an estimate sheet with blank grey lines and a small audio waveform glyph in its header, a small stack of simple seat icons on its left connected by an arrow, a two-position toggle switch above the sheet, the last line of the sheet drawn as a dotted outline; no numbers or currency; sky blue #0284C7 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0284C7 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "$, ¥, amounts",
+        "calculator keypad with digits",
+        "tool logos"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          413,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0284C7"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 440,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0284C7"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article stresses per-seat billing, monthly vs annual amounts and whether upper plans publish a price."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 10,
+      "slug": "make-how-to",
+      "title": "Make使い方｜手順と注意点をわかりやすく解説",
+      "url": "https://bizfluxlab.com/make-how-to/",
+      "article_type": "how_to",
+      "article_type_in_db": "how_to",
+      "wordpress_post_id_hint": 82,
+      "batch": 4,
+      "family": "automation",
+      "headline": {
+        "text": "Make最初の手順",
+        "lines": [
+          "Make",
+          "最初の手順"
+        ],
+        "backup_candidates": [
+          "Makeの始め方",
+          "シナリオを作る"
+        ]
+      },
+      "sublabel": "シナリオ作りの流れ",
+      "motif": "Three round app modules joined by a curved connecting line (a scenario), each with a small step marker of one, two and three dots beneath it; a small plug glyph on the first link and an arrow into a final check.",
+      "visual_keywords": [
+        "scenario",
+        "modules",
+        "connection",
+        "steps"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          170,
+          448,
+          380
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#16A34A",
+        "name": "green",
+        "family_name": "RPA・自動化"
+      },
+      "list_intent": "Reads as 'the first steps in Make' (how-to), not pricing.",
+      "distinguish_from": [
+        {
+          "article_id": 18,
+          "rule": "18 is an ascending staircase with a desktop window; this is round modules on a curved line"
+        },
+        {
+          "article_id": 11,
+          "rule": "11 is stepped plan cards"
+        }
+      ],
+      "alt_text": "Makeのシナリオを作る手順を表すフロー図",
+      "media_title": "Make使い方｜手順と注意点をわかりやすく解説 アイキャッチ",
+      "planned_file": "featured-10-make-how-to.webp",
+      "generation_prompt": "three round app modules connected by a smooth curved line from left to right, a small plug glyph on the first connection, under each module a step marker made of one, two and three small dots, the line ending in a round checkmark; green #16A34A accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #16A34A with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Make logo (purple dots)",
+        "Make editor screenshot",
+        "digits as step numbers",
+        "robot"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          272,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#16A34A"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 396,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#16A34A"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "Step markers use dots, not digits, so no numeric text is generated."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 11,
+      "slug": "make-pricing",
+      "title": "Make料金｜プラン別の費用と選び方",
+      "url": "https://bizfluxlab.com/make-pricing/",
+      "article_type": "pricing",
+      "article_type_in_db": "pricing",
+      "wordpress_post_id_hint": 56,
+      "batch": 4,
+      "family": "automation",
+      "headline": {
+        "text": "Make料金と上限",
+        "lines": [
+          "Make",
+          "料金と上限"
+        ],
+        "backup_candidates": [
+          "Make料金",
+          "プランの上限"
+        ]
+      },
+      "sublabel": "プランごとの制限",
+      "motif": "Three stepped plan cards; inside each a chain of round modules that grows longer (2, 3, 5 modules: more active scenarios) and a small clock dial whose hand sweeps a shorter interval on higher cards. No amounts.",
+      "visual_keywords": [
+        "pricing tiers",
+        "limits",
+        "scenarios",
+        "run interval"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          670,
+          160,
+          458,
+          410
+        ],
+        "motif_centre_px": [
+          899,
+          370
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#16A34A",
+        "name": "green",
+        "family_name": "RPA・自動化"
+      },
+      "list_intent": "Reads as 'Make's plans and their limits' (scenario count and run interval per plan).",
+      "distinguish_from": [
+        {
+          "article_id": 5,
+          "rule": "5 is orange cards with seats and a detached tag"
+        },
+        {
+          "article_id": 10,
+          "rule": "10 is a single curved module flow"
+        }
+      ],
+      "alt_text": "Makeの料金プランごとの上限を表すプランカードの図",
+      "media_title": "Make料金｜プラン別の費用と選び方 アイキャッチ",
+      "planned_file": "featured-11-make-pricing.webp",
+      "generation_prompt": "three blank plan cards in a row, each slightly taller than the previous; inside each card a short chain of small round modules that gets longer on each card, and a small clock dial without numbers; no numbers or currency; green #16A34A accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #16A34A with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Make logo",
+        "$ or amounts",
+        "credit numbers"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          272,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#16A34A"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 352,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#16A34A"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article's point is that active scenarios, run interval and run time change per plan, not just the price."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 12,
+      "slug": "ai-transcription-free",
+      "title": "文字起こし無料｜要点と実務上の注意点",
+      "url": "https://bizfluxlab.com/ai-transcription-free/",
+      "article_type": "informational",
+      "article_type_in_db": "informational",
+      "wordpress_post_id_hint": 60,
+      "batch": 2,
+      "family": "transcription",
+      "headline": {
+        "text": "無料で文字起こし",
+        "lines": [
+          "無料で",
+          "文字起こし"
+        ],
+        "backup_candidates": [
+          "無料の条件",
+          "無料と試用"
+        ]
+      },
+      "sublabel": "無料プランと試用の違い",
+      "motif": "A clipboard checklist with three rows (two checked, one open), a small waveform at the clipboard top, and a caution triangle next to a small hourglass (a trial that ends).",
+      "visual_keywords": [
+        "checklist",
+        "caution",
+        "free",
+        "trial ends",
+        "transcription"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          720,
+          130,
+          408,
+          450
+        ],
+        "motif_centre_px": [
+          924,
+          355
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#0369A1",
+        "name": "deep sky",
+        "family_name": "議事録・文字起こし (文字起こし寄り)"
+      },
+      "list_intent": "Reads as 'points to check before transcribing for free' (informational, cautious).",
+      "distinguish_from": [
+        {
+          "article_id": 8,
+          "rule": "8 is two cards (infinity vs hourglass); this is a clipboard checklist"
+        },
+        {
+          "article_id": 3,
+          "rule": "3 is a waveform turning into text lines"
+        }
+      ],
+      "alt_text": "無料で文字起こしする際の注意点を表すチェックリストの図",
+      "media_title": "文字起こし無料｜要点と実務上の注意点 アイキャッチ",
+      "planned_file": "featured-12-ai-transcription-free.webp",
+      "generation_prompt": "a clipboard with a three-row checklist, two rows checked and one row open, a small audio waveform glyph at the top of the clipboard, beside it a small caution triangle and a small hourglass; deep sky blue #0369A1 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #0369A1 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "the word FREE",
+        "day counts",
+        "tool logos"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          312,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#0369A1"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 484,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#0369A1"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article is neutral ('not recommending a service'); the caution mark keeps the card informational."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 13,
+      "slug": "project-management-tools",
+      "title": "プロジェクト管理ツールおすすめ｜選び方と目的別の比較",
+      "url": "https://bizfluxlab.com/project-management-tools/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": "recommendation_roundup",
+      "wordpress_post_id_hint": 58,
+      "batch": 2,
+      "family": "project",
+      "headline": {
+        "text": "チーム進捗の見える化",
+        "lines": [
+          "チーム進捗",
+          "の見える化"
+        ],
+        "backup_candidates": [
+          "進捗を1か所に",
+          "プロジェクト管理"
+        ]
+      },
+      "sublabel": "プロジェクト管理ツール",
+      "motif": "Two parallel boards: the left a kanban of three columns with blank cards (one card moving across with an arrow), the right a timeline of staggered horizontal bars with a small dashboard gauge.",
+      "visual_keywords": [
+        "kanban",
+        "timeline",
+        "progress",
+        "dashboard"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          160,
+          448,
+          400
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#DB2777",
+        "name": "rose (new in W1.5; confirm at batch review)",
+        "family_name": "プロジェクト・タスク管理"
+      },
+      "list_intent": "Reads as 'making team progress visible' (project-management roundup).",
+      "distinguish_from": [
+        {
+          "article_id": 15,
+          "rule": "15 is a single database table with checkboxes"
+        },
+        {
+          "article_id": 1,
+          "rule": "1 is a grid of mixed category tiles in teal"
+        }
+      ],
+      "alt_text": "プロジェクトの進捗管理を表すボードとタイムラインの図",
+      "media_title": "プロジェクト管理ツールおすすめ｜選び方と目的別の比較 アイキャッチ",
+      "planned_file": "featured-13-project-management-tools.webp",
+      "generation_prompt": "two rounded boards side by side; the left board shows three kanban columns with small blank cards and one card moving to the next column with an arrow; the right board shows staggered horizontal timeline bars and a small semicircle gauge; rose #DB2777 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #DB2777 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "ClickUp or monday.com logos or colour stripes",
+        "people at desks"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          520,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#DB2777"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 484,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#DB2777"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article covers ClickUp and monday.com; board + timeline reflect 'tasks and dashboards' without names.",
+        "Rose #DB2777 is a new family accent; confirm it at the batch 2 review."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 14,
+      "slug": "crm-sfa-difference",
+      "title": "CRM SFA違い｜どこが違うのかを整理",
+      "url": "https://bizfluxlab.com/crm-sfa-difference/",
+      "article_type": "comparison_listicle",
+      "article_type_in_db": "comparison_listicle",
+      "wordpress_post_id_hint": 62,
+      "batch": 3,
+      "family": "crm",
+      "headline": {
+        "text": "CRMとSFAの違い",
+        "lines": [
+          "CRMとSFA",
+          "の違い"
+        ],
+        "backup_candidates": [
+          "範囲の違い",
+          "CRMとSFA"
+        ]
+      },
+      "sublabel": "扱う範囲で読み解く",
+      "motif": "Two overlapping rounded areas (a Venn shape): the larger area holds a contact card and a mail glyph (the whole customer relationship), the smaller one a three-stage pipeline arrow (the sales process); the overlap is tinted orange.",
+      "visual_keywords": [
+        "Venn",
+        "scope",
+        "customer relationship",
+        "sales pipeline"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          150,
+          448,
+          420
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#EA580C",
+        "name": "orange",
+        "family_name": "CRM・SFA"
+      },
+      "list_intent": "Reads as 'the difference between CRM and SFA is scope'.",
+      "distinguish_from": [
+        {
+          "article_id": 4,
+          "rule": "4 is two separate panels; this is one overlapping shape"
+        }
+      ],
+      "alt_text": "CRMとSFAの扱う範囲の違いを表す重なった2つの領域の図",
+      "media_title": "CRM SFA違い｜どこが違うのかを整理 アイキャッチ",
+      "planned_file": "featured-14-crm-sfa-difference.webp",
+      "generation_prompt": "two overlapping rounded soft areas like a Venn diagram, the larger area containing a small contact card and an envelope glyph, the smaller area containing a three-stage pipeline arrow, the overlapping region tinted orange #EA580C; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #EA580C with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "the letters CRM or SFA drawn by the model",
+        "HubSpot or Pipedrive logos"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          523,
+          312
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#EA580C"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 396,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#EA580C"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article reads the difference from what each product officially covers, so overlap (not opposition) is the right shape."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 15,
+      "slug": "notion-task-management",
+      "title": "Notionタスク管理｜要点と実務上の注意点",
+      "url": "https://bizfluxlab.com/notion-task-management/",
+      "article_type": "informational",
+      "article_type_in_db": "informational",
+      "wordpress_post_id_hint": 64,
+      "batch": 2,
+      "family": "project",
+      "headline": {
+        "text": "Notionでタスク管理",
+        "lines": [
+          "Notionで",
+          "タスク管理"
+        ],
+        "backup_candidates": [
+          "DBでタスク管理",
+          "タスクをDBで"
+        ]
+      },
+      "sublabel": "データベースで表す",
+      "motif": "A database table of five rows: a checkbox column, a column of blank status pills and a column of short bars; two rows checked; a small caution mark at the table's lower edge (free-plan conditions).",
+      "visual_keywords": [
+        "database",
+        "task table",
+        "checkbox",
+        "caution"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          700,
+          140,
+          428,
+          440
+        ],
+        "motif_centre_px": [
+          914,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#DB2777",
+        "name": "rose (new in W1.5; confirm at batch review)",
+        "family_name": "プロジェクト・タスク管理"
+      },
+      "list_intent": "Reads as 'task management in Notion via databases' (informational).",
+      "distinguish_from": [
+        {
+          "article_id": 13,
+          "rule": "13 is two boards (kanban + timeline); this is one table"
+        },
+        {
+          "article_id": 12,
+          "rule": "12 is a clipboard checklist in deep sky"
+        }
+      ],
+      "alt_text": "Notionのデータベースでタスクを管理する表の図",
+      "media_title": "Notionタスク管理｜要点と実務上の注意点 アイキャッチ",
+      "planned_file": "featured-15-notion-task-management.webp",
+      "generation_prompt": "a clean database table with five rows, the first column of checkboxes with two checked, a second column of small blank rounded status pills, a third column of short grey bars, and a small caution triangle at the lower right edge of the table; rose #DB2777 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #DB2777 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "Notion 'N' cube logo",
+        "Notion page screenshot",
+        "letters in the table"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          457,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#DB2777"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 396,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#DB2777"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "'Notion' is plain type in the headline only."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 16,
+      "slug": "rpa-tools",
+      "title": "RPAおすすめ｜選び方と目的別の比較",
+      "url": "https://bizfluxlab.com/rpa-tools/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": "recommendation_roundup",
+      "wordpress_post_id_hint": 66,
+      "batch": 4,
+      "family": "automation",
+      "headline": {
+        "text": "RPA製品の選び方",
+        "lines": [
+          "RPA製品",
+          "の選び方"
+        ],
+        "backup_candidates": [
+          "RPAを選ぶ",
+          "候補の絞り方"
+        ]
+      },
+      "sublabel": "料金の公開状況も整理",
+      "motif": "Six small blank desktop-window tiles (each with a tiny loop arrow: a repeated task) in two rows pass through a funnel into two raised tiles with checks. Some tiles carry a small blank tag (price shown), others a small envelope (price on inquiry).",
+      "visual_keywords": [
+        "RPA",
+        "desktop windows",
+        "funnel",
+        "shortlist",
+        "price disclosure"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          670,
+          140,
+          458,
+          440
+        ],
+        "motif_centre_px": [
+          899,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#16A34A",
+        "name": "green",
+        "family_name": "RPA・自動化"
+      },
+      "list_intent": "Reads as 'how to shortlist RPA products' (roundup), including which publish prices.",
+      "distinguish_from": [
+        {
+          "article_id": 1,
+          "rule": "1 is a teal grid of mixed category glyphs; this is identical green window tiles through a funnel"
+        },
+        {
+          "article_id": 17,
+          "rule": "17 is a matrix table"
+        }
+      ],
+      "alt_text": "RPA製品の候補を絞り込む流れを表す図",
+      "media_title": "RPAおすすめ｜選び方と目的別の比較 アイキャッチ",
+      "planned_file": "featured-16-rpa-tools.webp",
+      "generation_prompt": "six small blank desktop window tiles in two rows, each with a tiny circular loop arrow, flowing through a simple funnel into two raised tiles with checkmark badges; some tiles have a small blank tag, others a small envelope glyph; green #16A34A accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #16A34A with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "robot or robotic arm",
+        "UiPath, Automation Anywhere, WinActor, BizRobo!, Power Automate or RoboTANGO logos"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          414,
+          416
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#16A34A"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 440,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#16A34A"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article is explicitly 'not a ranking'; the funnel narrows by conditions instead of showing a winner."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 17,
+      "slug": "rpa-comparison",
+      "title": "RPA比較｜違い・料金・選び方",
+      "url": "https://bizfluxlab.com/rpa-comparison/",
+      "article_type": "comparison_listicle",
+      "article_type_in_db": "comparison_listicle",
+      "wordpress_post_id_hint": 80,
+      "batch": 4,
+      "family": "automation",
+      "headline": {
+        "text": "RPA違いの見方",
+        "lines": [
+          "RPA",
+          "違いの見方"
+        ],
+        "backup_candidates": [
+          "RPAの違い",
+          "課金の違い"
+        ]
+      },
+      "sublabel": "課金単位とライセンス",
+      "motif": "A wide comparison matrix: five columns headed by small blank desktop-window glyphs, four rows marked on the left by a key (license) and a coin stack (billing unit); cells hold filled circles, hollow circles, checks and dashes.",
+      "visual_keywords": [
+        "comparison matrix",
+        "license",
+        "billing unit",
+        "RPA"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          670,
+          140,
+          458,
+          440
+        ],
+        "motif_centre_px": [
+          899,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#16A34A",
+        "name": "green",
+        "family_name": "RPA・自動化"
+      },
+      "list_intent": "Reads as 'how RPA products differ' (billing unit and license type).",
+      "distinguish_from": [
+        {
+          "article_id": 6,
+          "rule": "6 is a two-column sky table; this is a five-column green matrix with key and coin markers"
+        },
+        {
+          "article_id": 16,
+          "rule": "16 is a funnel"
+        }
+      ],
+      "alt_text": "RPA製品の課金とライセンスの違いを表す比較表の図",
+      "media_title": "RPA比較｜違い・料金・選び方 アイキャッチ",
+      "planned_file": "featured-17-rpa-comparison.webp",
+      "generation_prompt": "a wide clean comparison matrix with five columns and four rows; each column header is a small blank desktop window glyph; the rows are marked on the left by a small key glyph and a small coin stack glyph; cells contain filled circles, hollow circles, checkmarks and dashes; green #16A34A accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #16A34A with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "robot",
+        "currency symbols or amounts",
+        "product logos"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          206,
+          520
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#16A34A"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 440,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#16A34A"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article stresses that amounts are not comparable (units, currency and period differ), so the matrix uses symbols only."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 18,
+      "slug": "rpa-implementation",
+      "title": "RPA導入｜手順と注意点をわかりやすく解説",
+      "url": "https://bizfluxlab.com/rpa-implementation/",
+      "article_type": "how_to",
+      "article_type_in_db": "how_to",
+      "wordpress_post_id_hint": 68,
+      "batch": 4,
+      "family": "automation",
+      "headline": {
+        "text": "RPA導入の進め方",
+        "lines": [
+          "RPA導入",
+          "の進め方"
+        ],
+        "backup_candidates": [
+          "導入の順序",
+          "RPA導入手順"
+        ]
+      },
+      "sublabel": "対象業務の絞り込みから",
+      "motif": "An ascending staircase of four steps (left to right) with step markers of one to four dots: a single document on the first step (one target task), a fork of two small paths mid-way (attended: a seat icon / unattended: a moon), and a desktop window with a loop arrow and a check on the top step.",
+      "visual_keywords": [
+        "staircase",
+        "steps",
+        "attended vs unattended",
+        "rollout order"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          680,
+          130,
+          448,
+          450
+        ],
+        "motif_centre_px": [
+          904,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#16A34A",
+        "name": "green",
+        "family_name": "RPA・自動化"
+      },
+      "list_intent": "Reads as 'the order for rolling out RPA' (how-to).",
+      "distinguish_from": [
+        {
+          "article_id": 10,
+          "rule": "10 is round modules on a curved line; this is a staircase with a desktop window"
+        }
+      ],
+      "alt_text": "RPA導入の進め方を表す階段状の手順図",
+      "media_title": "RPA導入｜手順と注意点をわかりやすく解説 アイキャッチ",
+      "planned_file": "featured-18-rpa-implementation.webp",
+      "generation_prompt": "an ascending staircase of four flat steps from left to right, small dot markers on each step; a single document on the first step, a small fork into two paths with a seat icon and a crescent moon on the middle steps, a blank desktop window with a circular loop arrow and a checkmark on the top step; green #16A34A accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #16A34A with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "robot",
+        "digits as step numbers",
+        "product logos",
+        "office workers"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          414,
+          416
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#16A34A"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 484,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#16A34A"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article's first decisions are: one target task, attended vs unattended, and the billing unit."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 19,
+      "slug": "generative-ai-tools",
+      "title": "生成AIツールおすすめ｜選び方と目的別の比較",
+      "url": "https://bizfluxlab.com/generative-ai-tools/",
+      "article_type": "recommendation_roundup",
+      "article_type_in_db": "recommendation_roundup",
+      "wordpress_post_id_hint": 70,
+      "batch": 5,
+      "family": "genai",
+      "headline": {
+        "text": "生成AIの選び方",
+        "lines": [
+          "生成AIの",
+          "選び方"
+        ],
+        "backup_candidates": [
+          "使う形で選ぶ",
+          "生成AIを選ぶ"
+        ]
+      },
+      "sublabel": "単体・追加契約・組み込み",
+      "motif": "Three parallel panels showing how the AI is used: a standalone chat panel with two speech bubbles; a plug-in block slotting into a larger suite block (added to an existing contract); a document with a small sparkle embedded in it (AI inside another tool).",
+      "visual_keywords": [
+        "generative AI",
+        "standalone",
+        "add-on",
+        "embedded",
+        "three forms"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          670,
+          170,
+          458,
+          380
+        ],
+        "motif_centre_px": [
+          899,
+          360
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#4F46E5",
+        "name": "indigo",
+        "family_name": "AIエージェント・生成AI"
+      },
+      "list_intent": "Reads as 'choosing generative AI tools by the form they take'.",
+      "distinguish_from": [
+        {
+          "article_id": 24,
+          "rule": "pilot 24 is an indigo concept map (one centre node); this is three separate panels in a row"
+        }
+      ],
+      "alt_text": "生成AIツールの使う形の違いを表す3つのパネルの図",
+      "media_title": "生成AIツールおすすめ｜選び方と目的別の比較 アイキャッチ",
+      "planned_file": "featured-19-generative-ai-tools.webp",
+      "generation_prompt": "three rounded panels in a row: the first with two simple speech bubbles, the second with a small block plugging into a larger block, the third with a document page with a small four-point sparkle inside it; indigo #4F46E5 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #4F46E5 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "ChatGPT, Claude, Gemini, Copilot or Notion logos or chat screens",
+        "robot",
+        "brain illustration",
+        "sparkle used as a logo imitation"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          413,
+          312
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#4F46E5"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 528,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#4F46E5"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article's frame is 'free range / add-on to an existing contract / built into another tool'."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 21,
+      "slug": "generative-ai-guidelines",
+      "title": "生成AIガイドライン｜要点と実務上の注意点",
+      "url": "https://bizfluxlab.com/generative-ai-guidelines/",
+      "article_type": "informational",
+      "article_type_in_db": "informational",
+      "wordpress_post_id_hint": 84,
+      "batch": 5,
+      "family": "governance",
+      "headline": {
+        "text": "指針の読み方",
+        "lines": [
+          "指針の",
+          "読み方"
+        ],
+        "backup_candidates": [
+          "ガイドライン",
+          "文書の構成"
+        ]
+      },
+      "sublabel": "AI事業者ガイドライン",
+      "motif": "A main document with tab markers on its edge (the main part) and a thinner binder behind it (the appendix); on the page three larger dots (basic principles) above ten short blank lines with small ticks; a small shield in the lower corner of the page.",
+      "visual_keywords": [
+        "guideline document",
+        "principles",
+        "checklist",
+        "appendix"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          720,
+          110,
+          408,
+          480
+        ],
+        "motif_centre_px": [
+          924,
+          350
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#475569",
+        "name": "slate",
+        "family_name": "ガイドライン・ガバナンス"
+      },
+      "list_intent": "Reads as 'how to read the AI guideline document' (structure, principles).",
+      "distinguish_from": [
+        {
+          "article_id": 22,
+          "rule": "22 is a cycle with a flag; this is a document"
+        },
+        {
+          "article_id": 20,
+          "rule": "pilot 20 is an admin panel with a lock; this is a paper document"
+        }
+      ],
+      "alt_text": "AI事業者ガイドラインの構成を表す文書とチェックリストの図",
+      "media_title": "生成AIガイドライン｜要点と実務上の注意点 アイキャッチ",
+      "planned_file": "featured-21-generative-ai-guidelines.webp",
+      "generation_prompt": "a main document page with coloured tab markers on its right edge and a thinner binder behind it; on the page three larger dots above ten short blank lines each with a small tick; a small shield in the lower corner of the page; slate #475569 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #475569 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "government emblem or ministry logo",
+        "Japanese flag",
+        "gavel",
+        "letters on the page"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          312,
+          312
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#475569"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 436,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#475569"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article covers the MIC/METI 'AI事業者ガイドライン' (v1.2): 3 basic principles, 10 common guidelines, main part vs appendix.",
+        "The sublabel names the document; the headline is a short hook."
+      ],
+      "status": "planned"
+    },
+    {
+      "article_id": 22,
+      "slug": "ai-governance",
+      "title": "AIガバナンス｜要点と実務上の注意点",
+      "url": "https://bizfluxlab.com/ai-governance/",
+      "article_type": "informational",
+      "article_type_in_db": "informational",
+      "wordpress_post_id_hint": 86,
+      "batch": 5,
+      "family": "governance",
+      "headline": {
+        "text": "ガバナンスの回し方",
+        "lines": [
+          "ガバナンス",
+          "の回し方"
+        ],
+        "backup_candidates": [
+          "AIガバナンス",
+          "体制と運用"
+        ]
+      },
+      "sublabel": "AIの体制と運用モデル",
+      "motif": "A circular loop of five arrow segments (the stages) around a central flag on a target (goals aligned with business goals); beside the loop a thin chain of three linked nodes (the value chain).",
+      "visual_keywords": [
+        "governance cycle",
+        "agile",
+        "goal",
+        "value chain"
+      ],
+      "composition": {
+        "layout": "A",
+        "headline_column_px": [
+          72,
+          230,
+          568,
+          385
+        ],
+        "motif_box_px": [
+          700,
+          120,
+          428,
+          470
+        ],
+        "motif_centre_px": [
+          914,
+          355
+        ],
+        "label_keep_out_px": [
+          0,
+          0,
+          560,
+          170
+        ]
+      },
+      "accent": {
+        "color": "#475569",
+        "name": "slate",
+        "family_name": "ガイドライン・ガバナンス"
+      },
+      "list_intent": "Reads as 'how to run AI governance' (structure and a repeating operating cycle).",
+      "distinguish_from": [
+        {
+          "article_id": 21,
+          "rule": "21 is a document with ticks; this is a loop with a flag"
+        },
+        {
+          "article_id": 20,
+          "rule": "pilot 20 uses a shield and lock; this card deliberately has no shield"
+        }
+      ],
+      "alt_text": "AIガバナンスの運用サイクルを表す循環図",
+      "media_title": "AIガバナンス｜要点と実務上の注意点 アイキャッチ",
+      "planned_file": "featured-22-ai-governance.webp",
+      "generation_prompt": "a circular loop made of five curved arrow segments around a small flag planted on a target in the centre, and beside the loop a thin chain of three linked round nodes; slate #475569 accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #475569 with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9",
+      "negative_constraints": [
+        "text",
+        "letters",
+        "numbers",
+        "captions",
+        "watermark",
+        "logo",
+        "brand mark",
+        "product screenshot",
+        "user interface of a real product",
+        "photo",
+        "photorealistic",
+        "people",
+        "faces",
+        "hands",
+        "robot",
+        "humanoid",
+        "neon",
+        "glow",
+        "heavy gradient",
+        "rainbow colors",
+        "clutter",
+        "emoji",
+        "3d render",
+        "stock photo",
+        "shield or lock (reserved for pilot 20 and article 21)",
+        "gavel",
+        "people in a meeting",
+        "letters"
+      ],
+      "typesetting": {
+        "headline_font": "Noto Sans JP Bold (wght 700), palt on",
+        "headline_size_px": 104,
+        "headline_color": "#12263F",
+        "headline_top_y": 282,
+        "line_height": 1.2,
+        "headline_measured_width_px": [
+          520,
+          416
+        ],
+        "headline_mark": {
+          "x": 72,
+          "y": 250,
+          "width": 64,
+          "height": 8,
+          "color": "#475569"
+        },
+        "sublabel_font": "Noto Sans JP Medium (wght 500)",
+        "sublabel_size_px": 44,
+        "sublabel_color": "#4A5B70",
+        "sublabel_gap_px": 28,
+        "sublabel_measured_width_px": 436,
+        "column_width_px": 568,
+        "accent_bar": {
+          "x": 0,
+          "y": 663,
+          "width": 1200,
+          "height": 12,
+          "color": "#475569"
+        },
+        "measured_with": "NotoSansJP-VF (Bold wght 700 headline / Medium wght 500 sublabel), no palt, Pillow, 2026-09-25"
+      },
+      "notes": [
+        "The article covers risk-based approach, agile governance, five stages, goals aligned with management and the value chain."
+      ],
+      "status": "planned"
+    }
+  ]
+}

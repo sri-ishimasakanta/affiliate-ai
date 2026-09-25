@@ -276,3 +276,15 @@ RPA・Make = 連結したブロックの流れ、ガバナンス = 文書 + チ�
    残り 21 記事の展開時も、確認はキャッシュを避けたリクエストで行い、切り替わりは時間を置いて見る。
 4. **同時作業**: 同じ適用を別の主体が並行して行っていた。適用の道具は `featured_media` が
    0 でない post には書かないので、上書きは起きなかった。次の展開では、作業者を 1 つにする。
+
+## 6. 残り 21 記事 (W1.5)
+
+W1.5A で設計だけを用意した (画像は未作成、WordPress には未適用)。
+
+- 設計の入力: [`featured-image-w1.5-manifest.json`](featured-image-w1.5-manifest.json)
+  (21 記事、`status: planned`)
+- 制作ブリーフ: [`featured-image-w1.5-prompts.md`](featured-image-w1.5-prompts.md)
+- 確認と適用の段取り (5 バッチ、更新日の表示、media 99 の任意の片付け):
+  [`featured-image-w1.5-review-plan.md`](featured-image-w1.5-review-plan.md)
+- W1.5 で足した系統のアクセント: プロジェクト・タスク管理 = rose `#DB2777`、
+  文字起こし寄りの記事 = deep sky `#0369A1` (議事録 `#0284C7` と形で見分け、明るさは補助)。
