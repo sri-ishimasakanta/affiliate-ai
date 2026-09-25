@@ -221,3 +221,58 @@ RPA・Make = 連結したブロックの流れ、ガバナンス = 文書 + チ�
 3. 人が 4 枚を承認してから、WordPress へ 1 記事ずつ手で設定する (別の承認済みの手順で)。
    本文上のアイキャッチが表示されるか (Cocoon の設定) と `og:image` が差し替わるかを確認する。
 4. 問題が無ければ残り 21 記事の manifest を作る。新規記事フローへの組み込みはその後に検討する。
+
+---
+
+## 5. W1.4 本番適用の記録 (2026-09-25)
+
+人が試作 4 枚を承認し、本番 WordPress への適用を明示的に許可した。使ったファイルは
+`artifacts/featured-images/pilot/` の 1200×675 WebP (git 管理外。承認時の
+`wordpress-apply-manifest.json` の SHA-256 と一致を確認済み)。
+
+### 適用結果
+
+| article | slug | WordPress post | 元の featured_media | media ID | ファイル | 設定した主体 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 25 | ai-business-efficiency | 78 | 0 | **100** | featured-25-ai-business-efficiency-1.webp | この適用 (canary、upload) |
+| 23 | chatgpt-business-plans | 74 | 0 | **98** | featured-23-chatgpt-business-plans.webp | 別の主体 (事前 upload 済みの media) |
+| 24 | ai-agents | 76 | 0 | **97** | featured-24-ai-agents.webp | 別の主体 (事前 upload 済みの media) |
+| 20 | chatgpt-enterprise | 72 | 0 | **96** | featured-20-chatgpt-enterprise.webp | 別の主体 (事前 upload 済みの media) |
+
+- application の article_id と WordPress の post ID は一致しない (slug で解決し、タイトルの完全
+  一致を確かめてから書いた)。
+- 適用の道具: `scripts/apply_featured_image.py` (既存の `WordPressClient` の exact 契約。
+  upload → media の read-back → alt/title → `{"featured_media": id}` → post の read-back)。
+- 時刻 (JST): 17:18 に書く前の状態を保存 (25 post、すべて publish、featured image なし)。
+  17:18:32 に article 25 の canary を適用。17:20:33〜17:20:50 に、この適用とは別の主体が
+  media 96〜98 に alt/title を付けて 23 / 24 / 20 に設定していた (17:43 の確認で判明。
+  この適用はそれを上書きしていない)。
+- 書く前と後の全 post の比較: 変わったのは post 72 / 74 / 76 / 78 の `featured_media` と
+  `modified_gmt` だけ。タイトル・slug・本文・抜粋・状態・公開日・カテゴリ・タグは 25 post
+  とも変わっていない。
+
+### 確認
+
+| 項目 | 結果 |
+| --- | --- |
+| 記事ページ / カテゴリ一覧 | 200 |
+| 一覧のカード (PC 320×180) | 4 枚とも 640×360 の派生画像。NO IMAGE ではない |
+| 一覧のカード (スマホ 126×71) | 見出しが読める。カテゴリラベルは左上の空白にだけ重なる |
+| 並べたときの印象 | 同じ系統に見え、色で主題の違いがわかる。23 (横並びのカード) と 20 (盾で守る 1 枚のパネル) は形だけで見分けられる |
+| 禁止事項 | ロゴ・製品画面・金額・日付・擬似文字なし。重要な要素の切れなし |
+| 本文上のアイキャッチ | Cocoon が featured image を本文上に表示するようになった (設定は変えていない)。見た目は問題なし |
+| `og:image` / `twitter:image` | 4 記事とも記事の画像 (フルサイズ) に切り替わった。`twitter:card = summary_large_image` |
+
+### 気づいたこと・次の対応
+
+1. **重複した media**: media library に同じ画像が 2 つある。事前 upload の **99**
+   (`featured-25-ai-business-efficiency.webp`、どこにも使われていない) と、canary で upload
+   した **100** (post 78 が使用中)。**99 は不要**。削除は取り消せない操作なので、人が
+   wp-admin のメディアから削除する。
+2. **更新日の表示**: featured image を設定すると WordPress が post の更新として記録し、
+   Cocoon が記事に更新日 (2026.09.25) を表示する。公開日は変わらない。人が確認済みで許容。
+3. **ページキャッシュ**: 設定直後は、クエリなしの一覧 URL がサーバーのページキャッシュで古い
+   HTML (NO IMAGE) を返した。数十分で自然に切り替わった。キャッシュの設定は変えていない。
+   残り 21 記事の展開時も、確認はキャッシュを避けたリクエストで行い、切り替わりは時間を置いて見る。
+4. **同時作業**: 同じ適用を別の主体が並行して行っていた。適用の道具は `featured_media` が
+   0 でない post には書かないので、上書きは起きなかった。次の展開では、作業者を 1 つにする。

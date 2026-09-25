@@ -2,7 +2,7 @@
   "schema": "featured-image-pilot/1",
   "spec": "docs/operations/featured-image-pipeline.md",
   "created_at": "2026-09-25",
-  "status": "draft for W1.3: no image generated, nothing uploaded to WordPress",
+  "status": "applied and verified on production WordPress (W1.4, 2026-09-25)",
   "canvas": {
     "width": 1200,
     "height": 675,
@@ -87,6 +87,22 @@
         "measured_width_px": 598,
         "column_width_px": 628,
         "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      },
+      "wordpress": {
+        "wordpress_post_id": 78,
+        "media_id": 100,
+        "set_by": "this W1.4 run (canary; uploaded)",
+        "file": "featured-25-ai-business-efficiency-1.webp",
+        "original_featured_media": 0,
+        "verified": [
+          "featured_media read-back",
+          "category card 640x360 derivative",
+          "body eye-catch",
+          "og:image",
+          "twitter:image (summary_large_image)",
+          "desktop 320x180",
+          "mobile 126x71"
+        ]
       }
     },
     {
@@ -137,6 +153,22 @@
         "measured_width_px": 520,
         "column_width_px": 568,
         "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      },
+      "wordpress": {
+        "wordpress_post_id": 74,
+        "media_id": 98,
+        "set_by": "another actor during W1.4 (pre-uploaded media)",
+        "file": "featured-23-chatgpt-business-plans.webp",
+        "original_featured_media": 0,
+        "verified": [
+          "featured_media read-back",
+          "category card 640x360 derivative",
+          "body eye-catch",
+          "og:image",
+          "twitter:image (summary_large_image)",
+          "desktop 320x180",
+          "mobile 126x71"
+        ]
       }
     },
     {
@@ -182,6 +214,22 @@
         "measured_width_px": 670,
         "column_width_px": 690,
         "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      },
+      "wordpress": {
+        "wordpress_post_id": 76,
+        "media_id": 97,
+        "set_by": "another actor during W1.4 (pre-uploaded media)",
+        "file": "featured-24-ai-agents.webp",
+        "original_featured_media": 0,
+        "verified": [
+          "featured_media read-back",
+          "category card 640x360 derivative",
+          "body eye-catch",
+          "og:image",
+          "twitter:image (summary_large_image)",
+          "desktop 320x180",
+          "mobile 126x71"
+        ]
       }
     },
     {
@@ -234,6 +282,22 @@
         "measured_width_px": 517,
         "column_width_px": 568,
         "measured_with": "NotoSansJP-VF Bold (wght 700), no palt, Pillow, 2026-09-25"
+      },
+      "wordpress": {
+        "wordpress_post_id": 72,
+        "media_id": 96,
+        "set_by": "another actor during W1.4 (pre-uploaded media)",
+        "file": "featured-20-chatgpt-enterprise.webp",
+        "original_featured_media": 0,
+        "verified": [
+          "featured_media read-back",
+          "category card 640x360 derivative",
+          "body eye-catch",
+          "og:image",
+          "twitter:image (summary_large_image)",
+          "desktop 320x180",
+          "mobile 126x71"
+        ]
       }
     }
   ],
