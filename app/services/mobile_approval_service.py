@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.approval.capability import DEFAULT_TTL_HOURS, generate_capability, verify_capability
 from app.approval.relay_client import ApprovalRelayClient, RelayError, build_review_url
-from app.approval.review_snapshot import build_snapshot
+from app.approval.review_snapshot import build_snapshot, review_text_problems
 from app.article.fact_freshness import ensure_aware, to_storage_utc
 from app.models import (
     CR_OPEN_STATUSES,
@@ -338,6 +338,12 @@ class MobileApprovalService:
         )
         prepared.subject_type = subject_type
         prepared.blocked_reasons.extend(_blocked(adapter, subject, now))
+        # T6.1: 判断する本文がそのまま載っていないスナップショットでは依頼を出さない。
+        prepared.blocked_reasons.extend(
+            review_text_problems(
+                subject_type=subject_type, subject=subject, snapshot=prepared.snapshot
+            )
+        )
 
         existing = self._active_session(subject_type, subject_id)
         if existing is not None:

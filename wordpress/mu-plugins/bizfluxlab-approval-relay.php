@@ -502,6 +502,15 @@ function bfl_approval_decide( WP_REST_Request $request ) {
 		// A duplicate POST lands here and is reported, not applied twice.
 		return bfl_approval_error( $reason, $status );
 	}
+	// T6.1: never accept an approval for a snapshot without reviewable text.
+	$stored = json_decode( (string) $row['snapshot_json'], true );
+	list( $ok, $reason, $status ) = bfl_approval_decision_content_guard(
+		is_array( $stored ) ? $stored : array(),
+		$decision
+	);
+	if ( ! $ok ) {
+		return bfl_approval_error( $reason, $status );
+	}
 
 	$updated = BFL_Approval_Repo::update(
 		$sid,

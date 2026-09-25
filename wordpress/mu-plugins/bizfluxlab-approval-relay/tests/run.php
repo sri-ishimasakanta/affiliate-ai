@@ -302,6 +302,50 @@ contains( $plugin_src, "get_transient( 'bfl_approval_nonce_' . \$sid ),", 'the d
 contains( $plugin_src, 'bfl_approval_review_routes( bfl_approval_rest_base() )', 'the page routes come from the same base' );
 lacks( $plugin_src, "'path'     => BFL_APPROVAL_PAGE_PREFIX", 'the cookie is no longer scoped to the review page prefix' );
 
+/* -- T6.1: the exact Threads text reaches the review page ------------------ *
+ * Production symptom: the page showed the heading and the warnings but a
+ * blank text box, because the public snapshot allowlist only knew the C9
+ * shape and dropped publish_text, and the page only rendered
+ * inserted_paragraph.
+ */
+$threads_text = "AIの業務効率化は、ツール選びより先に任せる範囲を決める。\n詳しくはこちら https://bizfluxlab.com/ai-business-efficiency/?utm_source=threads&utm_medium=social";
+$threads_public = bfl_approval_public_snapshot(
+	array(
+		'subject_type'    => 'threads_post',
+		'subject_id'      => 5,
+		'publish_text'    => $threads_text,
+		'angle'           => 'question',
+		'link_mode'       => 'article',
+		'character_count' => 97,
+		'warnings'        => array( '2 questions; one natural hook is enough' ),
+		'smtp_password'   => 'must-not-appear',
+	),
+	'2026-09-25 16:05'
+);
+eq( $threads_public['publish_text'] ?? null, $threads_text, 'threads publish_text reaches the browser byte-for-byte' );
+eq( $threads_public['angle'] ?? null, 'question', 'threads angle reaches the browser' );
+eq( $threads_public['link_mode'] ?? null, 'article', 'threads link_mode reaches the browser' );
+eq( isset( $threads_public['smtp_password'] ), false, 'secrets are still dropped for threads snapshots' );
+eq( bfl_approval_review_text( $threads_public ), $threads_text, 'the review text of a threads snapshot is publish_text' );
+eq( bfl_approval_review_text( array( 'subject_type' => 'change_request', 'inserted_paragraph' => 'x' ) ), 'x', 'the review text of a change request is inserted_paragraph' );
+eq( bfl_approval_review_text( array( 'subject_type' => 'threads_post' ) ), null, 'missing publish_text has no review text' );
+eq( bfl_approval_review_text( array( 'subject_type' => 'threads_post', 'publish_text' => " \n " ) ), null, 'blank publish_text has no review text' );
+eq( bfl_approval_review_text( array( 'subject_type' => 'threads_post', 'publish_text' => array( 'x' ) ) ), null, 'non-string publish_text has no review text' );
+eq( bfl_approval_review_text( array( 'subject_type' => 'other', 'publish_text' => 'x' ) ), null, 'unknown subject types have no review text' );
+
+list( $ok, $reason, $status ) = bfl_approval_decision_content_guard( array( 'subject_type' => 'threads_post' ), 'approved' );
+eq( array( $ok, $reason, $status ), array( false, 'review_text_missing', 409 ), 'approving a snapshot without text fails closed' );
+list( $ok, $reason, $status ) = bfl_approval_decision_content_guard( array( 'subject_type' => 'threads_post' ), 'rejected' );
+eq( $ok, true, 'rejecting a snapshot without text is still allowed' );
+list( $ok, $reason, $status ) = bfl_approval_decision_content_guard( $threads_public, 'approved' );
+eq( $ok, true, 'approving a snapshot with text is allowed' );
+contains( $plugin_src, 'bfl_approval_decision_content_guard(', 'the decide route applies the content guard' );
+
+$shell_t61 = BFL_Approval_Render::shell( str_repeat( 'a', 32 ), '/x', '/y', 'n0nce' );
+contains( $shell_t61, 'function reviewModel(s)', 'the page embeds the pure review model' );
+contains( $shell_t61, 'var m=reviewModel(s);', 'the page renders through the review model' );
+lacks( $shell_t61, 'esc(s.inserted_paragraph)', 'the page no longer renders inserted_paragraph for every subject' );
+
 
 fwrite( STDOUT, "\n{$PASS} passed, {$FAIL} failed\n" );
 exit( $FAIL > 0 ? 1 : 0 );

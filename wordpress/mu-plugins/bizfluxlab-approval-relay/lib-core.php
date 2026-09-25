@@ -168,6 +168,51 @@ final class BFL_Approval_Render {
 	}
 
 	/**
+	 * Pure snapshot -> display model (T6.1). No DOM, no network, so it is
+	 * executed directly by the test harness under Node.
+	 *
+	 * The text shown is the exact text the human is deciding on:
+	 * threads_post -> publish_text, change_request -> inserted_paragraph.
+	 * Missing or blank text fails closed: canApprove is false and the page
+	 * shows an error instead of an approve button.
+	 */
+	public static function review_model_js() : string {
+		return <<<'JS'
+function reviewModel(s){
+ s=s||{};
+ var threads=s.subject_type==="threads_post";
+ var raw=threads?s.publish_text:s.inserted_paragraph;
+ var ok=typeof raw==="string"&&raw.replace(/\s+/g,"")!=="";
+ var rows=threads?[
+  ["投稿案","#"+s.subject_id],["記事",s.article_title],["切り口",s.angle],
+  ["リンク",s.link_mode],["文字数",s.character_count],["提案",s.subject_hash_short],
+  ["期限",s.expires_at_local]
+ ]:[
+  ["変更要求","#"+s.subject_id],["記事",s.article_title],["リンク先",s.target_article_title],
+  ["変更種別",s.change_type],["候補",s.candidate_type],["優先度",s.priority],
+  ["提案","v"+s.subject_version+" "+s.subject_hash_short],["アンカー",s.anchor_text],
+  ["期限",s.expires_at_local]
+ ];
+ return {
+  threads:threads,
+  rows:rows,
+  textLabel:threads?"投稿される本文":"挿入される段落",
+  text:ok?raw:"",
+  canApprove:ok,
+  error:ok?null:(threads?"投稿される本文を表示できません。この画面からは承認できません。":"挿入される段落を表示できません。この画面からは承認できません。"),
+  approveQuestion:threads?"この投稿案を承認しますか。承認後、PC 側の同期処理が安全性を再確認したうえで記録します。":"この変更を承認しますか。承認後、PC 側の同期処理が安全性を再確認したうえで記録します。",
+  rationale:threads?null:(s.rationale==null?"":String(s.rationale)),
+  contextBefore:threads?null:(s.context_before||null),
+  contextAfter:threads?null:(s.context_after||null),
+  diffLines:threads?[]:(s.diff_lines||[]),
+  diffTruncated:!threads&&!!s.diff_truncated,
+  warnings:(s.warnings||[]).map(function(w){return String(w);})
+ };
+}
+JS;
+	}
+
+	/**
 	 * The review page shell. Contains NO proposal data: the capability lives in
 	 * the URL fragment and the snapshot is fetched by an explicit POST. A mail
 	 * scanner that fetches this URL therefore learns nothing and changes nothing.
@@ -182,6 +227,7 @@ final class BFL_Approval_Render {
 		$ex    = self::esc( $exchange_route );
 		$dec   = self::esc( $decision_route );
 		$nonce = self::esc( $script_nonce );
+		$model = self::review_model_js();
 		return <<<HTML
 <!doctype html>
 <html lang="ja">
@@ -234,33 +280,30 @@ final class BFL_Approval_Render {
     nonce=res.body.nonce;render(res.body.snapshot);
   }).catch(function(){msg("通信に失敗しました。","err");});
  function row(k,v){return v==null||v===""?"":"<dt>"+esc(k)+"</dt><dd>"+esc(v)+"</dd>";}
+ {$model}
  function render(s){
+  var m=reviewModel(s);
   var h="<dl>";
-  h+=row("変更要求","#"+s.subject_id);
-  h+=row("記事",s.article_title);
-  h+=row("リンク先",s.target_article_title);
-  h+=row("変更種別",s.change_type);
-  h+=row("候補",s.candidate_type);
-  h+=row("優先度",s.priority);
-  h+=row("提案","v"+s.subject_version+" "+s.subject_hash_short);
-  h+=row("アンカー",s.anchor_text);
-  h+=row("期限",s.expires_at_local);
+  m.rows.forEach(function(r){h+=row(r[0],r[1]);});
   h+="</dl>";
-  h+="<p>"+esc(s.rationale)+"</p>";
-  if(s.context_before){h+="<p><strong>直前</strong></p><pre>"+esc(s.context_before)+"</pre>";}
-  h+="<p><strong>挿入される段落</strong></p><pre>"+esc(s.inserted_paragraph)+"</pre>";
-  if(s.context_after){h+="<p><strong>直後</strong></p><pre>"+esc(s.context_after)+"</pre>";}
-  if(s.diff_lines&&s.diff_lines.length){h+="<p><strong>差分</strong></p><pre>"+esc(s.diff_lines.join("\\n"))+(s.diff_truncated?"\\n...":"")+"</pre>";}
-  (s.warnings||[]).forEach(function(w){h+='<p class="warn">'+esc(w)+"</p>";});
-  h+='<button class="approve" id="a">承認する</button>';
+  if(!m.threads){h+="<p>"+esc(m.rationale)+"</p>";}
+  if(m.contextBefore){h+="<p><strong>直前</strong></p><pre>"+esc(m.contextBefore)+"</pre>";}
+  h+="<p><strong>"+esc(m.textLabel)+"</strong></p>";
+  /* Fail closed: without the exact text there is nothing to approve. */
+  h+=m.canApprove?'<pre id="t">'+esc(m.text)+"</pre>":'<p class="msg err" id="t">'+esc(m.error)+"</p>";
+  if(m.contextAfter){h+="<p><strong>直後</strong></p><pre>"+esc(m.contextAfter)+"</pre>";}
+  if(m.diffLines.length){h+="<p><strong>差分</strong></p><pre>"+esc(m.diffLines.join("\\n"))+(m.diffTruncated?"\\n...":"")+"</pre>";}
+  m.warnings.forEach(function(w){h+='<p class="warn">'+esc(w)+"</p>";});
+  if(m.canApprove){h+='<button class="approve" id="a">承認する</button>';}
   h+='<button class="reject" id="r">却下する</button>';
   app.innerHTML=h;
-  document.getElementById("a").onclick=function(){confirmApprove(s);};
+  if(m.canApprove){document.getElementById("a").onclick=function(){confirmApprove(m);};}
   document.getElementById("r").onclick=function(){confirmReject();};
  }
- function confirmApprove(s){
-  app.innerHTML="<p>この変更を承認しますか。承認後、PC 側の同期処理が安全性を再確認したうえで記録します。</p>"+
-    "<pre>"+esc(s.inserted_paragraph)+"</pre>"+
+ function confirmApprove(m){
+  if(!m||!m.canApprove){return;}
+  app.innerHTML="<p>"+esc(m.approveQuestion)+"</p>"+
+    "<pre>"+esc(m.text)+"</pre>"+
     '<button class="approve" id="y">承認を確定する</button><button class="reject" id="n">やめる</button>';
   document.getElementById("y").onclick=function(){send("approved",null);};
   document.getElementById("n").onclick=function(){location.reload();};
@@ -335,6 +378,8 @@ function bfl_approval_public_snapshot( array $snapshot, string $expires_at_local
 		'target_article_title', 'candidate_type', 'priority', 'rationale',
 		'anchor_text', 'inserted_paragraph', 'context_before', 'context_after',
 		'insertion_line', 'diff_lines', 'diff_truncated', 'warnings',
+		// threads_post (T6.1): the exact text to be published and its context.
+		'angle', 'link_mode', 'publish_text', 'character_count',
 	);
 	$out = array();
 	foreach ( $allowed as $key ) {
@@ -344,6 +389,37 @@ function bfl_approval_public_snapshot( array $snapshot, string $expires_at_local
 	}
 	$out['expires_at_local'] = $expires_at_local;
 	return $out;
+}
+
+/**
+ * The exact text the human decides on, or null when there is none (T6.1).
+ *
+ * threads_post -> publish_text, change_request -> inserted_paragraph.
+ */
+function bfl_approval_review_text( array $snapshot ) : ?string {
+	$type = (string) ( $snapshot['subject_type'] ?? '' );
+	$key  = 'threads_post' === $type ? 'publish_text' : ( 'change_request' === $type ? 'inserted_paragraph' : '' );
+	if ( '' === $key ) {
+		return null;
+	}
+	$text = $snapshot[ $key ] ?? null;
+	if ( ! is_string( $text ) || '' === trim( $text ) ) {
+		return null;
+	}
+	return $text;
+}
+
+/**
+ * Server-side fail-closed rule (T6.1): an approval is only accepted when the
+ * stored snapshot carried reviewable text. A rejection is always allowed.
+ *
+ * @return array{0:bool,1:string,2:int} [ok, reason, http_status]
+ */
+function bfl_approval_decision_content_guard( array $snapshot, string $decision ) : array {
+	if ( 'approved' === $decision && null === bfl_approval_review_text( $snapshot ) ) {
+		return array( false, 'review_text_missing', 409 );
+	}
+	return array( true, 'ok', 200 );
 }
 
 /* =========================================================================

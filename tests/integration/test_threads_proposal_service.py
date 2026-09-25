@@ -562,3 +562,90 @@ def test_a_relay_failure_leaves_the_proposal_untouched(session, article, notifie
 
     assert session.get(ThreadsPostProposal, proposal.id).status == TP_AWAITING_APPROVAL
     assert session.scalars(select(MobileApprovalSession)).all() == []
+
+
+# -- T6.1: the reviewed text is exactly the proposal text -----------------------
+def _proposal_5_like(session, article) -> ThreadsPostProposal:
+    """本番の #5 と同じ性質: 日本語の本文、記事リンク (URL に ? と &)、警告あり。"""
+
+    return _service(session).persist(
+        article_id=article.id,
+        generated_output=_generated(
+            {
+                "angle": "question",
+                "link_mode": "article",
+                "body": (
+                    "手元の録音ファイル、会議中じゃなくても文字起こしAIに任せられる？\n"
+                    "どちらも公式にファイルのアップロード文字起こしを記載している。\n"
+                    "実際の音声で試してから決めるのが安全。\n"
+                    f"{LINK_PLACEHOLDER}"
+                ),
+            }
+        ),
+        now=_NOW,
+    )[0]
+
+
+def test_the_review_snapshot_carries_the_exact_text_with_its_url(
+    session, article, relay, notifier
+) -> None:
+    proposal = _proposal_5_like(session, article)
+    assert "/?utm_" in proposal.content_text and "&utm_source=threads" in proposal.content_text
+    row = _approval(session, relay, notifier).send(
+        subject_type=SUBJECT_THREADS_POST, subject_id=proposal.id, now=_NOW
+    )
+    snapshot = relay.sessions[row.relay_session_id]["snapshot"]
+    assert snapshot["publish_text"] == proposal.content_text  # byte-for-byte, URL included
+    assert snapshot["subject_type"] == SUBJECT_THREADS_POST
+
+
+def test_a_blank_proposal_text_is_never_sent_for_review(session, article, relay, notifier) -> None:
+    proposal = _proposal_5_like(session, article)
+    proposal.content_text = "   \n "
+    session.commit()
+    approval = _approval(session, relay, notifier)
+    plan = approval.plan(subject_type=SUBJECT_THREADS_POST, subject_id=proposal.id)
+    assert "the proposal has no text for the human to review" in plan.blocked_reasons
+    with pytest.raises(MobileApprovalError, match="no text for the human to review"):
+        approval.send(subject_type=SUBJECT_THREADS_POST, subject_id=proposal.id, now=_NOW)
+    assert relay.sessions == {}
+
+
+def test_a_snapshot_that_would_not_show_the_exact_text_is_never_sent(
+    session, article, relay, notifier
+) -> None:
+    proposal = _proposal_5_like(session, article)
+    # 最終防壁の sanitize が書き換える文字列 (/go/ の URL)。人が見る本文が変わってしまう。
+    proposal.content_text = "試してから決める。 https://bizfluxlab.com/go/abc123"
+    session.commit()
+    plan = _approval(session, relay, notifier).plan(
+        subject_type=SUBJECT_THREADS_POST, subject_id=proposal.id
+    )
+    assert "the review snapshot does not carry the exact proposal text" in plan.blocked_reasons
+
+
+def test_review_text_problems_is_pure_and_subject_aware() -> None:
+    from types import SimpleNamespace
+
+    from app.approval.review_snapshot import review_text_problems
+    from app.models import SUBJECT_CHANGE_REQUEST
+
+    ok = SimpleNamespace(content_text="本文")
+    assert (
+        review_text_problems(
+            subject_type=SUBJECT_THREADS_POST, subject=ok, snapshot={"publish_text": "本文"}
+        )
+        == []
+    )
+    assert review_text_problems(
+        subject_type=SUBJECT_THREADS_POST, subject=ok, snapshot={"publish_text": "本文 "}
+    ) == ["the review snapshot does not carry the exact proposal text"]
+    assert (
+        review_text_problems(
+            subject_type=SUBJECT_CHANGE_REQUEST, subject=None, snapshot={"inserted_paragraph": "x"}
+        )
+        == []
+    )
+    assert review_text_problems(
+        subject_type=SUBJECT_CHANGE_REQUEST, subject=None, snapshot={"inserted_paragraph": ""}
+    ) == ["the change request has no inserted paragraph for the human to review"]

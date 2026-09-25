@@ -108,6 +108,28 @@ def _threads_post_snapshot(proposal, article) -> dict:
     }
 
 
+def review_text_problems(*, subject_type: str, subject, snapshot: dict) -> list[str]:
+    """人が判断する本文が、スナップショットにそのまま載っているか (T6.1、fail closed)。
+
+    Threads なら ``publish_text`` が保存済みの ``content_text`` と完全に一致すること、
+    C9 なら ``inserted_paragraph`` があること。空・欠落・不一致なら、依頼を出さない理由を返す。
+    本文をここで作り直したり整形したりはしない。
+    """
+
+    if subject_type == SUBJECT_THREADS_POST:
+        text = getattr(subject, "content_text", None)
+        if not isinstance(text, str) or not text.strip():
+            return ["the proposal has no text for the human to review"]
+        if snapshot.get("publish_text") != text:
+            return ["the review snapshot does not carry the exact proposal text"]
+        return []
+    if subject_type == SUBJECT_CHANGE_REQUEST:
+        paragraph = snapshot.get("inserted_paragraph")
+        if not isinstance(paragraph, str) or not paragraph.strip():
+            return ["the change request has no inserted paragraph for the human to review"]
+    return []
+
+
 def _clip(value) -> str | None:
     if not value:
         return None

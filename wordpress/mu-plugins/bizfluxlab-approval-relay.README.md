@@ -175,6 +175,49 @@ uv run python scripts/send_mobile_approval.py --request-id 2 --execute
 
 Then repeat the rejection test below. Rejecting is still the safe direction.
 
+## Redeploying after T6.1 (Threads review text)
+
+T4.2 started sending `threads_post` sessions through this relay, but the page
+still only knew the C9 shape. Two layers dropped the text the human is deciding
+on, so the page showed the 「挿入される段落」 heading and the warnings above an
+**empty** box (production proposal #5):
+
+1. `bfl_approval_public_snapshot()` only allowed C9 keys, so `publish_text` was
+   stripped before it reached the browser.
+2. The page always rendered `inserted_paragraph`, which a Threads snapshot does
+   not have.
+
+Fix (`lib-core.php` + `bizfluxlab-approval-relay.php`):
+
+- the allowlist carries `publish_text`, `angle`, `link_mode`, `character_count`;
+- the page renders through one pure `reviewModel()`: Threads shows
+  「投稿される本文」 (`publish_text`), C9 shows 「挿入される段落」
+  (`inserted_paragraph`); the text is escaped and placed in `<pre>` as text
+  (line breaks kept, URLs visible as text, never as markup);
+- **fail closed**: missing/blank text shows an error and **no approve button**
+  (reject stays available), and the decide route refuses `approved` with
+  `review_text_missing` (409) when the stored snapshot has no reviewable text
+  (`bfl_approval_decision_content_guard`). Expiry, nonce, cookie and state
+  checks are unchanged. The PC side also refuses to issue a session whose
+  snapshot does not carry the exact `content_text`.
+
+Replace the same two files on XServer (no schema change, no `dbDelta`):
+
+```
+wp-content/mu-plugins/bizfluxlab-approval-relay.php
+wp-content/mu-plugins/bizfluxlab-approval-relay/lib-core.php
+```
+
+**Deployment requires explicit approval and was NOT performed in T6.1.** Until
+it is deployed, the live page still shows an empty box for Threads proposals;
+read the exact text on the PC before deciding. The publish tool's PLAN prints
+it and never writes (no `--execute`; a proposal that is not approved is refused
+even with it):
+
+```bash
+uv run python scripts/publish_threads_post.py --proposal-id <id>
+```
+
 ## What is deliberately not stored
 
 No IP address, no User-Agent, no Referer, no raw capability, no SMTP
