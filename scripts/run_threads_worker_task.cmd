@@ -68,6 +68,6 @@ set "UV=%AFFILIATE_AI_UV%"
 if "%UV%"=="" set "UV=uv"
 
 rem Separate log from the C8 daily/weekly pipeline.
-"%UV%" run python scripts\run_threads_worker.py --resident %FLAGS% >> "%LOG_DIR%\threads-worker.log" 2>&1
+"%UV%" run python -u scripts\run_threads_worker.py --resident %FLAGS% >> "%LOG_DIR%\threads-worker.log" 2>&1
 
 exit /b %ERRORLEVEL%

@@ -149,6 +149,33 @@ uv run python scripts/plan_threads_worker_schedule.py --profile observe
 
 5. 常駐に進むまでは `automatic_publication.enabled` を `false` に戻してよい。
 
+## 常駐 worker のログ (`threads-worker.log`)
+
+常駐モードは正常なら終わらないので、起きたことをその場で 1 行ずつ出す
+(ランチャは `python -u` で、行ごとに flush する)。眠るたびの行は出さない。
+
+```
+2026-09-25T10:00:00+0900 threads-worker INFO event=started mode=resident pid=1234 policy=t4.3 capabilities=collect_insights,sync_approvals auto_publish_flag=False auto_publish_policy=disabled can_publish=False
+2026-09-25T10:00:00+0900 threads-worker INFO event=lock_acquired reclaimed_stale=False
+2026-09-25T10:00:01+0900 threads-worker INFO event=approval_sync result="checked, no decisions" fetched=0 skipped=0 next=...
+2026-09-25T10:00:02+0900 threads-worker INFO event=insights_refresh result=#2:imported network_calls=1 next=...
+```
+
+| 仕事 | いつ出すか | 区別すること |
+| --- | --- | --- |
+| `health` / `queue_observation` | 最初の 1 回と、状態が変わったときだけ | 設定の状態 / 承認済み・未公開・承認待ちの件数 |
+| `approval_sync` | 毎回 (確認したこと自体が生存の証拠) | `checked, no decisions` / `applied N decision(s)` / `failed` |
+| `insights_refresh` | 毎回 | `#N:imported` / `not due` / `#N:failed[分類] 理由` |
+| `publication_evaluation` | 毎回 | 次の候補・ブロッカー・自動公開の結果 (異常は ERROR) |
+| `approval_notification_flush` | 毎回 | 送るか・待つ理由・送った数 |
+
+ほかに `subsystem_failed` (WARN)、`already_running` (WARN)、`lock_lost` (ERROR)、
+`stopped` (理由・終了コード・サイクル数・公開数) を出す。
+
+どの行も最後に秘密を落とす: URL は丸ごと `[url]` (承認の URL・追跡 URL・/go/)、
+`access_token=` などは `[redacted]`、長い乱数らしい値も `[redacted]`。数字だけの id
+(media id など) はそのまま残る。
+
 ## 本番で有効にする前に (人が確認すること)
 
 1. Meta の API アクセスが戻っていること:

@@ -243,7 +243,17 @@ class ThreadsWorkerService:
             SUBSYSTEM_APPROVAL_SYNC: self._approval_sync,
         }
 
-    def build_worker(self, *, now: datetime, clock=None, sleep=None, lock=None) -> ThreadsWorker:
+    @property
+    def timezone(self) -> ZoneInfo:
+        return self._tz
+
+    @property
+    def policy_version(self) -> str:
+        return self._policy.policy_version
+
+    def build_worker(
+        self, *, now: datetime, clock=None, sleep=None, lock=None, on_event=None
+    ) -> ThreadsWorker:
         self._lock = lock
         return ThreadsWorker(
             handlers=self.handlers(),
@@ -252,6 +262,7 @@ class ThreadsWorkerService:
             clock=clock,
             sleep=sleep,
             lock=lock,
+            on_event=on_event,
         )
 
     def build_lock(self) -> ThreadsWorkerLock:
@@ -529,6 +540,7 @@ class ThreadsWorkerService:
                     {
                         "publication_id": d.get("publication_id"),
                         "result": d.get("result"),
+                        "category": d.get("category"),
                         "reason": d.get("reason"),
                     }
                     for d in refreshed

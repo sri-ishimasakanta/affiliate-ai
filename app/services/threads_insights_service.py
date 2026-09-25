@@ -208,7 +208,9 @@ class ThreadsInsightsService:
                     error=exc,
                 )
                 outcome.failed += 1
-                outcome.details.append({**detail, "result": "failed", "reason": exc.reason})
+                outcome.details.append(
+                    {**detail, "result": "failed", "category": exc.category, "reason": exc.reason}
+                )
                 continue
 
             values = dict(insights.values)

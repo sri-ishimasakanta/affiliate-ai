@@ -120,3 +120,10 @@ def test_the_schedule_cli_registers_nothing(monkeypatch, capsys) -> None:
     assert "posts nothing while the policy is disabled" in out
     for secret in ("THAAAsecret-value", "relay-secret-value", "smtp-password-value"):
         assert secret not in out
+
+
+def test_the_launcher_runs_python_unbuffered() -> None:
+    """ログの行が溜まらずに出るように (常駐モードは長く動き続ける)。"""
+
+    expected = "run python -u scripts" + chr(92) + "run_threads_worker.py --resident"
+    assert expected in _launcher()

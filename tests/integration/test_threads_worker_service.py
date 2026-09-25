@@ -1173,3 +1173,108 @@ def test_published_proposals_are_not_shown_as_waiting_stock(
     counts = _once(_service(session))["proposals"]
     assert counts["approved"] == 2
     assert counts["approved_unpublished"] == 1
+
+
+# == resident observability (the log stayed 0 bytes) ==========================
+def test_the_resident_cli_logs_startup_first_and_every_subsystem(
+    session: Session, article: Article, capsys, monkeypatch
+) -> None:
+    """常駐モードは正常なら run() から戻らない。旧実装はその後にしか出力せず、
+    ログが 0 バイトのままだった。いまは起動の直後から 1 行ずつ出す。"""
+
+    from app.services.mobile_approval_service import MobileApprovalService, SyncOutcome
+    from scripts import run_threads_worker
+
+    publication = _publication(
+        session, _proposal(session, article), published_at=_NOW - timedelta(minutes=40)
+    )
+    monkeypatch.setattr(run_threads_worker.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        MobileApprovalService,
+        "sync",
+        lambda self, *, execute, now: SyncOutcome(fetched=0, applied=0, executed=execute),
+    )
+
+    code = run_threads_worker.main(
+        ["--resident", "--max-cycles", "2", "--collect-insights", "--sync-approvals"],
+        session_factory=_factory(session),
+        settings=_Settings(),
+        overrides={"threads_service": _ReadOnlyThreads(), "relay_client": object()},
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    assert code == 0
+    assert "event=started" in lines[0]
+    assert "mode=resident" in lines[0]
+    assert "capabilities=collect_insights,sync_approvals" in lines[0]
+    assert "auto_publish_policy=disabled" in lines[0]
+    events = " ".join(lines)
+    assert "event=lock_acquired" in events
+    assert "event=health" in events
+    assert 'event=approval_sync result="checked, no decisions"' in events
+    assert f"#{publication.id}:imported" in events
+    assert "event=publication_evaluation" in events
+    assert "event=approval_notification_flush" in events
+    assert "event=stopped reason=completed" in events
+    # 眠るたびの行は無い: 2 サイクルで health の行は 1 本だけ (状態が変わらないため)。
+    assert sum("event=health" in line for line in lines) == 1
+
+
+def test_the_resident_log_carries_no_secret(
+    session: Session, article: Article, capsys, monkeypatch
+) -> None:
+    from app.services.mobile_approval_service import MobileApprovalService
+    from app.social.threads.errors import ThreadsAuthError
+    from scripts import run_threads_worker
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(minutes=40))
+    monkeypatch.setattr(run_threads_worker.time, "sleep", lambda _s: None)
+
+    def failing_sync(self, *, execute, now):
+        raise RuntimeError(
+            "relay said https://bizfluxlab.com/bfl-approval/x#Zx8qP2vN5tR7yK1mW3eH9jL4uB6oC0dF "
+            f"with access_token={_TOKEN} password=smtp-password-never-stored /go/aff_9f8e7d6c"
+        )
+
+    monkeypatch.setattr(MobileApprovalService, "sync", failing_sync)
+    threads = _ReadOnlyThreads(error=ThreadsAuthError(f"rejected access_token={_TOKEN}"))
+    run_threads_worker.main(
+        ["--resident", "--max-cycles", "1", "--collect-insights", "--sync-approvals"],
+        session_factory=_factory(session),
+        settings=_Settings(),
+        overrides={"threads_service": threads, "relay_client": object()},
+    )
+    out = capsys.readouterr().out
+
+    assert "event=subsystem_failed" in out  # 失敗は出る
+    assert "failed[threads_auth]" in out
+    for secret in (
+        _TOKEN,
+        "THAAA",
+        "smtp-password-never-stored",
+        "Zx8qP2vN5tR7yK1mW3eH9jL4uB6oC0dF",
+        "bfl-approval",
+        "aff_9f8e7d6c",
+    ):
+        assert secret not in out
+
+
+def test_an_already_running_resident_worker_says_so(
+    session: Session, article: Article, capsys, monkeypatch
+) -> None:
+    from scripts import run_threads_worker
+
+    monkeypatch.setattr(run_threads_worker.time, "sleep", lambda _s: None)
+    ThreadsWorkerLock(_factory(session), stale_after_minutes=15, owner_label="first").acquire(
+        datetime.now(UTC)
+    )
+    code = run_threads_worker.main(
+        ["--resident", "--max-cycles", "1"],
+        session_factory=_factory(session),
+        settings=_Settings(),
+        overrides={"threads_service": _ReadOnlyThreads()},
+    )
+    out = capsys.readouterr().out
+    assert code == 4
+    assert "event=started" in out
+    assert "event=already_running" in out

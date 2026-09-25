@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config.database import SessionLocal  # noqa: E402
 from app.config.settings import get_settings  # noqa: E402
+from app.services.threads_worker_log import WorkerLogFormatter  # noqa: E402
 from app.services.threads_worker_service import ThreadsWorkerService  # noqa: E402
 from app.social.threads.worker import EXIT_ALREADY_RUNNING, EXIT_OK  # noqa: E402
 
@@ -124,8 +125,23 @@ def main(
         _write(args.json_path, status)
         return EXIT_OK
 
+    # 常駐モードは正常なら run() から戻らない。起きたことを、その場で 1 行ずつ出す
+    # (眠るたびには出さない)。どの行も秘密を落としてから出す。
+    formatter = WorkerLogFormatter(timezone=service.timezone)
+
+    def emit(event: dict) -> None:
+        line = formatter.format(event)
+        if line:
+            print(line, flush=True)
+
+    print(
+        formatter.startup(
+            now=now, policy_version=service.policy_version, capabilities=service.capabilities
+        ),
+        flush=True,
+    )
     lock = service.build_lock()
-    worker = service.build_worker(now=now, sleep=time.sleep, lock=lock)
+    worker = service.build_worker(now=now, sleep=time.sleep, lock=lock, on_event=emit)
     pre = service.preview(now=now)
     try:
         run = worker.run(max_cycles=args.max_cycles)

@@ -221,6 +221,7 @@ class ThreadsWorker:
         lock=None,
         publisher=None,
         mode: str = MODE_PLAN,
+        on_event: Callable[[dict], None] | None = None,
     ) -> None:
         if publisher is not None:
             # 公開はゲート付きの handler の中だけで起きる。外から経路を足させない。
@@ -238,6 +239,17 @@ class ThreadsWorker:
         self._lock = lock
         self._mode = mode
         self._stop = False
+        #: 起動・仕事の実行・警告・停止だけを知らせる口 (眠るたびには呼ばない)。
+        #: 知らせる側の失敗で worker を止めない。
+        self._on_event = on_event
+
+    def _emit(self, event: str, **fields) -> None:
+        if self._on_event is None:
+            return
+        try:
+            self._on_event({"event": event, "at": self._clock(), **fields})
+        except Exception:  # noqa: BLE001 - ログの失敗で仕事を止めない
+            pass
 
     @property
     def schedule(self) -> WorkerSchedule:
@@ -262,8 +274,13 @@ class ThreadsWorker:
             try:
                 result = handler(now)
             except Exception as exc:  # noqa: BLE001 - 1 つの仕事の失敗で worker を止めない
-                self._schedule.record_failure(
-                    name, now, f"{type(exc).__name__}: {exc}"[:300], now + self._heartbeat
+                error = f"{type(exc).__name__}: {exc}"[:300]
+                self._schedule.record_failure(name, now, error, now + self._heartbeat)
+                self._emit(
+                    "subsystem_failed",
+                    name=name,
+                    error=error,
+                    next_run_at=self._schedule.state(name).next_run_at,
                 )
                 continue
             publications += result.publications
@@ -272,11 +289,19 @@ class ThreadsWorker:
                 raise RuntimeError("a worker cycle attempted more than one publication")
             self._schedule.record(name, now, result)
             ran.append(name)
+            self._emit(
+                "subsystem",
+                name=name,
+                summary=result.summary,
+                publications=result.publications,
+                next_run_at=self._schedule.state(name).next_run_at,
+            )
         lock_lost = False
         if self._lock is not None and self._lock.heartbeat(now) is False:
             # 所有権を失った。これ以上この worker が仕事をしてはいけない。
             lock_lost = True
             self._stop = True
+            self._emit("lock_lost")
         return CycleReport(
             lock_lost=lock_lost,
             started_at=now,
@@ -296,7 +321,10 @@ class ThreadsWorker:
                 # 先に動いている worker を邪魔しない。ネットワークも書き込みもしない。
                 run.exit_code = EXIT_ALREADY_RUNNING
                 run.notes.append("another Threads worker holds the lock; exiting without work")
+                self._emit("already_running", blocking=acquired.get("blocking_owner_label"))
                 return run
+            self._emit("lock_acquired", reclaimed_stale=bool(acquired.get("reclaimed_stale")))
+        reason = "completed"
         try:
             cycles = 0
             while not self._stop:
@@ -313,9 +341,24 @@ class ThreadsWorker:
                     break
                 delay = (report.next_wake_at - self._clock()).total_seconds()
                 self._sleep(max(0.0, delay))
+            if run.exit_code == EXIT_LOCK_LOST:
+                reason = "lost_lock"
+        except KeyboardInterrupt:
+            reason = "interrupted"
+            raise
+        except BaseException:
+            reason = "crashed"
+            raise
         finally:
             if self._lock is not None:
                 self._lock.release(self._clock())
+            self._emit(
+                "stopped",
+                reason=reason,
+                exit_code=run.exit_code,
+                cycles=len(run.cycles),
+                publications=run.publications,
+            )
         return run
 
 
