@@ -149,7 +149,95 @@ def build_threads_alert_drafts(
     return drafts
 
 
+# == T4.3: publication state ===================================================
+#: 公開の途中 (作成中・公開中) がこの時間を超えて続いていれば、止まったとみなす。
+#: 正常な公開は 30 秒の待ちを含めて 1 分ほどで終わる。
+STUCK_IN_FLIGHT_MINUTES = 10
+
+
+@dataclass(frozen=True)
+class PublicationHealthInput:
+    """公開の状態についての事実だけ。本文も token も含めない。"""
+
+    publication_id: int
+    status: str
+    reconciliation_required: bool = False
+    trigger: str = "manual"
+    minutes_in_state: float | None = None
+    error_category: str | None = None
+
+
+def build_publication_alert_drafts(inputs: list[PublicationHealthInput]) -> list[AlertDraft]:
+    """公開が不確定・止まった・照合待ち のときだけ警告にする (T4.3)。
+
+    これらは queue 全体を止める状態なので、黙って止まったままにしない。
+    """
+
+    drafts: list[AlertDraft] = []
+    for item in inputs:
+        evidence = {
+            "publication_id": item.publication_id,
+            "status": item.status,
+            "trigger": item.trigger,
+            "error_category": item.error_category,
+        }
+        stuck = (
+            item.status in ("creating", "container_created", "publishing")
+            and item.minutes_in_state is not None
+            and item.minutes_in_state >= STUCK_IN_FLIGHT_MINUTES
+        )
+        if item.status == "uncertain" or stuck:
+            drafts.append(
+                AlertDraft(
+                    alert_type=AUTOMATION_HEALTH,
+                    severity=SEVERITY_ERROR,
+                    source="threads_publication",
+                    title="Threads の公開が出たかどうか分からない",
+                    summary=(
+                        "公開の応答を取りこぼした (または途中で止まった)。次の公開はすべて止まって"
+                        "いる。publish_threads_post.py --reconcile で確かめる。**再送しない。**"
+                    ),
+                    fingerprint=f"threads_publication_uncertain:{item.publication_id}",
+                    evidence=evidence,
+                )
+            )
+        if item.reconciliation_required:
+            drafts.append(
+                AlertDraft(
+                    alert_type=AUTOMATION_HEALTH,
+                    severity=SEVERITY_ERROR,
+                    source="threads_publication",
+                    title="公開した内容の照合が必要",
+                    summary=(
+                        "読み戻した内容が送った内容と一致しない。次の公開はすべて止まっている。"
+                        "内容を確かめてから照合する。"
+                    ),
+                    fingerprint=f"threads_publication_reconcile:{item.publication_id}",
+                    evidence=evidence,
+                )
+            )
+    return drafts
+
+
+def build_autopublish_preflight_draft(category: str | None, reason: str | None) -> AlertDraft:
+    """自動公開の事前確認 (読むだけ) が失敗した。コンテナは作っていない (T4.3)。"""
+
+    return AlertDraft(
+        alert_type=IMPORT_FAILURE,
+        severity=SEVERITY_ERROR if category in FATAL_CATEGORIES else SEVERITY_WARNING,
+        source="threads_autopublish",
+        title=f"自動公開の事前確認に失敗 ({category or 'unknown'})",
+        summary="読み取りの事前確認が通らなかったので、コンテナを作らずに止めた。",
+        fingerprint=f"threads_autopublish_preflight:{category or 'unknown'}",
+        evidence={"category": category, "reason": reason},
+    )
+
+
 __all__ = [
+    "STUCK_IN_FLIGHT_MINUTES",
+    "PublicationHealthInput",
+    "build_autopublish_preflight_draft",
+    "build_publication_alert_drafts",
     "FATAL_CATEGORIES",
     "NOT_FOUND_CATEGORY",
     "UNEXPECTED_CATEGORY",

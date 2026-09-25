@@ -906,3 +906,119 @@ def test_approval_sync_pulls_the_publication_evaluation_forward(
         SUBSYSTEM_QUEUE_OBSERVATION: _NOW,
     }
     assert result.next_run_at == _NOW + timedelta(minutes=5)
+
+
+# == T4.3: problems in automatic publication are reported at once =============
+class _RecordingNotifier:
+    name = "email"
+
+    def __init__(self) -> None:
+        self.sent = []
+
+    def send(self, message):
+        from app.operations.notifications import NotificationResult
+
+        self.sent.append(message)
+        return NotificationResult(self.name, True)
+
+
+class _LosingThreads(_PublishingThreads):
+    """公開の応答を取りこぼす Threads の代役。"""
+
+    def publish_container(self, creation_id):
+        from app.social.threads.errors import ThreadsServerError
+
+        self.calls.append("publish")
+        raise ThreadsServerError("publish response lost", status=500)
+
+
+class _BlockedThreads(_PublishingThreads):
+    def check_connection(self):
+        from app.social.threads.errors import ThreadsPermissionError
+
+        self.calls.append("preflight")
+        status = self.describe()
+        status.reachable = False
+        status.error = ThreadsPermissionError(
+            "/me failed: API access blocked.", status=400, api_code="200"
+        ).as_dict()
+        return status
+
+
+def _auto_worker(session, threads, tmp_path, notifier):
+    service = ThreadsWorkerService(
+        _factory(session),
+        settings=_Settings(),
+        threads_service=threads,
+        policy=_enabled_policy(tmp_path),
+        auto_publish=True,
+        publish_sleep=lambda _s: None,
+        alert_notifiers=[notifier],
+    )
+    lock = ThreadsWorkerLock(_factory(session), stale_after_minutes=15, owner_label="w")
+    lock.acquire(_NOW)
+    return service, service.build_worker(now=_NOW, clock=lambda: _NOW, lock=lock)
+
+
+def test_an_uncertain_automatic_publication_is_alerted_immediately(
+    session: Session, article: Article, tmp_path
+) -> None:
+    from app.models import OperationsAlert
+
+    _proposal(session, article, seed="a")
+    notifier = _RecordingNotifier()
+    _service_, worker = _auto_worker(session, _LosingThreads(), tmp_path, notifier)
+    worker.run_cycle()
+
+    alert = session.scalars(select(OperationsAlert)).one()
+    assert alert.fingerprint.startswith("threads_publication_uncertain:")
+    assert alert.severity == "error"
+    assert len(notifier.sent) == 1
+    assert "THAAA" not in str(alert.evidence_json)
+
+
+def test_a_repeated_problem_is_not_re_notified_every_cycle(
+    session: Session, article: Article, tmp_path
+) -> None:
+    from app.models import OperationsAlert
+
+    _proposal(session, article, seed="a")
+    notifier = _RecordingNotifier()
+    _service_, worker = _auto_worker(session, _BlockedThreads(), tmp_path, notifier)
+    worker.run_cycle()
+    worker.schedule.state(SUBSYSTEM_PUBLICATION_EVALUATION).next_run_at = _NOW
+    worker.run_cycle()
+
+    alert = session.scalars(select(OperationsAlert)).one()
+    assert alert.fingerprint == "threads_autopublish_preflight:threads_permission"
+    assert alert.occurrence_count == 2
+    assert len(notifier.sent) == 1  # cooldown 中は再通知しない
+    assert session.scalar(select(func.count()).select_from(ThreadsPublication)) == 0
+
+
+def test_a_successful_automatic_publication_raises_no_alert(
+    session: Session, article: Article, tmp_path
+) -> None:
+    from app.models import OperationsAlert
+
+    _proposal(session, article, seed="a")
+    notifier = _RecordingNotifier()
+    _service_, worker = _auto_worker(session, _PublishingThreads(), tmp_path, notifier)
+    worker.run_cycle()
+    assert session.scalar(select(func.count()).select_from(ThreadsPublication)) == 1
+    assert session.scalars(select(OperationsAlert)).all() == []
+    assert notifier.sent == []
+
+
+def test_the_daily_monitoring_also_sees_an_uncertain_publication(
+    session: Session, article: Article
+) -> None:
+    from app.models import PUB_UNCERTAIN
+    from app.services.threads_insights_service import ThreadsInsightsService
+
+    proposal = _proposal(session, article, seed="a")
+    _publication(session, proposal, published_at=None, status=PUB_UNCERTAIN)
+    drafts = ThreadsInsightsService(
+        session, settings=_Settings(), threads_service=_ReadOnlyThreads()
+    ).alert_drafts(now=_NOW)
+    assert any(d.fingerprint.startswith("threads_publication_uncertain:") for d in drafts)

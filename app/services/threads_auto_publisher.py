@@ -56,6 +56,8 @@ class AutoPublishOutcome:
     next_evaluation_at: datetime | None = None
     #: Threads への書き込み呼び出しの数 (コンテナ作成・公開)。
     threads_writes: int = 0
+    #: T3 が返した失敗 (分類と redact 済みの理由)。token は入らない。
+    error: dict | None = None
     notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -74,6 +76,7 @@ class AutoPublishOutcome:
                 self.next_evaluation_at.isoformat() if self.next_evaluation_at else None
             ),
             "threads_writes": self.threads_writes,
+            "error": self.error,
             "notes": list(self.notes),
         }
 
@@ -221,6 +224,7 @@ class ThreadsAutoPublisher:
         outcome.blocked_reasons.extend(result.blocked_reasons)
         outcome.threads_writes = int(bool(result.creation_id)) + int(bool(result.media_id))
         outcome.published = result.outcome == "published"
+        outcome.error = result.error
         if result.outcome == "uncertain":
             outcome.notes.append(
                 "the publish response was lost; the queue stays blocked until "

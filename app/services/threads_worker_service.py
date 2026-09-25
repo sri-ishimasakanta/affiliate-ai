@@ -152,6 +152,7 @@ class ThreadsWorkerService:
         auto_publish: bool = False,
         sync_approvals: bool = False,
         publish_sleep=None,
+        alert_notifiers=None,
     ) -> None:
         self._factory = session_factory
         self._settings = settings
@@ -176,6 +177,8 @@ class ThreadsWorkerService:
         self._publish_sleep = publish_sleep
         #: build_worker で渡されたロック (自動公開のゲートに使う)。
         self._lock = None
+        #: 自動公開の異常を知らせる notifier (None なら設定から作る。試験では差し替える)。
+        self._alert_notifiers = alert_notifiers
 
     @property
     def capabilities(self) -> dict:
@@ -345,11 +348,63 @@ class ThreadsWorkerService:
                     publications = 1
                 if result.next_evaluation_at is not None:
                     next_at = result.next_evaluation_at
+                summary["alerts_recorded"] = self._alert_on_autopublish(session, result, now)
         return SubsystemResult(
             next_run_at=max(next_at, now + _MIN_RESCHEDULE),
             summary=summary,
             publications=publications,
         )
+
+    def _alert_on_autopublish(self, session, result, now: datetime) -> int:
+        """自動公開がうまくいかなかったら、その場でアラートを記録・通知する (T4.3)。
+
+        不確定・照合待ちは queue 全体を止める状態なので、翌朝の日次監視まで黙って
+        待たない。同じ問題は fingerprint で 1 行にまとまり、cooldown 中は再通知しない
+        (C8 と同じ OperationsAlertService)。成績ではアラートを出さない。
+        """
+
+        from app.operations.threads_health import (
+            build_autopublish_preflight_draft,
+            build_publication_alert_drafts,
+        )
+        from app.services.threads_insights_service import ThreadsInsightsService
+
+        drafts = []
+        if result.outcome == "preflight_failed":
+            error = (result.preflight or {}).get("error") or {}
+            drafts.append(
+                build_autopublish_preflight_draft(error.get("category"), error.get("reason"))
+            )
+        elif result.outcome == "failed":
+            error = result.error or {}
+            drafts.append(
+                build_autopublish_preflight_draft(error.get("category"), error.get("reason"))
+            )
+        if result.attempted:
+            health = ThreadsInsightsService(
+                session,
+                settings=self._settings,
+                threads_service=self._threads,
+                policy=self._measurement,
+                timezone=self._tz,
+            )
+            drafts += build_publication_alert_drafts(health.publication_health_inputs(now=now))
+        if not drafts:
+            return 0
+
+        from app.operations.notifications import build_notifiers
+        from app.operations.policy import get_policy
+        from app.services.operations_alert_service import OperationsAlertService
+
+        notifiers = (
+            self._alert_notifiers
+            if self._alert_notifiers is not None
+            else build_notifiers(self._settings)
+        )
+        outcome = OperationsAlertService(
+            session, policy=get_policy(), notifiers=notifiers
+        ).record_and_notify(drafts, now=now)
+        return outcome.recorded
 
     def _approval_sync(self, now: datetime) -> SubsystemResult:
         """携帯で下された決定を取り込む (T4.3)。既存の sync をそのまま使う。

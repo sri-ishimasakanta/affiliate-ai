@@ -4,8 +4,9 @@ T4.3 で、承認済み queue から自動で公開する経路を実装した�
 コミットしてある。有効にするのは、下の「本番で有効にする前に」をすべて人が確認して
 からである。
 
-2026-09-25 時点では、Meta 側で Threads API のアクセスが止められている
-(`HTTP 400 / Graph code 200 / "API access blocked."`)。これが解消するまで有効にしない。
+2026-09-25 06:30–08:50 JST ごろ、Meta 側で Threads API のアクセスが止められていた
+(`HTTP 400 / Graph code 200 / "API access blocked."`)。08:58 JST には回復している
+(`check_threads_connection.py` が `reachable = True`、指標の取り込みも成功)。
 
 ## 公開まで進む条件 (すべて必要)
 
@@ -51,12 +52,18 @@ T3 の `ThreadsPublicationService.plan()` / `publish()` に次を入れた。
 
 ## 失敗したとき
 
-| 状況 | 何が起きるか |
-| --- | --- |
-| 事前確認が失敗 (API が止められている・token 切れ等) | コンテナを作らずに止まる。次の評価でまた確認する |
-| コンテナ作成で失敗 | 外には何も出ていない。T3 が `failed` にし、再試行してよい |
-| 公開の応答を取りこぼした | T3 が `uncertain` にする。**queue 全体が止まる**。照合が要る |
-| 読み戻しで文面が違う | `reconciliation_required`。queue 全体が止まる。error アラート |
+| 状況 | 何が起きるか | 知らせ方 |
+| --- | --- | --- |
+| 事前確認が失敗 (API が止められている・token 切れ等) | コンテナを作らずに止まる。次の評価でまた確認する | その場で `IMPORT_FAILURE` (権限・token は error、一時的な失敗は warning) |
+| コンテナ作成で失敗 | 外には何も出ていない。T3 が `failed` にし、再試行してよい | その場で `IMPORT_FAILURE` |
+| 公開の応答を取りこぼした | T3 が `uncertain` にする。**queue 全体が止まる**。照合が要る | その場で `AUTOMATION_HEALTH` error |
+| 公開の途中で 10 分以上止まった | queue 全体が止まる | 日次の監視で `AUTOMATION_HEALTH` error |
+| 読み戻しで文面が違う | `reconciliation_required`。queue 全体が止まる | その場で `AUTOMATION_HEALTH` error |
+
+「その場で」は、worker が自動公開を試みた直後に `OperationsAlertService` で記録・通知
+することを指す (C8 と同じ仕組み)。同じ問題は fingerprint で 1 行にまとまり、cooldown
+中は再通知しない。C8 の日次の監視も同じ公開の状態を見るので、worker が止まって
+いても翌朝には必ず知らされる。**成績 (views の少なさ等) ではアラートを出さない。**
 
 事前確認の失敗の分類は、2026-09-25 に直した Graph エラーの分類
 (`docs/operations/threads-measurement.md`) をそのまま使う。
@@ -98,6 +105,32 @@ uv run python scripts/plan_threads_worker_schedule.py --profile observe
 画面で「スケジュールされた時刻に開始できなかった場合、すぐに実行する」と
 「既に実行中の場合は新しいインスタンスを開始しない」を設定する
 (`schtasks /Create` では設定できない)。ログは `threads-worker.log` で C8 と分かれる。
+
+## 最初の自動公開 (人が明示して 1 回だけ)
+
+1 本目は常駐させずに、1 サイクルだけ動かして確かめる:
+
+1. 公開窓 (07:00–23:00 JST) の中で、dry run が意図どおりの候補を示すことを確認する:
+
+   ```bash
+   uv run python scripts/run_threads_worker.py
+   ```
+
+2. `threads_operations_policy.json` の `automatic_publication.enabled` を `true` にする
+   (人がレビューしてコミットする)。
+3. 1 サイクルだけ動かす (ロックを取り、公開は最大 1 本):
+
+   ```bash
+   uv run python scripts/run_threads_worker.py --once --auto-publish
+   ```
+
+4. 結果を確かめる (読み戻しの一致・trigger=automatic・次の評価が 120 分後):
+
+   ```bash
+   uv run python scripts/check_threads_post.py --publication-id <id>
+   ```
+
+5. 常駐に進むまでは `automatic_publication.enabled` を `false` に戻してよい。
 
 ## 本番で有効にする前に (人が確認すること)
 

@@ -165,3 +165,59 @@ def test_only_a_404_means_the_post_is_unreadable() -> None:
     )
     assert [d.fingerprint for d in drafts] == ["threads_media_unreadable:1"]
     assert drafts[0].evidence["reason"].endswith("not found")
+
+
+# -- T4.3: publication state ---------------------------------------------------
+from app.operations.threads_health import (  # noqa: E402
+    PublicationHealthInput,
+    build_autopublish_preflight_draft,
+    build_publication_alert_drafts,
+)
+
+
+def test_an_uncertain_publication_alerts_immediately_at_error() -> None:
+    drafts = build_publication_alert_drafts(
+        [
+            PublicationHealthInput(
+                publication_id=4, status="uncertain", trigger="automatic", minutes_in_state=0.5
+            )
+        ]
+    )
+    assert [d.fingerprint for d in drafts] == ["threads_publication_uncertain:4"]
+    assert drafts[0].severity == SEVERITY_ERROR
+    assert "再送しない" in drafts[0].summary
+    assert drafts[0].evidence["trigger"] == "automatic"
+
+
+def test_a_publish_in_progress_is_not_an_alert_until_it_is_stuck() -> None:
+    running = PublicationHealthInput(publication_id=4, status="publishing", minutes_in_state=1)
+    stuck = PublicationHealthInput(publication_id=4, status="publishing", minutes_in_state=12)
+    assert build_publication_alert_drafts([running]) == []
+    assert [d.fingerprint for d in build_publication_alert_drafts([stuck])] == [
+        "threads_publication_uncertain:4"
+    ]
+
+
+def test_a_reconciliation_flag_alerts_at_error() -> None:
+    drafts = build_publication_alert_drafts(
+        [PublicationHealthInput(publication_id=4, status="published", reconciliation_required=True)]
+    )
+    assert [d.fingerprint for d in drafts] == ["threads_publication_reconcile:4"]
+    assert drafts[0].severity == SEVERITY_ERROR
+
+
+def test_a_healthy_published_post_raises_nothing() -> None:
+    assert (
+        build_publication_alert_drafts(
+            [PublicationHealthInput(publication_id=1, status="published")]
+        )
+        == []
+    )
+
+
+def test_preflight_severity_follows_the_error_class() -> None:
+    fatal = build_autopublish_preflight_draft("threads_permission", "API access blocked.")
+    transient = build_autopublish_preflight_draft("threads_rate_limit", "slow down")
+    assert fatal.severity == SEVERITY_ERROR
+    assert transient.severity == SEVERITY_WARNING
+    assert fatal.fingerprint == "threads_autopublish_preflight:threads_permission"

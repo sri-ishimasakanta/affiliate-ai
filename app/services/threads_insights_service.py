@@ -26,13 +26,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.article.fact_freshness import ensure_aware, to_storage_utc
 from app.exceptions import ApplicationError
 from app.models import (
+    PUB_IN_FLIGHT_STATES,
     PUB_PUBLISHED,
     SNAPSHOT_EMPTY,
     SNAPSHOT_FAILED,
@@ -46,7 +47,9 @@ from app.operations.local_time import local_hour, local_weekday, to_local
 from app.operations.policy import get_policy as get_operations_policy
 from app.operations.threads_health import (
     NOT_FOUND_CATEGORY,
+    PublicationHealthInput,
     ThreadsHealthInput,
+    build_publication_alert_drafts,
     build_threads_alert_drafts,
 )
 from app.social.threads.errors import ThreadsError
@@ -358,10 +361,43 @@ class ThreadsInsightsService:
             )
         return inputs
 
-    def alert_drafts(self) -> list:
-        """計測の故障だけをアラート草案にする。**成績では 1 件も出さない。**"""
+    def alert_drafts(self, *, now: datetime | None = None) -> list:
+        """計測の故障と、公開の不確定・照合待ちだけをアラート草案にする。
 
-        return build_threads_alert_drafts(self.health_inputs())
+        **成績では 1 件も出さない。** C8 の日次の監視はここを通る。
+        """
+
+        return build_threads_alert_drafts(self.health_inputs()) + build_publication_alert_drafts(
+            self.publication_health_inputs(now=now)
+        )
+
+    def publication_health_inputs(self, *, now: datetime | None = None):
+        """queue 全体を止める公開の状態 (不確定・途中で止まった・照合待ち) の事実 (T4.3)。"""
+
+        now = ensure_aware(now or datetime.now(UTC))
+        rows = self._session.scalars(
+            select(ThreadsPublication).where(
+                or_(
+                    ThreadsPublication.status.in_(tuple(PUB_IN_FLIGHT_STATES)),
+                    ThreadsPublication.reconciliation_required.is_(True),
+                )
+            )
+        ).all()
+        out = []
+        for row in rows:
+            since = row.publish_started_at or row.updated_at
+            minutes = (now - ensure_aware(since)).total_seconds() / 60.0 if since else None
+            out.append(
+                PublicationHealthInput(
+                    publication_id=row.id,
+                    status=row.status,
+                    reconciliation_required=bool(row.reconciliation_required),
+                    trigger=row.trigger,
+                    minutes_in_state=minutes,
+                    error_category=row.error_category,
+                )
+            )
+        return out
 
     # -- aggregation -----------------------------------------------------------
     def _aggregate(self, mature: list[dict], key: str) -> dict:
