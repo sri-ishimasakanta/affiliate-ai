@@ -169,6 +169,9 @@ def test_generation_prompts_never_ask_for_text_logos_or_people(doc, articles) ->
     for a in articles:
         prompt = a["generation_prompt"]
         assert not JAPANESE.search(prompt), a["article_id"]
+        # negative prompt にも日本語を入れない (つないだ文で画像モデルが文字を描きやすくなる)。
+        for term in a["negative_constraints"]:
+            assert not JAPANESE.search(term), (a["article_id"], term)
         assert prompt.endswith(shared["positive_suffix"].replace("{ACCENT}", a["accent"]["color"]))
         assert not REQUESTED_BUT_FORBIDDEN.search(prompt), a["article_id"]
         assert a["negative_constraints"][: len(shared["negative"])] == shared["negative"]

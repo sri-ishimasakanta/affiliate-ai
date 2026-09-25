@@ -26,9 +26,9 @@ sys.path.insert(0, str(ROOT))
 
 from app.wordpress.featured_image_batch import (  # noqa: E402
     build_batch_package,
+    manifest_sha256,
     render_checklist_markdown,
     render_handoff_markdown,
-    sha256_of,
     validate_batch_package,
 )
 
@@ -51,7 +51,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    digest = sha256_of(args.manifest)
+    digest = manifest_sha256(args.manifest)
     out_dir = args.out_root / f"batch-{args.batch}"
     package_path = out_dir / "batch-manifest.json"
 

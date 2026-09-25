@@ -120,11 +120,55 @@ SHAPE_SUMMARY = {
     12: "クリップボードのチェックリスト + 注意の印と砂時計",
     13: "カンバンとタイムラインの 2 枚のボード",
     15: "1 枚のデータベースの表 (チェック欄)",
+    1: "違う種類の印の 6 枚のタイル (3×2) から 2 枚が選ばれる",
+    4: "離れた 2 枚のパネル (連絡先の中心 / 商談のパイプライン)",
+    5: "段差のある 3 枚のプランカード + 離れた 1 回限りの札",
+    14: "重なった 2 つの領域 (ベン図)",
 }
 
 
 def shape_summary(item: Mapping) -> str:
     return SHAPE_SUMMARY.get(item["article_id"]) or item["motif"].split(". ")[0]
+
+
+def _pair_checks(items: list[Mapping]) -> list[str]:
+    """見分けの確認: バッチの中のすべての組と、バッチの外 (試作・別のバッチ) の相手。
+
+    manifest の ``distinguish_from`` に規則があればそれを、無ければ両方の形の要約を添える
+    (規則が無い組も確かめる。manifest の設計は書き換えない)。
+    """
+
+    by_id = {item["article_id"]: item for item in items}
+    rules: dict[frozenset, str] = {}
+    outside: list[tuple[int, int, str]] = []
+    for item in items:
+        for other in item["distinguish_from"]:
+            if other["article_id"] in by_id:
+                rules.setdefault(
+                    frozenset((item["article_id"], other["article_id"])), other["rule"]
+                )
+            else:
+                outside.append((item["article_id"], other["article_id"], other["rule"]))
+    out = []
+    ids = [item["article_id"] for item in items]
+    for index, first in enumerate(ids):
+        for second in ids[index + 1 :]:
+            rule = rules.get(frozenset((first, second)))
+            if rule is None:
+                rule = (
+                    f"(manifest に規則なし) {first} = {shape_summary(by_id[first])} / "
+                    f"{second} = {shape_summary(by_id[second])}"
+                )
+            out.append(
+                f"- [ ] {first} と {second} が 126×71 でも形で見分けられる"
+                f" (見出しの語や色だけに頼らない): {rule}"
+            )
+    for article_id, other_id, rule in outside:
+        out.append(
+            f"- [ ] {article_id} を {other_id} (試作または別のバッチ) と並べても形で"
+            f"見分けられる: {rule}"
+        )
+    return out
 
 
 def layout_positions(
@@ -152,6 +196,12 @@ class BatchPackageError(ValueError):
 
 def sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def manifest_sha256(path: Path) -> str:
+    """manifest の版の印。改行を LF にそろえてから測る (checkout の改行の設定に左右されない)。"""
+
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _round(value: float) -> int:
@@ -488,17 +538,7 @@ def render_checklist_markdown(package: Mapping) -> str:
         + "、".join(f"{item['article_id']} = {shape_summary(item)}" for item in package["items"]),
         "- [ ] 見出しが一覧のタイトルの繰り返しになっていない",
     ]
-    ids = {item["article_id"] for item in package["items"]}
-    seen = set()
-    for item in package["items"]:
-        for other in item["distinguish_from"]:
-            pair = frozenset((item["article_id"], other["article_id"]))
-            if other["article_id"] in ids and pair not in seen:
-                seen.add(pair)
-                out.append(
-                    f"- [ ] {item['article_id']} と {other['article_id']} が 126×71 でも形で"
-                    f"見分けられる (見出しの語や色だけに頼らない): {other['rule']}"
-                )
+    out += _pair_checks(package["items"])
     for accent in dict.fromkeys(item["accent"]["name"] for item in package["items"]):
         if "new" not in accent:
             continue

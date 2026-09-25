@@ -38,6 +38,7 @@ from app.wordpress.featured_image_batch import (  # noqa: E402
     CANVAS,
     LABEL_ZONE,
     layout_positions,
+    manifest_sha256,
     sha256_of,
     validate_batch_package,
 )
@@ -286,7 +287,7 @@ def _save_outputs(image, directory: Path, item: dict, *, force: bool) -> dict:
 def _load_package(directory: Path) -> dict:
     package = json.loads((directory / "batch-manifest.json").read_text(encoding="utf-8"))
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    problems = validate_batch_package(package, manifest, manifest_sha256=sha256_of(MANIFEST))
+    problems = validate_batch_package(package, manifest, manifest_sha256=manifest_sha256(MANIFEST))
     if problems:
         for problem in problems:
             print(f"problem: {problem}")
@@ -482,17 +483,20 @@ def _mobile_sheet(images, caption_font):
 
     from PIL import Image, ImageDraw
 
-    tw, th, zoom, pad, caption = 126, 71, 3, 16, 20
-    width = pad + len(images) * (tw * zoom + pad)
-    sheet = Image.new("RGB", (width, pad + th * zoom + caption + pad), (255, 255, 255))
+    tw, th, zoom, pad, caption, per_row = 126, 71, 3, 16, 20, 6
+    cell_w, cell_h = tw * zoom + pad, th * zoom + caption + pad
+    columns = min(per_row, len(images))
+    rows = (len(images) + per_row - 1) // per_row
+    sheet = Image.new("RGB", (pad + columns * cell_w, pad + rows * cell_h), (255, 255, 255))
     draw = ImageDraw.Draw(sheet)
     for index, (label, image) in enumerate(images):
         thumb = image.resize((tw, th), Image.Resampling.LANCZOS)
         thumb.paste(Image.new("RGB", (58, 17), (51, 51, 51)), (0, 0))
-        x = pad + index * (tw * zoom + pad)
-        sheet.paste(thumb.resize((tw * zoom, th * zoom), Image.Resampling.NEAREST), (x, pad))
+        x = pad + (index % per_row) * cell_w
+        y = pad + (index // per_row) * cell_h
+        sheet.paste(thumb.resize((tw * zoom, th * zoom), Image.Resampling.NEAREST), (x, y))
         draw.text(
-            (x, pad + th * zoom + 3), f"{label}  126x71 x3", font=caption_font, fill=(74, 91, 112)
+            (x, y + th * zoom + 3), f"{label}  126x71 x3", font=caption_font, fill=(74, 91, 112)
         )
     return sheet
 

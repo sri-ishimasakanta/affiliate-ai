@@ -35,6 +35,40 @@ W1.5A (この文書を書いた段階) は **設計だけ**。画像は作って
   確かめる。合わなければこの 2 枚だけ色を替える。
 - **バッチ 3〜5**: 系統の中で閉じているので、どの順でもよい。
 
+### 1.1 状態の記録
+
+目で見た承認 (§2 の 4) と、WordPress への適用 (§2 の 6〜11) は別に記録する。承認しても
+WordPress には何も書いていない。manifest の各記事の `status` は、適用して確かめるまで
+`planned` のまま (適用したら `applied` にする。§2 の 11)。
+
+| バッチ | 記事 | 画像の承認 (人) | WordPress への適用 |
+| --- | --- | --- | --- |
+| 1 | 7 / 2 / 6 / 8 / 9 | **承認済み** (W1.5B のあと、人の報告) | まだ |
+| 2 | 3 / 12 / 13 / 15 | **承認済み** (W1.5C のあと、人の報告)。rose `#DB2777` もプロジェクト・タスク管理の色として承認 | まだ |
+| 3 | 1 / 4 / 5 / 14 | 制作パッケージを用意 (W1.5D)。背景はまだ | まだ |
+| 4 | 10 / 11 / 16 / 17 / 18 | — | まだ |
+| 5 | 19 / 21 / 22 | — | まだ |
+
+承認した画像 (`artifacts/featured-images/w1.5/batch-<N>/` の WebP。`compose-report.json` の値と
+一致を確認済み)。適用の manifest にはこの SHA-256 を入れ、違うファイルは使わない:
+
+| article | ファイル | SHA-256 |
+| --- | --- | --- |
+| 7 | featured-7-ai-meeting-notes.webp | `93bf89650aa5134eddeee80a9e51ce678b88d26d5a6f9ef928a078a5b3dda6d7` |
+| 2 | featured-2-ai-meeting-notes-tools.webp | `3eb5e0a93cd7fe9d59a6f471725cf994c92278f19d2e95987f7f8708abb03a5b` |
+| 6 | featured-6-ai-meeting-notes-comparison.webp | `cdd41729ca3b47739c289fcd307a37989b5cd16e4d11a09cc6c49847dcf92a3b` |
+| 8 | featured-8-ai-meeting-notes-free.webp | `717e492d1d1fd0d9297dc20f3caf433d909cc3be4d3ab2e8c5906fdb5156287b` |
+| 9 | featured-9-ai-meeting-notes-pricing.webp | `ffa3f3c125ecbeb3e58dc05e859beece637a84a90ef9285d8f871df55c405f1a` |
+| 3 | featured-3-ai-transcription-tools.webp | `6155c04f0fbd1ce674f66cb4783889a662e9f2bd01f8257cc86602f26dd1d60e` |
+| 12 | featured-12-ai-transcription-free.webp | `91bf4c676c978f511e85dd22dd04d0dce1dc3cd01f28fe8ccda602f7cc03b828` |
+| 13 | featured-13-project-management-tools.webp | `d9ae0d0ba90b787f9f511193d587e92b90bce8b2015e5680cd48f32ac90630a8` |
+| 15 | featured-15-notion-task-management.webp | `92703cbeecf6e6bbb8a9bea86a1eed9a7a83f7539607d7acd84b98da4eb86654` |
+
+W1.5D での manifest の変更 (設計は変えていない): article 5 の禁止語 `'月額' as text` を
+`monthly-fee wording` にした (画像生成の文に日本語を入れないため。W1.5A の検査が negative の
+語を見ていなかった)。manifest の版の印は改行を LF にそろえて測る (`manifest_sha256`)。
+バッチ 1 / 2 のパッケージは新しい版の印で作り直した (中身と画像は変わっていない)。
+
 ## 2. 1 バッチの流れ
 
 各段階の終わりで止まり、次に進むのは人が決める。
@@ -136,6 +170,9 @@ W1.5B では、試作 4 枚 (適用済み) が W1.5A の仕様の座標とは違
   きた `slug` と manifest の `slug` を完全一致で比べるので、**適用の manifest には REST API
   が返す形の slug を入れる**。バッチ 3 の `plan` (読むだけ) で先に確かめる。一致しなければ
   書かずに止め、道具の側で直す (W1.5A では道具を変えていない)。
+  W1.5D (バッチ 3 の制作パッケージ) でも slug は manifest の値のまま (変えていない。
+  WordPress の ID も解決していない)。**本番に書く前の `plan` で、WordPress が返す
+  パーセントエンコードの slug に解決してから適用の manifest に入れる**ことは変わらない。
 - タイトルが WordPress 側で変わっていたら、W1.5 manifest を直してから進める。
 
 ### 3.3 そのほか

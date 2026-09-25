@@ -26,6 +26,7 @@ from app.wordpress.featured_image_batch import (
     TEXTLESS_SUFFIX,
     build_batch_package,
     layout_positions,
+    manifest_sha256,
     render_checklist_markdown,
     render_handoff_markdown,
     sha256_of,
@@ -46,7 +47,7 @@ def manifest() -> dict:
 
 @pytest.fixture(scope="module")
 def digest() -> str:
-    return sha256_of(MANIFEST_PATH)
+    return manifest_sha256(MANIFEST_PATH)
 
 
 @pytest.fixture
@@ -280,3 +281,32 @@ def test_batch_2_pairs_are_told_apart_by_shape(package_2) -> None:
 
 def test_batch_1_checklist_has_no_new_accent_line(package) -> None:
     assert "新しいアクセント" not in render_checklist_markdown(package)
+
+
+def test_the_manifest_hash_ignores_checkout_line_endings(tmp_path) -> None:
+    data = MANIFEST_PATH.read_bytes().replace(b"\r\n", b"\n")
+    lf, crlf = tmp_path / "lf.json", tmp_path / "crlf.json"
+    lf.write_bytes(data)
+    crlf.write_bytes(data.replace(b"\n", b"\r\n"))
+    assert manifest_sha256(lf) == manifest_sha256(crlf) == manifest_sha256(MANIFEST_PATH)
+    assert manifest_sha256(lf) != sha256_of(crlf)
+
+
+# == batch 3 ===================================================================
+def test_batch_3_is_general_and_crm_in_order_and_checks_every_pair(manifest, digest) -> None:
+    package = build_batch_package(manifest, 3, manifest_path="x", manifest_sha256=digest)
+    ids = [i["article_id"] for i in package["items"]]
+    assert ids == package["contact_sheet_order"] == [1, 4, 5, 14]
+    assert len({i["slug"] for i in package["items"]}) == 4
+    assert validate_batch_package(package, manifest, manifest_sha256=digest) == []
+    colors = {i["article_id"]: i["accent"]["color"] for i in package["items"]}
+    assert colors == {1: "#0D9488", 4: "#EA580C", 5: "#EA580C", 14: "#EA580C"}
+    # article 1 の日本語の slug は manifest の値のまま (WordPress の形には解決しない)。
+    assert package["items"][0]["slug"] == "業務効率化-ツール-おすすめ-roundup"
+    for item in package["items"]:
+        assert not JAPANESE.search(item["generation"]["single_prompt"]), item["article_id"]
+    checklist = render_checklist_markdown(package)
+    for first, second in ((4, 14), (4, 5), (5, 14), (1, 4), (1, 5), (1, 14)):
+        assert f"{first} と {second} が 126×71 でも形で" in checklist
+    assert "(見出しの語や色だけに頼らない): (manifest に規則なし) 5 = " in checklist
+    assert "1 を 25 (試作または別のバッチ) と並べても形で" in checklist

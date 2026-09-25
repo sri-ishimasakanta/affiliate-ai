@@ -504,7 +504,7 @@ manifest の `generation_prompt` は、この 2 つをつないだ完成形。
 
 **見分ける相手**: 23: pilot 23 has blue cards and no tag; this is orange with the detached one-time tag; 11: 11 cards contain module chains and clocks
 
-**避けるもの (この記事で特に)**: HubSpot sprocket logo or orange brand shapes; $, ¥, amounts, '月額' as text; calendar dates
+**避けるもの (この記事で特に)**: HubSpot sprocket logo or orange brand shapes; $, ¥, amounts, monthly-fee wording; calendar dates
 
 **画像生成の文**: `three blank plan cards in a row, each slightly taller than the previous, with small seat icons on top of each card and a tiny funnel glyph in each card header; next to the two tallest cards a small detached tag with a single flag connected by a dotted line; no numbers; orange #EA580C accent; placed on the right half, flat vector illustration, clean minimal business infographic style, soft light grey background #F5F7FA, generous empty space on the left half and in the top-left corner, single accent color #EA580C with navy #12263F details, simple geometric shapes, subtle soft shadows, crisp edges, 16:9`
 

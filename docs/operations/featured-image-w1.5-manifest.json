@@ -1065,7 +1065,7 @@
         "3d render",
         "stock photo",
         "HubSpot sprocket logo or orange brand shapes",
-        "$, ¥, amounts, '月額' as text",
+        "$, ¥, amounts, monthly-fee wording",
         "calendar dates"
       ],
       "typesetting": {
