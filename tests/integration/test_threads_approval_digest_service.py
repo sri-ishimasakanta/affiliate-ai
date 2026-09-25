@@ -695,3 +695,79 @@ def test_the_worker_cli_has_no_override_flag() -> None:
 
     with pytest.raises(SystemExit):
         main(["--once", "--override-notification-window"])
+
+
+# == one authoritative clock for expiry (T5.1) =================================
+# 期限切れの判定と TTL の起点は、呼び出し側が渡した ``now`` だけで決まる。旧実装は
+# issue() → plan() で時刻を落とし、期限切れの判定だけが実時計を見ていた
+# (2026-09-25 04:00 UTC を過ぎて test_an_expired_proposal_is_revoked_alone が落ちた)。
+# 実時計から大きく離れた時刻で、両方向を固定する。
+def _mobile(session: Session) -> MobileApprovalService:
+    return MobileApprovalService(
+        session, settings=_Settings(), relay_client=_FakeRelay(), notifier=_Notifier()
+    )
+
+
+@pytest.mark.parametrize(
+    "injected",
+    [
+        datetime(2020, 1, 6, 1, 0, tzinfo=UTC),  # 実時計より遥か過去
+        datetime(2099, 1, 6, 1, 0, tzinfo=UTC),  # 実時計より遥か未来
+    ],
+)
+def test_expiry_is_judged_by_the_injected_clock_only(session: Session, articles, injected) -> None:
+    from app.services.mobile_approval_service import SUBJECT_THREADS_POST
+
+    live = _proposal(
+        session,
+        articles[0],
+        seed="live",
+        created_at=injected - timedelta(hours=2),
+        expires_at=injected + timedelta(hours=3),
+    )
+    lapsed = _proposal(
+        session,
+        articles[1],
+        seed="lapsed",
+        created_at=injected - timedelta(hours=5),
+        expires_at=injected - timedelta(minutes=1),
+    )
+    mobile = _mobile(session)
+
+    assert mobile.plan(subject_type=SUBJECT_THREADS_POST, subject_id=live.id, now=injected).ok
+    blocked = mobile.plan(subject_type=SUBJECT_THREADS_POST, subject_id=lapsed.id, now=injected)
+    assert not blocked.ok
+    assert any("expired" in reason for reason in blocked.blocked_reasons)
+
+    issued = mobile.issue(
+        subject_type=SUBJECT_THREADS_POST, subject_id=live.id, ttl_hours=24, now=injected
+    )
+    # TTL も同じ時計から数える。
+    assert abs(_aware(issued.row.expires_at) - (injected + timedelta(hours=24))) < timedelta(
+        seconds=1
+    )
+
+
+def test_the_expired_revocation_does_not_depend_on_the_real_date(
+    session: Session, articles
+) -> None:
+    """test_an_expired_proposal_is_revoked_alone を、実時計から離れた時刻で再現する。"""
+
+    now = datetime(2099, 3, 2, 1, 0, tzinfo=UTC)  # 10:00 JST、通知の時間帯の中
+    a = _proposal(
+        session,
+        articles[0],
+        seed="a",
+        created_at=now - timedelta(hours=2),
+        expires_at=now + timedelta(hours=3),
+    )
+    b = _proposal(session, articles[1], seed="b", created_at=now - timedelta(hours=2))
+    service = _service(session, _FakeRelay(), _Notifier())
+    service.send(now=now, execute=True)
+    service.housekeeping(now=now + timedelta(hours=4), execute=True)
+    states = {s.subject_id: s.state for s in session.scalars(select(MobileApprovalSession))}
+    assert states == {a.id: MA_REVOKED, b.id: MA_PENDING}
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

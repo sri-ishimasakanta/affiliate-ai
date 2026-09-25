@@ -327,3 +327,88 @@ def test_the_cli_prints_an_honest_report_and_deterministic_json(
     assert _counts(session) == before
     for word in ("best", "winner", "optimal", "guarantee"):
         assert word not in out.lower()
+
+
+# == T5.1: as-of reproducibility from the database =============================
+def test_an_as_of_report_is_byte_identical_after_newer_data_arrives(
+    session: Session, article: Article, tmp_path, capsys
+) -> None:
+    from scripts.report_threads_learning import main, to_json
+
+    # 実時計から遠い時刻で固定する (成熟は as_of で判定され、実時計は見ない)。
+    as_of = datetime(2031, 5, 10, 3, 0, tzinfo=UTC)
+    rows = [
+        _published(
+            session, article, seed=seed, published_at=as_of - timedelta(hours=hours), angle=angle
+        )
+        for seed, hours, angle in (
+            ("a", 300, "insight"),
+            ("b", 301, "insight"),
+            ("c", 302, "insight"),
+            ("d", 303, "comparison"),
+            ("e", 80, "comparison"),  # as_of の時点で窓が開いている
+        )
+    ]
+    for row in rows[:4]:
+        _observe(session, row, 73, **{**_ZEROS, "views": 1000, "likes": 40})
+    _observe(session, rows[4], 73, likes=0, replies=0, reposts=0, quotes=0, shares=0)
+
+    first = to_json(_service(session).report(now=as_of))
+    assert (
+        main(
+            ["--as-of", as_of.isoformat(), "--json", str(tmp_path / "1.json")],
+            session_factory=_factory(session),
+        )
+        == 0
+    )
+
+    # as_of の後に観測・公開されたもの (窓の中の後の観測を含む)。
+    for row in rows[:4]:
+        _observe(session, row, 400, **{**_ZEROS, "views": 10**6, "likes": 0})
+    _observe(session, rows[4], 90, **{**_ZEROS, "views": 9000, "likes": 3000})
+    late = _published(session, article, seed="f", published_at=as_of + timedelta(hours=1))
+    _observe(session, late, 0.5, **{**_ZEROS, "views": 10**7})
+
+    assert to_json(_service(session).report(now=as_of)) == first
+    assert (
+        main(
+            ["--as-of", as_of.isoformat(), "--json", str(tmp_path / "2.json")],
+            session_factory=_factory(session),
+        )
+        == 0
+    )
+    assert (tmp_path / "1.json").read_text(encoding="utf-8") == (tmp_path / "2.json").read_text(
+        encoding="utf-8"
+    )
+    capsys.readouterr()
+
+    # 後の時点では、後の証拠が見える (窓が閉じた e は 90h の観測で例になる)。
+    later = _service(session).report(now=as_of + timedelta(hours=30))
+    row_e = next(p for p in later["publications"] if p["publication_id"] == rows[4].id)
+    assert row_e["evidence_state"] == EVIDENCE_COMPARABLE
+    assert row_e["metrics"]["views"] == 9000
+
+
+def test_the_collector_stamps_observations_with_the_collection_time(
+    session: Session, article: Article
+) -> None:
+    """as-of の再現性の前提: 観測は取り込んだ時刻で積まれ、過去の時刻では差し込まれない。"""
+
+    from app.services.threads_insights_service import ThreadsInsightsService
+    from app.social.threads.models import ThreadsInsights
+
+    class _Reader:
+        def media_insights(self, media_id, metrics=None):
+            return ThreadsInsights(subject=f"media:{media_id}", values={"views": 5}, missing=())
+
+    row = _published(session, article, seed="k", published_at=_NOW - timedelta(hours=80))
+
+    class _Settings:
+        threads_enabled = True
+
+    collected_at = _NOW + timedelta(minutes=7)
+    ThreadsInsightsService(session, settings=_Settings(), threads_service=_Reader()).collect(
+        publication_id=row.id, execute=True, now=collected_at
+    )
+    stored = session.scalars(select(ThreadsInsightSnapshot)).one()
+    assert stored.observed_at.replace(tzinfo=UTC) == collected_at

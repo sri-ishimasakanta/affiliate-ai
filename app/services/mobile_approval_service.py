@@ -308,11 +308,15 @@ class MobileApprovalService:
         subject_type: str = SUBJECT_CHANGE_REQUEST,
         subject_id: int | None = None,
         ttl_hours: int = DEFAULT_TTL_HOURS,
+        now: datetime | None = None,
     ) -> PreparedApproval:
         """送らずに、いま依頼を出せるかだけを判定する。
 
         ``change_request_id`` は C9 のための従来どおりの呼び方で、
         ``subject_type`` / ``subject_id`` は Threads を含む一般形である。
+
+        ``now`` は期限切れの判定に使う時刻。:meth:`issue` は自分の ``now`` をここへ渡す
+        (TTL を数える時刻と、期限切れを判定する時刻を同じ時計にする)。省略時は現在時刻。
         """
 
         if change_request_id is not None:
@@ -333,7 +337,7 @@ class MobileApprovalService:
             snapshot=adapter.snapshot(subject, article, target),
         )
         prepared.subject_type = subject_type
-        prepared.blocked_reasons.extend(_blocked(adapter, subject, None))
+        prepared.blocked_reasons.extend(_blocked(adapter, subject, now))
 
         existing = self._active_session(subject_type, subject_id)
         if existing is not None:
@@ -393,7 +397,9 @@ class MobileApprovalService:
         """
 
         now = now or datetime.now(UTC)
-        prepared = self.plan(subject_type=subject_type, subject_id=subject_id, ttl_hours=ttl_hours)
+        prepared = self.plan(
+            subject_type=subject_type, subject_id=subject_id, ttl_hours=ttl_hours, now=now
+        )
         if not prepared.ok:
             raise MobileApprovalError("; ".join(prepared.blocked_reasons))
 

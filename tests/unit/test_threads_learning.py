@@ -432,7 +432,8 @@ def test_an_established_finding_weakens_before_it_is_withdrawn() -> None:
     assert finding["relative_difference"] == 0.15
     assert finding["kind"] == FINDING_OBSERVED_DIFFERENCE
     assert finding["weakening"] is True
-    assert finding["since"] == (_T0 + timedelta(hours=6 + 73)).isoformat()
+    # 所見は 6 本目の窓が閉じた時刻 (公開 +96h) に立った。
+    assert finding["since"] == (_T0 + timedelta(hours=6 + 96)).isoformat()
 
     # 同じ証拠が最初から全部そろっていたなら、所見は立たない (ヒステリシスの確認)。
     together = [
@@ -525,3 +526,159 @@ def test_every_hour_belongs_to_exactly_one_daypart() -> None:
             )
         ]
         assert len(owners) == 1, (hour, owners)
+
+
+# == T5.1: the canonical example is chosen once, when the window closes ========
+def _ab(published=_T0):
+    """72h: 観測 A (views 欠測)、74h: 観測 B (views あり)。"""
+
+    return (
+        _snap(1, published, 72.2, views=None, likes=1),
+        _snap(2, published, 74, views=400, likes=8),
+    )
+
+
+@pytest.mark.parametrize("hours", [72.3, 74.5, 80, 95.99])
+def test_nothing_is_used_while_the_window_is_open(hours) -> None:
+    pub = _pub(1, published=_T0, snapshots=_ab())
+    canonical = select_canonical(pub, _T0 + timedelta(hours=hours), _POLICY)
+    assert canonical.state == EVIDENCE_AWAITING
+    assert canonical.snapshot is None
+    report = _report([pub], as_of=_T0 + timedelta(hours=hours))
+    assert report["counts"]["mature"] == 1
+    assert report["counts"]["missing_comparable_data"] == 1
+    assert report["publications"][0]["metrics"] is None
+
+
+def test_the_72h_missing_views_case_is_decided_once_and_never_rewritten() -> None:
+    pub = _pub(1, published=_T0, snapshots=_ab())
+    chosen = {
+        hours: select_canonical(pub, _T0 + timedelta(hours=hours), _POLICY).snapshot.snapshot_id
+        for hours in (96, 97, 150, 400, 5000)
+    }
+    assert set(chosen.values()) == {2}  # views の取れた B を、窓が閉じたときに 1 度だけ
+
+
+def test_a_window_without_views_stays_missing_and_is_never_backfilled() -> None:
+    published = _T0
+    pub = _pub(
+        1,
+        published=published,
+        snapshots=(
+            _snap(1, published, 73, views=None),
+            _snap(2, published, 90, views=None),
+            _snap(3, published, 97, views=999),  # 窓の後。views を埋めない
+        ),
+    )
+    for hours in (96, 500):
+        canonical = select_canonical(pub, published + timedelta(hours=hours), _POLICY)
+        assert canonical.state == EVIDENCE_COMPARABLE
+        assert canonical.snapshot.snapshot_id == 1
+        assert canonical.snapshot.metric("views") is None
+
+
+def test_a_post_missed_at_close_never_becomes_comparable() -> None:
+    published = _T0
+    pub = _pub(
+        1,
+        published=published,
+        snapshots=(_snap(1, published, 60), _snap(2, published, 96), _snap(3, published, 300)),
+    )
+    for hours in (96, 97, 1000):
+        state = select_canonical(pub, published + timedelta(hours=hours), _POLICY).state
+        assert state == EVIDENCE_MISSED
+
+
+def test_the_window_is_judged_by_observation_time_not_the_stored_age() -> None:
+    published = _T0
+    inconsistent = SnapshotFact(
+        snapshot_id=1,
+        observed_at=published + timedelta(hours=120),  # 窓の後に観測した
+        outcome="observed",
+        age_hours=80,  # 保存値だけが窓の中を指している
+        metrics={"views": 100, "likes": 1, "replies": 0, "reposts": 0, "quotes": 0, "shares": 0},
+    )
+    pub = _pub(1, published=published, snapshots=(inconsistent,))
+    assert select_canonical(pub, _NOW, _POLICY).state == EVIDENCE_MISSED
+
+
+# == T5.1: as-of reproducibility ===============================================
+def test_an_as_of_report_ignores_everything_that_came_later() -> None:
+    as_of = _T0 + timedelta(hours=130)
+    open_published = as_of - timedelta(hours=80)  # as_of の時点で窓が開いている (80h)
+    base = [_rated(i, 0.10) for i in (1, 2, 3)] + [
+        _rated(i, 0.05, angle="comparison") for i in (4, 5, 6)
+    ]
+    open_window = _pub(
+        7,
+        angle="comparison",
+        published=open_published,
+        snapshots=(_snap(700, open_published, 73, views=None, likes=1),),
+    )
+    before = json.dumps(_report([*base, open_window], as_of=as_of))
+
+    def extended(p, *extra):
+        return PublicationFact(**{**p.__dict__, "snapshots": (*p.snapshots, *extra)})
+
+    later = [
+        extended(
+            p,
+            _snap(p.publication_id * 100 + 1, p.published_at, 140, views=1, likes=1),
+            _snap(p.publication_id * 100 + 2, p.published_at, 900, views=10**6, likes=0),
+        )
+        for p in base
+    ]
+    # as_of の後に観測された、窓の中 (90h) の views のある観測。
+    later_open = extended(open_window, _snap(701, open_published, 90, views=5000, likes=900))
+    future = [
+        _rated(8 + i, 0.001, angle="insight", published=as_of + timedelta(hours=i + 1))
+        for i in range(5)
+    ]
+    after = json.dumps(_report([*later, later_open, *future], as_of=as_of))
+    assert after == before
+    # もっと後の時点では、窓が閉じて 90h の観測が選ばれる。
+    closed = _report([*later, later_open], as_of=open_published + timedelta(hours=96))
+    row = next(p for p in closed["publications"] if p["publication_id"] == 7)
+    assert row["snapshot"]["snapshot_id"] == 701
+
+
+def test_hysteresis_at_an_as_of_does_not_depend_on_future_evidence() -> None:
+    first = [_later(i, 0.10, i, "insight") for i in (1, 2, 3)] + [
+        _later(i, 0.05, i, "comparison") for i in (4, 5, 6)
+    ]
+    narrowing = [_later(10 + i, 0.085, 200 + i, "comparison") for i in range(3)] + [
+        _later(20 + i, 0.088, 400 + i, "comparison") for i in range(4)
+    ]
+    as_of = _T0 + timedelta(hours=600)
+    weakening = _report(first + narrowing, as_of=as_of)
+    closing = [_later(40 + i, 0.099, 700 + i, "comparison") for i in range(12)]
+    recomputed = _report(first + narrowing + closing, as_of=as_of)
+    assert json.dumps(recomputed) == json.dumps(weakening)
+    finding = next(f for f in recomputed["findings"] if f["dimension"] == "angle")
+    assert (finding["kind"], finding["weakening"]) == (FINDING_OBSERVED_DIFFERENCE, True)
+    # もっと後の時点では、その後の証拠で所見が取り下げられる。
+    later = _report(first + narrowing + closing)
+    assert next(f for f in later["findings"] if f["dimension"] == "angle")["kind"] == (
+        FINDING_NO_CLEAR_DIFFERENCE
+    )
+
+
+def test_maturity_is_judged_at_as_of_not_by_the_wall_clock() -> None:
+    far = datetime(2099, 1, 1, tzinfo=UTC)
+    pubs = [_rated(i, 0.05, published=far + timedelta(hours=i)) for i in (1, 2, 3)]
+    assert _report(pubs, as_of=far + timedelta(hours=50))["counts"]["immature"] == 3
+    mature = _report(pubs, as_of=far + timedelta(hours=200))
+    assert mature["counts"]["comparable"] == 3
+    assert mature["evidence_status"] == STATUS_SUFFICIENT
+    assert _report(pubs, as_of=far - timedelta(hours=1))["counts"]["total"] == 0
+
+
+def test_changes_compare_only_what_each_time_could_see() -> None:
+    pubs = [_rated(i, 0.1, published=_T0 + timedelta(hours=i)) for i in (1, 2, 3)]
+    # 3 本目の窓が閉じるのは T0 + 3h + 96h = T0 + 99h。
+    baseline = _report(pubs, as_of=_T0 + timedelta(hours=98.5))
+    current = _report(pubs, as_of=_T0 + timedelta(hours=100))
+    assert baseline["counts"]["comparable"] == 2
+    changes = compare_reports(current, baseline)
+    assert changes["new_examples"] == [3]
+    assert changes["overall_status_change"]["to"] == STATUS_SUFFICIENT

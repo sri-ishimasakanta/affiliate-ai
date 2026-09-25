@@ -24,7 +24,7 @@
   "learning": {
     "note": "T5 の学習 (説明できる記述統計だけ)。成熟の境界は maturity_hours.initial_sample、本数と views の下限は comparison をそのまま使う。",
     "canonical_snapshot": {
-      "rule": "成熟の境界 (initial_sample 時間) から comparable_window_hours 以内に観測できた最初の observed snapshot。views の取れた snapshot があれば、その最初のものを優先する。",
+      "rule": "窓 = 公開から initial_sample 時間以上、initial_sample + comparable_window_hours 時間未満 (観測時刻で判定)。窓が閉じてから 1 度だけ、窓の中の observed snapshot のうち views の取れた最初のもの、無ければ最初のものを選ぶ。窓が開いている間は例にしない。選んだ例は変わらない。",
       "comparable_window_hours": 24
     },
     "comparison_metric": "interaction_rate",

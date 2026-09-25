@@ -13,16 +13,17 @@ T4 の計測の規則をそのまま使う (別の成熟の仕組みを作らな
 - 長さの帯は :func:`app.social.threads.measurement.length_bucket`。
 - 母数が足りないうちは中央値も比率も出さない。件数だけを示す。
 
-**代表の観測 (canonical snapshot)** — 1 投稿につき 1 つだけ:
+**代表の観測 (canonical snapshot)** — 1 投稿につき 1 つだけ、**窓が閉じてから 1 度だけ** 選ぶ:
 
-    成熟の境界 (72h) から ``comparable_window_hours`` (24h) 以内に観測できた
-    最初の ``observed`` の snapshot。その窓の中に views の取れた snapshot があれば、
-    その最初のものを優先する。窓が閉じても見つからなければ、その投稿は
+    窓 = 公開から 72h 以上 ``72 + comparable_window_hours`` (96h) 未満 (観測時刻で判定)。
+    窓が開いている間 (72〜96h) は「窓待ち」で、まだ例にしない。窓が閉じたら、窓の中の
+    ``observed`` の snapshot のうち views の取れた最初のもの、無ければ最初のものを選ぶ
+    (views は欠測のまま。後の観測で埋めない)。窓の中に 1 つも無ければ
     「比較できる観測が無い」として数えるだけで、例には入れない。
 
-こうすると、1 時間後の値と 7 日後の値を同じものとして並べることがなく、同じ投稿を
-2 回数えることもない。窓が閉じたあとの観測は代表を変えないので、後から数字が
-揺れても所見は動かない (append-only の snapshot を書き換えないことと同じ理由)。
+窓の外で後から入る観測は候補にならないので、一度選ばれた例は二度と変わらない。
+1 時間後の値と 7 日後の値を同じものとして並べることも、同じ投稿を 2 回数えることもない。
+``as_of`` を与えれば、その時点で観測済みだったものだけから同じ結果を作り直せる。
 
 **欠測は 0 ではない。** views が取れていなければ「欠測」、views=0 なら「0」。
 相互作用 (likes/replies/reposts/quotes/shares) は 5 つとも観測できたときだけ合計する。
@@ -49,7 +50,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import combinations
 from zoneinfo import ZoneInfo
 
@@ -80,7 +81,7 @@ EVIDENCE_STATUSES = (
 
 # -- 1 投稿の扱い ---------------------------------------------------------------
 EVIDENCE_IMMATURE = "immature"
-EVIDENCE_AWAITING = "awaiting_mature_observation"
+EVIDENCE_AWAITING = "awaiting_comparison_window"
 EVIDENCE_MISSED = "no_comparable_observation"
 EVIDENCE_COMPARABLE = "comparable"
 
@@ -168,8 +169,11 @@ class Example:
 
 # == canonical snapshot =========================================================
 def snapshot_age_hours(snapshot: SnapshotFact, publication: PublicationFact) -> float | None:
-    if snapshot.age_hours is not None:
-        return float(snapshot.age_hours)
+    """公開から観測までの時間。**観測時刻から計算する** (保存済みの age_hours には頼らない)。
+
+    窓に入るかどうかを観測時刻だけで決めるので、窓が閉じた時点で候補が出そろう。
+    """
+
     if publication.published_at is None:
         return None
     return _hours(_aware(snapshot.observed_at) - _aware(publication.published_at))
@@ -180,17 +184,31 @@ def _window(policy) -> tuple[float, float]:
     return start, start + policy.comparable_window_hours
 
 
-def _candidates(publication: PublicationFact, as_of: datetime, policy) -> list[SnapshotFact]:
+def window_bounds(publication: PublicationFact, policy) -> tuple[datetime, datetime] | None:
+    """代表の観測を選ぶ窓 ``[公開+72h, 公開+96h)`` の実時刻。公開時刻が無ければ ``None``。"""
+
+    if publication.published_at is None:
+        return None
+    published = _aware(publication.published_at)
     start, end = _window(policy)
-    found = []
-    for snapshot in publication.snapshots:
-        if snapshot.outcome != SNAPSHOT_OBSERVED:
-            continue
-        if _aware(snapshot.observed_at) > as_of:
-            continue
-        age = snapshot_age_hours(snapshot, publication)
-        if age is not None and start <= age < end:
-            found.append(snapshot)
+    return published + timedelta(hours=start), published + timedelta(hours=end)
+
+
+def _candidates(publication: PublicationFact, policy) -> list[SnapshotFact]:
+    """窓の中で観測できた ``observed`` の snapshot (窓全体。``as_of`` は見ない)。
+
+    呼ぶのは窓が閉じた後だけなので、ここに入りうる観測はすべて出そろっている。
+    """
+
+    bounds = window_bounds(publication, policy)
+    if bounds is None:
+        return []
+    start, end = bounds
+    found = [
+        s
+        for s in publication.snapshots
+        if s.outcome == SNAPSHOT_OBSERVED and start <= _aware(s.observed_at) < end
+    ]
     return sorted(found, key=lambda s: (_aware(s.observed_at), s.snapshot_id))
 
 
@@ -202,7 +220,18 @@ def _choose(candidates: Sequence[SnapshotFact]) -> SnapshotFact | None:
 
 
 def select_canonical(publication: PublicationFact, as_of: datetime, policy) -> Canonical:
-    """``as_of`` の時点で、この投稿を学習にどう使うかを決める (決定的)。"""
+    """``as_of`` の時点で、この投稿を学習にどう使うかを決める (決定的)。
+
+    - 72h 未満: ``immature``。
+    - 72〜96h (窓が開いている間): ``awaiting_comparison_window``。成熟はしているが、
+      まだ例にしない。数字も使わない。
+    - 96h 以降 (窓が閉じた後): 窓の中の観測から **1 度だけ** 選ぶ。views の取れた最初の
+      観測、無ければ最初の観測 (views は欠測のまま)。窓の中に観測が 1 つも無ければ
+      ``no_comparable_observation`` (以後ずっと)。
+
+    窓が閉じた後に入る観測は窓の外 (観測時刻が 96h 以降) なので、選ばれた例は二度と
+    変わらない。欠測を後の観測で埋めることもしない。
+    """
 
     as_of = _aware(as_of)
     age = (
@@ -213,31 +242,28 @@ def select_canonical(publication: PublicationFact, as_of: datetime, policy) -> C
     verdict = classify_maturity(age, policy)
     if not verdict.comparable:
         return Canonical(EVIDENCE_IMMATURE, verdict.stage, verdict.age_hours)
-    chosen = _choose(_candidates(publication, as_of, policy))
-    if chosen is not None:
-        return Canonical(
-            EVIDENCE_COMPARABLE,
-            verdict.stage,
-            verdict.age_hours,
-            snapshot=chosen,
-            snapshot_age_hours=round(snapshot_age_hours(chosen, publication), 2),
-        )
-    _start, end = _window(policy)
-    state = EVIDENCE_AWAITING if age is not None and age < end else EVIDENCE_MISSED
-    return Canonical(state, verdict.stage, verdict.age_hours)
+    _start, closes = window_bounds(publication, policy)
+    if as_of < closes:
+        return Canonical(EVIDENCE_AWAITING, verdict.stage, verdict.age_hours)
+    chosen = _choose(_candidates(publication, policy))
+    if chosen is None:
+        return Canonical(EVIDENCE_MISSED, verdict.stage, verdict.age_hours)
+    return Canonical(
+        EVIDENCE_COMPARABLE,
+        verdict.stage,
+        verdict.age_hours,
+        snapshot=chosen,
+        snapshot_age_hours=round(snapshot_age_hours(chosen, publication), 2),
+    )
 
 
 def change_points(publication: PublicationFact, as_of: datetime, policy) -> list[datetime]:
-    """この投稿の代表の観測が変わる時刻 (高々 2 つ)。所見の再生に使う。"""
+    """この投稿が例になる時刻 (窓が閉じる時刻。高々 1 つ)。所見の再生に使う。"""
 
-    candidates = _candidates(publication, _aware(as_of), policy)
-    if not candidates:
+    bounds = window_bounds(publication, policy)
+    if bounds is None or bounds[1] > _aware(as_of) or not _candidates(publication, policy):
         return []
-    points = [_aware(candidates[0].observed_at)]
-    with_views = next((s for s in candidates if s.metric("views") is not None), None)
-    if with_views is not None and with_views is not candidates[0]:
-        points.append(_aware(with_views.observed_at))
-    return points
+    return [bounds[1]]
 
 
 # == metrics ====================================================================
