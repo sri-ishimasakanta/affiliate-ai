@@ -44,6 +44,7 @@ from app.models import (
     PUB_PUBLISHED,
     SUBJECT_THREADS_POST,
     TP_APPROVED,
+    TP_AWAITING_APPROVAL,
     TP_OPEN_STATES,
     TP_REJECTED,
     TP_STALE,
@@ -72,6 +73,17 @@ from app.social.threads.conversation import (
 from app.social.threads.fact_guard import fact_boundary_errors
 from app.social.threads.policy import ThreadsOperationsPolicy, get_operations_policy
 from app.social.threads.prompt import parse_generated
+from app.social.threads.quality import (
+    QUALITY_VERSION,
+    RECENT_WINDOW,
+    hook_forms,
+    money_figures,
+    prose_length,
+    quality_findings,
+    recent_overlap,
+    recent_topic_lines,
+    topic_signature,
+)
 from app.social.threads.stock import (
     STATE_APPROVED_UNPUBLISHED,
     STATE_EXPIRED,
@@ -496,7 +508,10 @@ class ThreadsProposalStockService:
         if repair is None:
             self._ingest(request, output, now, room, outcome, alerts)
             return
-        problem = self._ingest(request, output, now, room, outcome, alerts, final=False)
+        # 1 回目は質の検査 (長さ・密度・きっかけの形・最近の話題) も書き直しの対象にする。
+        problem = self._ingest(
+            request, output, now, room, outcome, alerts, final=False, strict_quality=True
+        )
         if problem is None:
             return
         repaired = repair(request, output, problem)
@@ -504,6 +519,7 @@ class ThreadsProposalStockService:
             self._fail(request, outcome, problem)
             alerts.append(_alert_invalid_output(request.request_id, "invalid"))
             return
+        # 書き直しの後: 好みの問題は警告として残す。最近の話題の重なりは保存しない。
         self._ingest(request, repaired, now, room, outcome, alerts)
 
     def _reject(self, request, outcome, alerts, reason: str, kind: str | None, final: bool):
@@ -514,7 +530,20 @@ class ThreadsProposalStockService:
             alerts.append(_alert_invalid_output(request.request_id, kind))
         return None
 
-    def _ingest(self, request, output, now, room, outcome, alerts, *, final=True) -> str | None:
+    def _recent_items(self) -> list[dict]:
+        """最近の提案 (承認待ち・承認済み = 公開済みを含む)。最大 ``RECENT_WINDOW`` 件。"""
+
+        rows = self._session.scalars(
+            select(ThreadsPostProposal)
+            .where(ThreadsPostProposal.status.in_((TP_AWAITING_APPROVAL, TP_APPROVED)))
+            .order_by(ThreadsPostProposal.created_at.desc(), ThreadsPostProposal.id.desc())
+            .limit(RECENT_WINDOW)
+        ).all()
+        return [{"ref": f"proposal #{row.id}", "text": row.content_text or ""} for row in rows]
+
+    def _ingest(
+        self, request, output, now, room, outcome, alerts, *, final=True, strict_quality=False
+    ) -> str | None:
         """1 件の出力を検査して保存する。失敗はこの依頼だけを止める。
 
         ``final=False`` のときは、検査落ちを記録せずに理由を返す (書き直しの前)。
@@ -546,10 +575,55 @@ class ThreadsProposalStockService:
                     "conversation check failed: " + "; ".join(sorted(set(problems))),
                     "invalid", final,
                 )  # fmt: skip
+            # 設定の欠けた自動 provider (misconfigured) の答えは人が書いたもの: 重なりは警告。
+            automatic = getattr(self._provider, "automatic", False) and (
+                getattr(self._provider, "mode", "automatic") == "automatic"
+            )
+            recent = self._recent_items()
+            quality_problems = []
+            for item in items:
+                soft, warns = quality_findings(item["body"], wanted_hook)
+                style_warnings += warns
+                if strict_quality:
+                    quality_problems += soft
+                else:
+                    style_warnings += [f"quality: {s}" for s in soft]
+                hit = recent_overlap(item["body"], recent)
+                if hit:
+                    message = (
+                        f"recent topic overlap with {hit['ref']} (products "
+                        f"{', '.join(hit['shared_entities']) or '-'}, facts "
+                        f"{', '.join(hit['shared_numbers']) or '-'}, axes "
+                        f"{', '.join(hit['shared_axes']) or '-'}); choose a different main point "
+                        "from the same article, keeping the same conversation_hook and link_mode"
+                    )
+                    if strict_quality or automatic:
+                        quality_problems.append(message)
+                    else:
+                        style_warnings.append(f"quality: {message}")
+            if quality_problems:
+                return self._reject(
+                    request, outcome, alerts,
+                    "quality check failed: " + "; ".join(sorted(set(quality_problems))),
+                    "invalid", final,
+                )  # fmt: skip
+            first = items[0]["body"]
             brief = {
                 "brief_version": BRIEF_VERSION,
                 "conversation_hook": wanted_hook,
                 "warnings": sorted(set(style_warnings)),
+                "quality": {
+                    "version": QUALITY_VERSION,
+                    "prose_length": prose_length(first),
+                    "money_figures": money_figures(first),
+                    "hook_forms": sorted(hook_forms(first)),
+                },
+                "topic_signature": topic_signature(
+                    article_id=request.article_id,
+                    angle=items[0]["angle"],
+                    link_mode=items[0].get("link_mode"),
+                    body=first,
+                ),
             }
         if getattr(self._provider, "automatic", False):
             article = self._session.get(Article, request.article_id)
@@ -679,6 +753,11 @@ class ThreadsProposalStockService:
             learning_as_of=now,
             requested_link_mode=planned["link_mode"],
             conversation_hook=planned.get("conversation_hook"),
+            recent_topics=(
+                recent_topic_lines(self._recent_items())
+                if planned.get("conversation_hook")
+                else None
+            ),
         )
         return GenerationRequest(
             request_id=request_id(

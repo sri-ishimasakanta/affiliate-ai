@@ -34,23 +34,21 @@ from app.services.threads_openai_provider import OpenAIGenerationProvider, OpenA
 from app.social.threads.conversation import HOOKS, hook_from_provenance
 from tests.integration.test_threads_openai_generation import (
     API_KEY,
+    DISTINCT_BODIES,
+    HOOK_ENDINGS,
     FakeLuna,
     _provider,
     seed_articles,
 )
 from tests.integration.test_threads_proposal_stock_service import _NOW, _service
 
-BODIES = {
-    "none": "記事{aid}の要点は、体制を先に決めるほうが早いこと。範囲を小さく決めると迷わない。",
-    "question": (
-        "記事{aid}の要点。体制を先に決めるほうが早い。今の現場で先に決まっていないのはどこ？"
-    ),
-    "choice": "記事{aid}の要点。体制を先に決めるか、道具を先に決めるか。ここで進み方が変わる。",
-    "experience": "記事{aid}の要点。体制を先に決めるほうが早い。導入のとき、どこで止まった？",
-    "opinion": (
-        "記事{aid}の要点。体制を先に決めるほうが早い、と考えている。道具が先という見方もある。"
-    ),
-}
+
+def _body(aid: int, hook: str | None) -> str:
+    """記事ごとに違う本文 + 求めたきっかけに合う終わり方 (T6.3.1 の重なりの検査に当たらない)。"""
+
+    return DISTINCT_BODIES[aid % len(DISTINCT_BODIES)].format(aid=aid) + HOOK_ENDINGS.get(
+        hook or "none", ""
+    )
 
 
 @pytest.fixture
@@ -68,6 +66,7 @@ class HookLuna(FakeLuna):
 
     def __init__(self, *, override=None, **kwargs):
         super().__init__(**kwargs)
+        self._default_body = False  # 本文はこのクラスが決める
         self.override = override or {}
         self.hooks: list[str | None] = []
 
@@ -76,7 +75,8 @@ class HookLuna(FakeLuna):
         hook = _hook_of(payload)
         self.hooks.append(hook)
         aid = int(payload["input"][0]["content"].split("## 記事 (id=")[1].split(")")[0])
-        body = self.override.get(len(self.hooks), BODIES.get(hook, BODIES["none"])).format(aid=aid)
+        override = self.override.get(len(self.hooks))
+        body = override.format(aid=aid) if override else _body(aid, hook)
         self.body_for = lambda *_args, _body=body: _body
         return super().handler(request)
 

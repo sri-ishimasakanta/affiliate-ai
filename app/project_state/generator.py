@@ -460,6 +460,7 @@ def _md_threads(threads: dict) -> list[str]:
         start = worker.get("runtime_start") or {}
         generation = threads.get("generation") or {}
         hook_policy = generation.get("conversation_hook_policy") or {}
+        quality = generation.get("quality_policy") or {}
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
             f" — {perf['rerun_reason']}"
@@ -503,6 +504,12 @@ def _md_threads(threads: dict) -> list[str]:
             f"{generation.get('conversation_style')} (hooks {_fmt(hook_policy.get('hooks'))}; "
             "about 4 in 5 active; not self-optimizing; no reach guarantee); proposals by hook "
             f"{generation.get('proposals_by_conversation_hook')}",
+            f"- content quality: {quality.get('version')} (prose "
+            f"{_fmt(quality.get('prose_target_chars'))} chars, repair above "
+            f"{quality.get('prose_ceiling_before_repair')}, hard "
+            f"{quality.get('hard_platform_ceiling')}; one main point; recent-topic window "
+            f"{quality.get('recent_topic_window')}; "
+            "no self-tuning)",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

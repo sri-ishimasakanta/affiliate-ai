@@ -85,6 +85,21 @@ def seed_articles(session):
 
 API_KEY = "sk-test-NEVER-A-REAL-KEY-0123456789abcdef"
 _ID = re.compile(r"記事 \(id=(\d+)\)")
+# 記事ごとに中身の違う本文 (T6.3.1 の「最近の話題の重なり」に当たらないように)。
+DISTINCT_BODIES = (
+    "記事{aid}の話。体制を先に決めるほうが早い。担当が決まると迷いが減る。",
+    "記事{aid}の話。範囲を小さく始めると、途中で止まりにくい。",
+    "記事{aid}の話。最初の週は記録の置き場所だけをそろえる。",
+    "記事{aid}の話。道具より先に、誰が確認するかを決めておく。",
+    "記事{aid}の話。うまくいかない日は、手順を一つ減らしてみる。",
+)
+HOOK_ENDINGS = {
+    "none": "",
+    "question": "今の現場では、最初にどこから決めている？",
+    "choice": "担当を先に決めるか、道具を先に決めるか。どちらから始める？",
+    "experience": "導入のとき、どこで止まった？",
+    "opinion": "道具が先という見方もあると思う。",
+}
 
 
 class FakeLuna:
@@ -93,10 +108,9 @@ class FakeLuna:
     def __init__(self, script=None, *, body_for=None):
         self.requests: list[httpx.Request] = []
         self.script = list(script or [])
+        self._default_body = body_for is None
         self.body_for = body_for or (
-            lambda aid, angle, n: (
-                f"記事{aid}の要点。体制を先に決めるほうが早い。{angle}として書く。"
-            )
+            lambda aid, angle, n: DISTINCT_BODIES[aid % len(DISTINCT_BODIES)].format(aid=aid)
         )
 
     @property
@@ -130,8 +144,10 @@ class FakeLuna:
         ]
         item = {"angle": angle, "link_mode": "none", "body": body}
         if "conversation_hook" in props:  # T6.3: 求められたきっかけをそのまま返す
-            item = {"angle": angle, "conversation_hook": props["conversation_hook"]["enum"][0],
-                    "link_mode": "none", "body": body}  # fmt: skip
+            hook = props["conversation_hook"]["enum"][0]
+            if self._default_body and not (isinstance(step, str) and step != "ok"):
+                body = body + HOOK_ENDINGS[hook]  # T6.3.1: 求めた形に合う終わり方
+            item = {"angle": angle, "conversation_hook": hook, "link_mode": "none", "body": body}
         if step == "malformed":
             text = "not json"
         else:

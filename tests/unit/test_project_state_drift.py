@@ -656,3 +656,14 @@ def test_project_state_reports_the_conversation_hook_policy(tmp_path) -> None:
     assert policy["hooks"] == ["none", "question", "choice", "experience", "opinion"]
     assert policy["self_optimizing"] is False and policy["reach_guarantee"] is False
     assert generation["proposals_by_conversation_hook"] == {"choice": 1, "legacy": 1}
+
+
+def test_project_state_reports_the_content_quality_policy(tmp_path) -> None:
+    ctx, _, _ = _context(tmp_path)
+    report = build_report(ctx)
+    policy = report["threads"]["generation"]["quality_policy"]
+    assert policy["prose_target_chars"] == [280, 360]
+    assert policy["prose_ceiling_before_repair"] == 420 and policy["hard_platform_ceiling"] == 500
+    assert policy["one_main_point"] and policy["hook_semantics_enforced"]
+    assert policy["self_tuning"] is False and policy["recent_topic_window"] == 12
+    assert "content quality: t6.3.1" in render_markdown(report)

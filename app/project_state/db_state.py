@@ -254,6 +254,30 @@ def conversation_state(conn) -> dict:
             "reach_guarantee": False,
         },
         "proposals_by_conversation_hook": dict(sorted(counts.items())),
+        "quality_policy": quality_policy(),
+    }
+
+
+def quality_policy() -> dict:
+    """T6.3.1 の質の方針 (コードの定数から。鍵や本文は読まない)。"""
+
+    from app.social.threads.quality import (
+        PREFERRED_RANGE,
+        QUALITY_CEILING,
+        QUALITY_VERSION,
+        RECENT_WINDOW,
+    )
+
+    return {
+        "version": QUALITY_VERSION,
+        "prose_target_chars": list(PREFERRED_RANGE),
+        "prose_ceiling_before_repair": QUALITY_CEILING,
+        "hard_platform_ceiling": 500,
+        "one_main_point": True,
+        "hook_semantics_enforced": True,
+        "recent_topic_window": RECENT_WINDOW,
+        "active_hook_target": "about 4 in 5 (unchanged)",
+        "self_tuning": False,
     }
 
 

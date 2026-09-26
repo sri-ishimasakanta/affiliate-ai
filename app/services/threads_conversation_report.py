@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ThreadsInsightSnapshot, ThreadsPostProposal, ThreadsPublication
 from app.social.threads.conversation import engagement_rates, hook_from_provenance
+from app.social.threads.quality import prose_length
 
 
 def publication_rows(session: Session) -> list[dict]:
@@ -37,6 +38,9 @@ def publication_rows(session: Session) -> list[dict]:
             name: getattr(snap, name, None) if snap else None
             for name in ("views", "likes", "replies", "reposts", "quotes", "shares")
         }
+        brief = (getattr(proposal, "learning_guidance_json", None) or {}).get(
+            "generation_brief"
+        ) or {}
         rows.append(
             {
                 "publication_id": pub.id,
@@ -47,6 +51,10 @@ def publication_rows(session: Session) -> list[dict]:
                 ),
                 "angle": getattr(proposal, "angle", None) or pub.angle,
                 "link_mode": getattr(proposal, "link_mode", None),
+                "article_id": pub.source_article_id,
+                "topic_signature": (brief.get("topic_signature") or {}).get("fingerprint"),
+                "prose_length": prose_length(pub.exact_published_text or ""),
+                "character_count": len(pub.exact_published_text or ""),
                 "observed_at": snap.observed_at.isoformat() if snap and snap.observed_at else None,
                 **metrics,
                 **engagement_rates(

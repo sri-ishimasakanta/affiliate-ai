@@ -30,6 +30,7 @@ from app.social.threads.conversation import HOOK_BRIEFS, HOOKS, WRITING_RULES
 from app.social.threads.guidance import ThreadsGenerationGuidance, render_prompt_sections
 from app.social.threads.policy import ThreadsStylePolicy
 from app.social.threads.proposal import LINK_MODES, LINK_PLACEHOLDER
+from app.social.threads.quality import QUALITY_RULES
 
 #: 切り口ごとの狙い。生成器はこれを読んで書き分ける。
 ANGLE_BRIEFS = {
@@ -84,6 +85,7 @@ def build_prompt(
     guidance: ThreadsGenerationGuidance | None = None,
     requested_link_mode: str | None = None,
     conversation_hook: str | None = None,
+    recent_topics: list[str] | None = None,
 ) -> ThreadsPromptPackage:
     """決定的に prompt を組み立てる (外部呼び出しはしない)。
 
@@ -158,12 +160,22 @@ def build_prompt(
             "## 書き方 (Threads の会話)",
             *[f"- {rule}" for rule in WRITING_RULES],
             "",
+            "## 1 投稿 1 要点 (T6.3.1)",
+            *[f"- {rule}" for rule in QUALITY_RULES],
+            "",
             f"## 会話のきっかけ (この依頼: conversation_hook={conversation_hook})",
             f"- {conversation_hook}: {HOOK_BRIEFS[conversation_hook]}",
             "- きっかけは任意の飾りではなく、話題から自然に出るものだけ。無理に作らない",
             f"- 出力の conversation_hook は必ず {conversation_hook} にする (別の型にしない)",
+            "- question は答えが二択にならない開いた問い。二択・優先を聞くのは choice",
             "",
         ]
+        if recent_topics:
+            lines += [
+                "## 最近の話題 (同じ製品・同じ数値・同じ軸の組み合わせを繰り返さない)",
+                *[f"- {topic}" for topic in recent_topics],
+                "",
+            ]
     if guidance is not None:
         lines += [*render_prompt_sections(guidance), ""]
     example = {"angle": wanted[0], "link_mode": "article", "body": f"...{LINK_PLACEHOLDER}"}

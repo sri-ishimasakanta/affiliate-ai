@@ -291,6 +291,22 @@ DECISIONS = (
         "follow_up": "本番の確認点: 次の新しい依頼で、きっかけつきの実際の生成を人が確かめる",
     },
     {
+        "id": "threads-content-quality-t631",
+        "area": "threads/generation",
+        "decision": (
+            "T6.3.1: Threads の投稿は 1 投稿 1 要点。本文は目安 280〜360 字・420 字を超えたら"
+            "書き直し。金額は 2 つまで。最近の話題 (製品・数値・軸) を繰り返さない"
+        ),
+        "rationale": (
+            "#12 は本文 322 字に金額 4 つと軸 4 つを詰め、最近の案と同じ料金を繰り返した。"
+            "完全一致の検査では見つからない。事実の検査と人の承認は変えない"
+        ),
+        "evidence": ["docs/operations/threads-proposal-stock.md"],
+        "phrase": "## 投稿の質 (T6.3.1)",
+        "resulting_state": "実装済み (migration なし)。本番の最初の質の確認は人の確認点",
+        "follow_up": "本番の質の確認: 次の新しい依頼の実際の出力を人が確かめる",
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

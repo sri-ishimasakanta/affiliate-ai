@@ -155,6 +155,7 @@ class ThreadsProposalService:
         learning_as_of: datetime | None = None,
         requested_link_mode: str | None = None,
         conversation_hook: str | None = None,
+        recent_topics: list[str] | None = None,
     ) -> ThreadsPromptPackage:
         """生成に使う prompt を決定的に組み立てる (外部呼び出しなし)。
 
@@ -173,6 +174,7 @@ class ThreadsProposalService:
             guidance=guidance,
             requested_link_mode=requested_link_mode,
             conversation_hook=conversation_hook,
+            recent_topics=recent_topics,
         )
 
     # -- proposal -------------------------------------------------------------
