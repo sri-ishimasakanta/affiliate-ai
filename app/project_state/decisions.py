@@ -253,6 +253,23 @@ DECISIONS = (
         "follow_up": "在庫の保守の有効化 (ランチャーのフラグ + worker の再起動) は人が行う",
     },
     {
+        "id": "threads-auto-generation-luna",
+        "area": "threads/generation",
+        "decision": (
+            "Threads の投稿案の主な生成器は OpenAI の GPT-5.6 Luna (Responses API・Structured "
+            "Outputs)。出力は信用せず、決定的な検査と人の承認を必須のままにする"
+        ),
+        "rationale": (
+            "日々の人の作業を承認と却下だけにする。失敗・鍵なし・上限の後は manual の依頼に戻す"
+        ),
+        "evidence": ["docs/operations/threads-proposal-stock.md"],
+        "phrase": "**GPT-5.6 Luna を投稿案の主な生成器にする**",
+        "resulting_state": (
+            "実装済み。本番の有効化 (鍵・費用・設定・worker の再起動) は人の確認点"
+        ),
+        "follow_up": "本番の確認点: 鍵と月の上限を用意し、最初の実際の生成を人が確かめる",
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

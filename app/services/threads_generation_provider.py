@@ -11,10 +11,11 @@ provider がすること: 生成の依頼 (prompt と来歴) を受け取り、�
 
 - :class:`ManualFileProvider` (既定): 依頼をファイルに書き、人がその prompt を外部で
   実行して ``<id>.response.json`` を置く。次の保守のサイクルがそれを取り込む。
-- :class:`DisabledAutomatedProvider`: 自動の LLM provider の場所。**今は無効。** 承認された
-  自動生成の仕組みがリポジトリに無いので、何も呼ばない。有効にするには、実費と secret の
-  扱いを人が決めたうえで、この境界を満たす provider を実装し、ポリシーの
-  ``proposal_stock.provider`` で選ぶ。
+- :class:`~app.services.threads_openai_provider.OpenAIGenerationProvider` (T6.2): OpenAI の
+  Responses API で自動生成する。manual と同じ依頼・prompt・答えのファイルを使い、失敗は
+  manual の依頼として残す。環境変数 ``THREADS_GENERATION_PROVIDER=openai`` と
+  ``OPENAI_API_KEY`` で選ぶ (人が API の費用と鍵を用意する)。
+- :class:`DisabledAutomatedProvider`: 何も呼ばない provider (``disabled`` / 不明な名前)。
 
 ファイルの置き場 (既定 ``data/threads-generation``、git 管理外)::
 
@@ -239,15 +240,27 @@ class DisabledAutomatedProvider:
         return None
 
 
-def build_provider(policy) -> ThreadsProposalGenerationProvider:
-    """ポリシーの ``proposal_stock.provider`` から provider を作る (secret は扱わない)。"""
+def provider_name(policy, settings=None) -> str:
+    """使う provider の名前。環境変数 ``THREADS_GENERATION_PROVIDER`` (設定) が優先、
+    無ければポリシーの ``proposal_stock.provider`` (コミット済みの既定は ``manual``)。"""
 
-    name = str(policy.proposal_stock("provider", PROVIDER_MANUAL))
+    override = getattr(settings, "threads_generation_provider", None) if settings else None
+    return str(override or policy.proposal_stock("provider", PROVIDER_MANUAL)).strip().lower()
+
+
+def build_provider(policy, settings=None) -> ThreadsProposalGenerationProvider:
+    """provider を作る。鍵は設定 (環境変数) からだけ読み、記録に残さない。"""
+
+    name = provider_name(policy, settings)
+    directory = Path(str(policy.proposal_stock("request_directory", "data/threads-generation")))
+    if not directory.is_absolute():
+        directory = _REPO_ROOT / directory
     if name == PROVIDER_MANUAL:
-        directory = Path(str(policy.proposal_stock("request_directory", "data/threads-generation")))
-        if not directory.is_absolute():
-            directory = _REPO_ROOT / directory
         return ManualFileProvider(directory)
+    if name == "openai":
+        from app.services.threads_openai_provider import build_openai_provider
+
+        return build_openai_provider(settings, directory)
     return DisabledAutomatedProvider(
         None if name == PROVIDER_DISABLED else f"unknown provider {name!r}; nothing is generated"
     )

@@ -186,6 +186,14 @@ def pending_generation_requests(root: Path) -> list[dict]:
         except ValueError:
             continue
         rid = data.get("request_id") or path.name.removesuffix(".request.json")
+        record = pending / f"{rid}.openai.json"
+        automatic = None
+        if record.exists():
+            try:
+                raw = json.loads(record.read_text(encoding="utf-8"))
+                automatic = {"result": raw.get("result"), "fallback": raw.get("fallback")}
+            except ValueError:
+                automatic = {"result": "unreadable", "fallback": None}
         out.append(
             {
                 "request_id": rid,
@@ -193,9 +201,32 @@ def pending_generation_requests(root: Path) -> list[dict]:
                 "angles": data.get("angles"),
                 "created_at": data.get("created_at"),
                 "has_response": (pending / f"{rid}.response.json").exists(),
+                "automatic_attempt": automatic,
             }
         )
     return out
+
+
+def generation_state(stock: dict | None, pending: list[dict]) -> dict:
+    """投稿案の生成の状態 (status.json と依頼のファイルから。鍵は読まない)。"""
+
+    stock = stock or {}
+    provider = (stock.get("provider") or {}).get("name") or "manual"
+    generation = stock.get("generation") or {}
+    if provider == "openai":
+        automatic = "misconfigured" if generation.get("mode") == "misconfigured" else "enabled"
+    else:
+        automatic = "disabled"
+    return {
+        "generation_provider": provider,
+        "automatic_generation": automatic,
+        "generation_model": generation.get("model") if provider == "openai" else None,
+        "manual_fallback_pending": sum(1 for r in pending if not r.get("has_response")),
+        "last_generation_at": generation.get("last_generation_at")
+        or stock.get("last_generation_attempt_at"),
+        "last_generation_result": generation.get("last_generation_result"),
+        "source": "data/threads-generation/status.json (last maintenance) + pending/ files",
+    }
 
 
 def performance_state(root: Path, conn, *, now: datetime) -> dict:
@@ -374,6 +405,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "proposals_with_guidance": guidance["n"],
             "latest": _iso(guidance["latest"]),
         },
+        "generation": generation_state(stock, pending_generation_requests(root)),
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,

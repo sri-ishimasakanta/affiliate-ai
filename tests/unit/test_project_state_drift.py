@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
@@ -303,7 +304,7 @@ def test_generation_requests_waiting_for_a_manual_answer_are_surfaced(tmp_path) 
     (pending / "10c423eb0b80f3e826b6.request.json").write_text(json.dumps(request), "utf-8")
     report = build_report(ctx)
     listed = report["threads"]["stock"]["pending_generation_requests"]
-    assert listed == [{**request, "has_response": False}]
+    assert listed == [{**request, "has_response": False, "automatic_attempt": None}]
     waiting = [w for w in report["warnings"] if w["id"] == "threads-generation-requests-waiting"]
     warning = waiting[0]
     assert warning["severity"] == "low" and "10c423eb0b80f3e826b6" in warning["message"]
@@ -606,3 +607,36 @@ def test_documentation_health_only_counts_dated_markers(tmp_path) -> None:
         encoding="utf-8",
     )
     assert docs_health.corrected(tmp_path) == [{"path": "docs/a.md", "note": "2026-09-26 fixed x"}]
+
+
+def test_project_state_reports_the_generation_provider(tmp_path) -> None:
+    ctx, _, _ = _context(tmp_path)
+    manual = build_report(ctx)["threads"]["generation"]
+    assert (manual["generation_provider"], manual["automatic_generation"]) == ("manual", "disabled")
+    assert manual["generation_model"] is None
+    status_dir = ctx.root / "data/threads-generation"
+    status_dir.mkdir(parents=True)
+    status = {
+        "provider": {"name": "openai", "available": True, "synchronous": True, "reason": "x"},
+        "generation": {"provider": "openai", "mode": "automatic", "model": "gpt-5.6-luna",
+                       "last_generation_at": "2026-09-27T01:00:00+00:00",
+                       "last_generation_result": "generated", "last_usage": {"total_tokens": 9}},
+    }  # fmt: skip
+    (status_dir / "status.json").write_text(json.dumps(status), encoding="utf-8")
+    report = build_report(ctx)
+    generation = report["threads"]["generation"]
+    assert generation["automatic_generation"] == "enabled"
+    assert generation["generation_model"] == "gpt-5.6-luna"
+    assert generation["last_generation_result"] == "generated"
+    assert "gpt-5.6-luna" in render_markdown(report)
+    status["generation"]["mode"] = "misconfigured"
+    (status_dir / "status.json").write_text(json.dumps(status), encoding="utf-8")
+    report = build_report(ctx)
+    assert report["threads"]["generation"]["automatic_generation"] == "misconfigured"
+    warning = next(
+        w for w in report["warnings"] if w["id"] == "threads-automatic-generation-misconfigured"
+    )
+    assert warning["severity"] == "medium" and not warning["blocking"]
+    assert strict.failures(report) == []
+    text = json.dumps(report, ensure_ascii=False)
+    assert not re.search(r"\bsk-[A-Za-z0-9_-]{16,}", text) and "OPENAI_API_KEY=" not in text

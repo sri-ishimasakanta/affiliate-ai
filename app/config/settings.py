@@ -96,6 +96,16 @@ class Settings(BaseSettings):
     threads_api_base_url: str = "https://graph.threads.net"
     threads_api_version: str = "v1.0"
 
+    # Threads の投稿案の自動生成 (T6.2)。未設定ならポリシーの provider (manual) のまま。
+    # openai を選ぶと OpenAI の Responses API で生成する (API の費用は別。鍵は人が用意する)。
+    # 鍵が無ければ自動生成はせず、manual の依頼として残す (worker は止まらない)。
+    threads_generation_provider: str | None = None  # manual | openai
+    threads_generation_model: str = "gpt-5.6-luna"
+    threads_generation_reasoning_effort: str = "medium"
+    threads_generation_timeout_seconds: float = 60.0
+    openai_api_key: str | None = None
+    openai_api_base_url: str = "https://api.openai.com/v1"
+
     # Affiliate redirect runtime (WordPress MU-plugin, Phase 3C-5F-D)。
     # base URL は wordpress_base_url を再利用する。共有 HMAC 鍵は projection を
     # **push (execute)** するときだけ必須。plan / dry-run では不要。default は置かない。

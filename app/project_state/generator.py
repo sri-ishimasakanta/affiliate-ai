@@ -490,6 +490,13 @@ def _md_threads(threads: dict) -> list[str]:
             f"- insights: {threads['insights']['snapshots']} snapshots, latest "
             f"{_fmt(threads['insights']['latest_observed_at'])}; learning guidance on "
             f"{threads['learning_guidance']['proposals_with_guidance']} proposal(s)",
+            f"- proposal generation: provider "
+            f"{(threads.get('generation') or {}).get('generation_provider')}, automatic "
+            f"{(threads.get('generation') or {}).get('automatic_generation')}, model "
+            f"{_fmt((threads.get('generation') or {}).get('generation_model'))}, manual fallback "
+            f"pending {(threads.get('generation') or {}).get('manual_fallback_pending')}, last "
+            f"{_fmt((threads.get('generation') or {}).get('last_generation_result'))} at "
+            f"{_fmt((threads.get('generation') or {}).get('last_generation_at'))}",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

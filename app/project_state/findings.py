@@ -169,12 +169,26 @@ def build_warnings(state: Mapping) -> list[dict]:
                 "low",
                 "threads",
                 f"{len(waiting)} proposal generation request(s) wait for a manual answer "
-                f"(ManualFileProvider): "
+                f"(automatic generation: "
+                f"{_get(threads, 'generation', 'automatic_generation', default='disabled')}): "
                 + ", ".join(f"{r['request_id']} (article {r.get('article_id')})" for r in waiting)
                 + "; unanswered requests go stale after 72 h",
                 evidence="data/threads-generation/pending/",
                 action_required="answer each prompt with a response.json; the next maintenance "
                 "cycle imports it",
+            )
+        )
+    if _get(threads, "generation", "automatic_generation") == "misconfigured":
+        out.append(
+            warning(
+                "threads-automatic-generation-misconfigured",
+                "medium",
+                "threads",
+                "automatic proposal generation is selected (openai) but not configured; "
+                "requests fall back to manual answers",
+                evidence="data/threads-generation/status.json (generation.mode)",
+                action_required="a human sets OPENAI_API_KEY (and restarts the worker) or "
+                "switches THREADS_GENERATION_PROVIDER back to manual",
             )
         )
     diagnostic = _get(state, "timing", "diagnostic") or {}

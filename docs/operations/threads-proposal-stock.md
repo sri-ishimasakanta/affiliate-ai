@@ -248,3 +248,67 @@ URL の範囲を文章として数えない (`validators.style_analysis_text`)�
   の依頼を書くことと、置かれた `response.json` を次の回に取り込むことだけ。**文章は自動で
   作られない** — 人 (または人が頼んだ作業) が依頼に答えるまで提案は増えない。答えの無い依頼は
   72 時間で `failed/` (stale) になり、その間は新しい依頼を出さない。
+
+## 自動生成 (T6.2: OpenAI GPT-5.6 Luna)
+
+**GPT-5.6 Luna を投稿案の主な生成器にする** (人の決定、2026-09-26)。実装は済み。
+本番で有効にするのは **別の確認点** (人が API の契約・鍵・費用の上限を用意し、設定を変えて
+worker を 1 回再起動する)。それまで本番は manual のまま。
+
+```
+在庫が下限より少ない → 生成の依頼 (manual と同じ prompt・同じファイル)
+→ OpenAI Responses API (gpt-5.6-luna、reasoning medium、Structured Outputs の strict な JSON schema)
+→ いつもの検査 + 自動生成の事実の検査 → awaiting_approval で保存
+→ いつもの digest → 人の承認 / 却下 → いつもの自動公開の安全の条件
+```
+
+- **モデルの出力は信用しない入力である。** 決定的な検査が正: T2 の形・長さ (500 字)・切り口・
+  リンク・文体・禁止表現・重複 (別の記事も含む)・T5.5 の来歴と指紋、に加えて自動生成にだけ
+  `app/social/threads/fact_guard.py` (記事に無い価格・割合・単位つきの数、収益の主張、作られた
+  体験、秘密らしい値) をかける。検査を通ったものだけが提案になる。
+- **人の承認は必須のまま。** OpenAI の答えも、検査を通った案も、digest の送信も、承認ではない。
+  provider は公開も承認も digest の送信もできない (コードを持たない。テストで固定)。
+- 呼び方 (`app/services/threads_openai_provider.py`): `POST https://api.openai.com/v1/responses`
+  (httpx。鍵は `Authorization` ヘッダーにだけ置く。`store: false`)。
+- 通信の失敗 (timeout・接続・429・5xx) は最大 2 回まで再試行 (2 秒・4 秒、`Retry-After` は 30 秒
+  まで守る)。400・401・403・404 は再試行しない。出力が JSON でない・拒否・未完了は再試行しない。
+- 検査落ちは 1 回だけ書き直させる (検査の結果を短く渡す)。書き直しも通信の再試行は 2 回まで。
+- 上限の後・鍵が無い・自動生成を止めたとき: その依頼は **普通の manual の依頼として残る**
+  (`pending/<id>.request.json` と `.prompt.txt`。検査落ちの答えは `<id>.openai-rejected.json` へ
+  外す)。人が `response.json` を置けば、次の保守が取り込む。worker は止まらない。
+- 依頼ごとの記録 `pending/<id>.openai.json`: 呼び出しの回数・結果 (`generated` / `repaired` /
+  `failed:<分類>` / `rejected_by_validation` / `misconfigured`)・モデル・usage (input / output /
+  total tokens だけ)。鍵・認証ヘッダー・エラーの生の本文は残さない。呼ぶ **前** に書くので、
+  同じ依頼を 2 度送らない (再起動をまたいでも)。
+
+### 費用の上限
+
+- 依頼は在庫が下限 (3) より少ないときだけ。1 回の保守で最大 3 件、1 記事 1 件。上限 15。
+- 保守は 360 分ごと (queue が変われば前倒し、60 分より早くはしない)。heartbeat では呼ばない。
+- 答え待ちの依頼があれば、新しい依頼 (= 新しい呼び出し) を出さない。
+- 依頼 1 件あたり: 最初の呼び出し 1 回 + 通信の再試行 2 回 + 書き直し 1 回 (+ その再試行 2 回)。
+  最大 6 回、普通は 1 回。
+- 既にある manual の依頼 (例: `10c423eb0b80f3e826b6`) は、保守では自動で送らない。送るのは人が
+  明示したときだけ (`ThreadsProposalStockService.generate_pending(<id>)`。これも冪等)。
+- **API の費用は別** (OpenAI との契約。このリポジトリの「追加の実費 0 円」の既定から外れる人の
+  決定)。OpenAI の管理画面で月の上限 (budget) を設定しておく。
+
+### 設定と戻し方
+
+`.env` (コミットしない) で選ぶ。ポリシーの `proposal_stock.provider` (コミット済み `manual`) より
+環境変数が優先する:
+
+```
+THREADS_GENERATION_PROVIDER=openai
+THREADS_GENERATION_MODEL=gpt-5.6-luna
+THREADS_GENERATION_REASONING_EFFORT=medium
+OPENAI_API_KEY=<人が用意する鍵>
+```
+
+設定は worker の起動のときに読まれるので、変えたら worker を 1 回再起動する (上の「worker の
+再起動の手順」)。**戻し方**: `.env` の `THREADS_GENERATION_PROVIDER=manual` (または空) にして
+worker を 1 回再起動する。依頼のファイルの形は同じなので、答え待ちの依頼はそのまま manual で
+答えられる。
+
+プロジェクトの状態の報告は `threads.generation` に provider・自動生成 (`enabled` / `disabled` /
+`misconfigured`)・モデル・manual の答え待ちの数・最後の生成の時刻と結果を出す (鍵は読まない)。

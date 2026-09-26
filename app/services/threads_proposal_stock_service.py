@@ -63,6 +63,7 @@ from app.services.threads_generation_provider import (
 )
 from app.services.threads_proposal_service import ThreadsProposalError, ThreadsProposalService
 from app.services.threads_queue_service import ThreadsQueueService
+from app.social.threads.fact_guard import fact_boundary_errors
 from app.social.threads.policy import ThreadsOperationsPolicy, get_operations_policy
 from app.social.threads.prompt import parse_generated
 from app.social.threads.stock import (
@@ -105,7 +106,7 @@ class ThreadsProposalStockService:
         self._settings = settings
         self._threads = threads_service
         self._policy = policy or get_operations_policy()
-        self._provider = provider or build_provider(self._policy)
+        self._provider = provider or build_provider(self._policy, settings)
         self._proposals = proposal_service or ThreadsProposalService(session)
         self._tz = timezone or get_c8_policy().timezone
         self._alert_notifiers = alert_notifiers
@@ -353,7 +354,7 @@ class ThreadsProposalStockService:
                 if output is not None:  # 同期の provider
                     room = per_cycle - len(outcome["created"])
                     if room > 0:
-                        self._ingest(request, output, now, room, outcome, alerts)
+                        self._ingest_with_repair(request, output, now, room, outcome, alerts)
 
         if alerts:
             self._alert(alerts, now)
@@ -371,6 +372,9 @@ class ThreadsProposalStockService:
             "learning": plan["learning"],
             "can_save": plan["migration"]["can_save"],
         }
+        summary = getattr(self._provider, "generation_summary", None)
+        if summary is not None:
+            status["generation"] = summary()
         if outcome["created"] or outcome["requests_created"] or outcome["failures"]:
             status["last_generation_attempt_at"] = now.isoformat()
         previous = self._provider.read_status() or {}
@@ -379,17 +383,88 @@ class ThreadsProposalStockService:
         outcome["status"] = status
         return outcome
 
+    def generate_pending(self, request_id: str, *, now: datetime | None = None) -> dict:
+        """既にある依頼を、自動生成の provider で明示に 1 回だけ生成して取り込む。
+
+        人の明示の指示のときだけ使う (本番の確認点)。provider の記録で冪等 (2 度送らない)。
+        保存は必ず ``awaiting_approval``。承認・公開・digest の送信はしない。
+        """
+
+        now = ensure_aware(now or datetime.now(UTC))
+        generate = getattr(self._provider, "generate_pending", None)
+        outcome = {"executed": True, "mode": "generate_pending", "created": [], "skipped": [],
+                   "failures": [], "requests_created": [], "stale_requests": []}  # fmt: skip
+        request = next((r for r in self._provider.pending() if r.request_id == request_id), None)
+        if generate is None or request is None:
+            reason = "the provider cannot generate" if generate is None else "no such request"
+            outcome["failures"].append({"request_id": request_id, "reason": reason})
+            return outcome
+        alerts: list[AlertDraft] = []
+        output = self._provider.collect(request) or generate(request)
+        if output is None:
+            outcome["failures"].append(
+                {"request_id": request_id, "reason": "no output (left as a manual request)"}
+            )
+        elif not self._proposals.can_store_learning_provenance():
+            outcome["skipped"].append({"request_id": request_id, "reason": "migration required"})
+        else:
+            room = self._policy.max_new_proposals_per_cycle
+            self._ingest_with_repair(request, output, now, room, outcome, alerts)
+        if alerts:
+            self._alert(alerts, now)
+        return outcome
+
     # -- internals -------------------------------------------------------------------
-    def _ingest(self, request, output, now, room, outcome, alerts) -> None:
-        """1 件の出力を検査して保存する。失敗はこの依頼だけを止める。"""
+    def _ingest_with_repair(self, request, output, now, room, outcome, alerts) -> None:
+        """検査落ちなら、書き直せる provider に 1 回だけ書き直させる (上限は provider が守る)。"""
+
+        repair = getattr(self._provider, "repair", None)
+        if repair is None:
+            self._ingest(request, output, now, room, outcome, alerts)
+            return
+        problem = self._ingest(request, output, now, room, outcome, alerts, final=False)
+        if problem is None:
+            return
+        repaired = repair(request, output, problem)
+        if repaired is None:
+            self._fail(request, outcome, problem)
+            alerts.append(_alert_invalid_output(request.request_id, "invalid"))
+            return
+        self._ingest(request, repaired, now, room, outcome, alerts)
+
+    def _reject(self, request, outcome, alerts, reason: str, kind: str | None, final: bool):
+        if not final:
+            return reason
+        self._fail(request, outcome, reason)
+        if kind:
+            alerts.append(_alert_invalid_output(request.request_id, kind))
+        return None
+
+    def _ingest(self, request, output, now, room, outcome, alerts, *, final=True) -> str | None:
+        """1 件の出力を検査して保存する。失敗はこの依頼だけを止める。
+
+        ``final=False`` のときは、検査落ちを記録せずに理由を返す (書き直しの前)。
+        """
 
         rid = request.request_id
         try:
             items = parse_generated(output)
         except (ValueError, json.JSONDecodeError) as exc:
-            self._fail(request, outcome, f"malformed output: {exc}")
-            alerts.append(_alert_invalid_output(rid, "malformed"))
-            return
+            return self._reject(
+                request, outcome, alerts, f"malformed output: {exc}", "malformed", final
+            )
+        if getattr(self._provider, "automatic", False):
+            article = self._session.get(Article, request.article_id)
+            article_text = f"{getattr(article, 'title', '')}\n{getattr(article, 'body', '')}"
+            problems = sorted(
+                {e for item in items for e in fact_boundary_errors(item["body"], article_text)}
+            )
+            if problems:
+                return self._reject(
+                    request, outcome, alerts,
+                    "generated output failed the fact boundary: " + "; ".join(problems),
+                    "invalid", final,
+                )  # fmt: skip
 
         kept, seen = [], set()
         for item in items:
@@ -401,9 +476,10 @@ class ThreadsProposalStockService:
                     {"request_id": rid, "reason": "outside the request (angle or cycle bound)"}
                 )
         if not kept:
-            self._fail(request, outcome, "no proposal matched the requested angle(s)")
-            alerts.append(_alert_invalid_output(rid, "unmatched"))
-            return
+            return self._reject(
+                request, outcome, alerts, "no proposal matched the requested angle(s)",
+                "unmatched", final,
+            )  # fmt: skip
 
         trimmed = json.dumps({"proposals": kept}, ensure_ascii=False)
         as_of = datetime.fromisoformat(request.learning_as_of)
@@ -436,15 +512,19 @@ class ThreadsProposalStockService:
             kept = [item for item in kept if item["angle"] not in duplicates]
             usable = [c for c in prepared.candidates if c["angle"] not in duplicates]
             if not usable:
-                self._fail(request, outcome, "no candidate passed validation or dedup")
                 # 重複だけで止まったなら、運用上の問題ではない (通知しない)。
                 duplicate_only = all(
                     any("already exists" in e or "duplicate" in e for e in r["errors"])
                     for r in prepared.rejected
                 )
-                if not duplicate_only:
-                    alerts.append(_alert_invalid_output(rid, "invalid"))
-                return
+                reasons = [e for r in prepared.rejected for e in r["errors"]] + [
+                    s["reason"] for s in outcome["skipped"] if s.get("request_id") == rid
+                ]
+                return self._reject(
+                    request, outcome, alerts,
+                    "no candidate passed validation or dedup: " + "; ".join(reasons)[:600],
+                    None if duplicate_only else "invalid", final,
+                )  # fmt: skip
             trimmed = json.dumps({"proposals": kept}, ensure_ascii=False)
             rows = self._proposals.persist(
                 article_id=request.article_id,
@@ -455,9 +535,7 @@ class ThreadsProposalStockService:
             )
         except ThreadsProposalError as exc:
             self._session.rollback()
-            self._fail(request, outcome, exc.reason)
-            alerts.append(_alert_invalid_output(rid, "refused"))
-            return
+            return self._reject(request, outcome, alerts, exc.reason, "refused", final)
         except SQLAlchemyError as exc:
             # 保存できなかった: 何も承認されない。依頼は残し、次の保守で再試行する。
             self._session.rollback()
@@ -465,7 +543,7 @@ class ThreadsProposalStockService:
                 {"request_id": rid, "reason": f"save failed: {type(exc).__name__}"}
             )
             alerts.append(_alert_save_failed(type(exc).__name__))
-            return
+            return None
         created = [row.id for row in rows]
         outcome["created"].extend(created)
         self._provider.complete(
@@ -473,6 +551,7 @@ class ThreadsProposalStockService:
             ok=True,
             outcome={"result": "stored", "proposal_ids": created, "at": now.isoformat()},
         )
+        return None
 
     def _live_identities(self) -> dict[str, int]:
         """生きている提案 (承認待ち・承認済み) と公開済みの本文の正規形 → 提案 ID。"""
