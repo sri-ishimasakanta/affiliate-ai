@@ -29,6 +29,7 @@ from app.project_state import (
     docs_health,
     invariants,
     local_state,
+    note_state,
     runtime_records,
     scheduler_state,
     wordpress_state,
@@ -195,6 +196,7 @@ def build_report(ctx: StateContext) -> dict:
         "roadmap_problems": roadmap["problems"],
         "source_precedence": list(AUTHORITY_LEVELS),
         "generation_policy": GENERATION_POLICY,
+        "note_channel": note_state.collect_note_channel(root, roadmap["phases"]),
     }
     report = {
         "generated_at": now.isoformat(timespec="seconds"),
@@ -308,6 +310,10 @@ def _md_phase(project: dict) -> list[str]:
         f"- Next phase: {_fmt(project['next_phase'])}; last completed: "
         f"{_fmt(project['last_completed_phase'])}",
         f"- Project-state generation: {policy['mode']} (scheduled: {_fmt(policy['scheduled'])})",
+        f"- note channel (local): {project['note_channel']['candidates']} candidate(s), drafts "
+        f"{project['note_channel']['drafts'] or '—'}, published with evidence "
+        f"{project['note_channel']['published_with_evidence']}, pending human review "
+        f"{project['note_channel']['pending_human_review']}",
         f"- Completed: {_fmt(project['completed_phases'])}",
         f"- Upcoming: {_fmt(project['upcoming_phases'])}",
         f"- Deferred: {_fmt(project['deferred_phases'])}",

@@ -389,7 +389,7 @@ def build_known_issues(state: Mapping, warnings: list[dict]) -> list[dict]:
 
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 # 優先度の中の順 (T7C): 劣化 / 時刻の来た確認 → 携帯の表示の確認 → tracking → 診断 (due の
-# とき) → 在庫の運用の決定 (確認の後) → ドキュメント → N0 → N1–N3 → C10。
+# とき) → 在庫の運用の決定 (確認の後) → ドキュメント → 次のフェーズ → その後のフェーズ → C10。
 ACTION_RANK = {
     "resolve-blocking-warnings": 0,
     "investigate-active-operations-alerts": 1,
@@ -403,8 +403,8 @@ ACTION_RANK = {
     "decide-proposal-stock-routine": 40,
     "correct-stale-docs": 45,
     "review-policy-note-text": 46,
-    "prepare-n0": 60,
-    "note-n1-n3": 70,
+    "start-next-phase": 60,
+    "later-roadmap-phases": 70,
     "c10-after-maturity": 80,
 }
 
@@ -599,39 +599,48 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 human_checkpoint_required=True,
             )
         )
-    out.append(
-        action(
-            "prepare-n0",
-            "P3",
-            "roadmap",
-            "start N0 — the next development phase (not started yet)"
-            if project.get("next_phase") == "N0"
-            else "prepare N0 (after T7)",
-            why="next roadmap phase (docs/project-roadmap.json next_phase)",
-            prerequisites=after_t7,
+    phases = {p["id"]: p for p in project.get("phases") or []}
+    completed = set(project.get("completed_phases") or [])
+    next_phase = project.get("next_phase")
+    if next_phase:
+        out.append(
+            action(
+                "start-next-phase",
+                "P3",
+                "roadmap",
+                f"start {next_phase} — the next development phase (not started yet)",
+                why="docs/project-roadmap.json next_phase",
+                prerequisites=after_t7,
+            )
         )
-    )
-    out.append(
-        action(
-            "note-n1-n3",
-            "P3",
-            "roadmap",
-            "note work N1 / N2 / N3 (after N0; declared only)",
-            why="roadmap",
-            prerequisites=["prepare-n0"],
+    later = [pid for pid in project.get("upcoming_phases") or [] if pid not in (next_phase, "C10")]
+    if later:
+        out.append(
+            action(
+                "later-roadmap-phases",
+                "P3",
+                "roadmap",
+                f"later: {' / '.join(later)} "
+                f"(declared only; after {next_phase or 'the next phase'})",
+                why="roadmap",
+                prerequisites=["start-next-phase"] if next_phase else [],
+            )
         )
-    )
-    out.append(
-        action(
-            "c10-after-maturity",
-            "P3",
-            "roadmap",
-            "C10 only after T7 and N0 are done and the operations data has matured",
-            why="C10 depends on stable operations and a trustworthy state report",
-            prerequisites=[*after_t7, "prepare-n0"],
-            blocking=True,
+    c10 = phases.get("C10")
+    if c10 and c10.get("status") != "complete":
+        unmet = [q for q in c10.get("prerequisites") or [] if q not in completed]
+        out.append(
+            action(
+                "c10-after-maturity",
+                "P3",
+                "roadmap",
+                "C10 only after its prerequisite phases are done and the operations data has "
+                "matured",
+                why="C10 depends on stable operations and a trustworthy state report",
+                prerequisites=[*after_t7, *unmet],
+                blocking=True,
+            )
         )
-    )
     seen, ordered = set(), []
     for item in sorted(out, key=action_sort_key):
         if item["id"] not in seen:

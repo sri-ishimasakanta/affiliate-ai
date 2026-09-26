@@ -518,7 +518,7 @@ def test_next_actions_are_deterministic_and_never_jump_to_c10(tmp_path) -> None:
     order = [findings.action_sort_key(a) for a in actions]
     assert order == sorted(order)
     c10 = next(a for a in actions if a["id"] == "c10-after-maturity")
-    assert c10["blocking"] is True and "prepare-n0" in c10["prerequisites"]
+    assert c10["blocking"] is True  # 前提と成熟の後だけ
     assert actions[0]["priority"] != "P3"
     money = next(a for a in actions if a["id"] == "set-up-missing-affiliate-programs")
     assert money["production_write_required"] and money["human_checkpoint_required"]
