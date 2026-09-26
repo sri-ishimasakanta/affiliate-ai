@@ -640,3 +640,19 @@ def test_project_state_reports_the_generation_provider(tmp_path) -> None:
     assert strict.failures(report) == []
     text = json.dumps(report, ensure_ascii=False)
     assert not re.search(r"\bsk-[A-Za-z0-9_-]{16,}", text) and "OPENAI_API_KEY=" not in text
+
+
+def test_project_state_reports_the_conversation_hook_policy(tmp_path) -> None:
+    ctx, _, db_path = _context(tmp_path)
+    _sql(
+        db_path,
+        "insert into threads_post_proposals values (2, 'awaiting_approval', "
+        "'{\"fingerprint\": \"f\", \"generation_brief\": {\"conversation_hook\": \"choice\"}}', "
+        "'2026-09-26')",
+    )
+    generation = build_report(ctx)["threads"]["generation"]
+    assert generation["conversation_style"] == "supported"
+    policy = generation["conversation_hook_policy"]
+    assert policy["hooks"] == ["none", "question", "choice", "experience", "opinion"]
+    assert policy["self_optimizing"] is False and policy["reach_guarantee"] is False
+    assert generation["proposals_by_conversation_hook"] == {"choice": 1, "legacy": 1}

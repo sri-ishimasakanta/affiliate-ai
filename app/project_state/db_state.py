@@ -229,6 +229,34 @@ def generation_state(stock: dict | None, pending: list[dict]) -> dict:
     }
 
 
+def conversation_state(conn) -> dict:
+    """会話のきっかけ (T6.3) の方針と、提案のきっかけ別の数 (T6.3 より前は legacy)。"""
+
+    from app.social.threads.conversation import BRIEF_VERSION, HOOKS, hook_from_provenance
+
+    counts: Counter = Counter()
+    for row in _rows(conn, "select learning_guidance_json from threads_post_proposals"):
+        raw = row["learning_guidance_json"]
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                raw = None
+        counts[hook_from_provenance(raw if isinstance(raw, dict) else None)] += 1
+    return {
+        "conversation_style": "supported",
+        "conversation_hook_policy": {
+            "brief_version": BRIEF_VERSION,
+            "hooks": list(HOOKS),
+            "selection": "deterministic 1-in-5 bucket per request (SHA-256); no randomness",
+            "target": "about 4 in 5 with a conversation hook, about 1 in 5 none",
+            "self_optimizing": False,
+            "reach_guarantee": False,
+        },
+        "proposals_by_conversation_hook": dict(sorted(counts.items())),
+    }
+
+
 def performance_state(root: Path, conn, *, now: datetime) -> dict:
     report = _read_json(root, PERFORMANCE_REPORT)
     if report is None:
@@ -405,7 +433,10 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "proposals_with_guidance": guidance["n"],
             "latest": _iso(guidance["latest"]),
         },
-        "generation": generation_state(stock, pending_generation_requests(root)),
+        "generation": {
+            **generation_state(stock, pending_generation_requests(root)),
+            **conversation_state(conn),
+        },
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,

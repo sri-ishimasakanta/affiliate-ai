@@ -55,9 +55,10 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
+from app.social.threads.conversation import hook_seed, plan_hooks
 from app.social.threads.style import POST_ANGLES
 
 STATE_PUBLISHED = "published"
@@ -101,6 +102,8 @@ class ProposalFact:
     state: str
     created_at: datetime
     topic: str | None = None
+    #: T6.3: 保存したきっかけ (無ければ None = T6.3 より前)。隣を避けるためだけに使う。
+    conversation_hook: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +141,8 @@ class PlannedRequest:
     angle: str
     link_mode: str
     reasons: tuple[str, ...]
+    #: T6.3: 会話のきっかけ (conversation.py)。依頼の安定した入力から決定的に決まる。
+    conversation_hook: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -146,6 +151,7 @@ class PlannedRequest:
             "topic": self.topic,
             "angle": self.angle,
             "link_mode": self.link_mode,
+            "conversation_hook": self.conversation_hook,
             "reasons": list(self.reasons),
         }
 
@@ -374,7 +380,28 @@ def _assign(chosen, facts, policy, guidance, usable_rows) -> list[PlannedRequest
                 reasons=tuple(reasons),
             )
         )
-    return requests
+    as_of = _aware(facts.now).isoformat()
+    # 直前に作った提案のきっかけも「隣」として避ける (DB の状態だけで決まる。決定的)。
+    latest = max(
+        (p for p in facts.proposals if p.conversation_hook),
+        key=lambda p: (_aware(p.created_at), p.proposal_id),
+        default=None,
+    )
+    hooks = plan_hooks(
+        (
+            hook_seed(article_id=r.article_id, angle=r.angle, link_mode=r.link_mode, as_of=as_of)
+            for r in requests
+        ),
+        previous=latest.conversation_hook if latest else None,
+    )
+    return [
+        replace(
+            r,
+            conversation_hook=hook,
+            reasons=(*r.reasons, f"conversation_hook {hook}: deterministic 1-in-5 bucket"),
+        )
+        for r, hook in zip(requests, hooks, strict=True)
+    ]
 
 
 def _topic_ranks(guidance) -> dict[str, int]:

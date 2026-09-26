@@ -63,6 +63,12 @@ from app.services.threads_generation_provider import (
 )
 from app.services.threads_proposal_service import ThreadsProposalError, ThreadsProposalService
 from app.services.threads_queue_service import ThreadsQueueService
+from app.social.threads.conversation import (
+    BRIEF_VERSION,
+    LEGACY,
+    conversation_errors,
+    hook_from_provenance,
+)
 from app.social.threads.fact_guard import fact_boundary_errors
 from app.social.threads.policy import ThreadsOperationsPolicy, get_operations_policy
 from app.social.threads.prompt import parse_generated
@@ -86,6 +92,11 @@ from app.social.threads.stock import (
 from app.social.threads.validators import normalized_identity
 
 SCHEMA = "threads-proposal-stock/1"
+
+
+def _saved_hook(row) -> str | None:
+    hook = hook_from_provenance(getattr(row, "learning_guidance_json", None))
+    return None if hook == LEGACY else hook
 ALERT_SOURCE = "threads_proposal_stock"
 
 
@@ -165,6 +176,7 @@ class ThreadsProposalStockService:
                     state=_state(row, candidates.get(row.id), published_ids, active, now),
                     created_at=ensure_aware(row.created_at),
                     topic=topic_of(row.source_article_id),
+                    conversation_hook=_saved_hook(row),
                 )
             )
 
@@ -453,6 +465,30 @@ class ThreadsProposalStockService:
             return self._reject(
                 request, outcome, alerts, f"malformed output: {exc}", "malformed", final
             )
+        brief = None
+        wanted_hook = getattr(request, "conversation_hook", None)
+        if wanted_hook is not None:
+            problems, style_warnings = [], []
+            for item in items:
+                got = item.get("conversation_hook")
+                if got != wanted_hook:
+                    problems.append(
+                        f"conversation_hook {got!r} does not match the requested {wanted_hook!r}"
+                    )
+                errors, warnings = conversation_errors(item["body"], wanted_hook)
+                problems += errors
+                style_warnings += warnings
+            if problems:
+                return self._reject(
+                    request, outcome, alerts,
+                    "conversation check failed: " + "; ".join(sorted(set(problems))),
+                    "invalid", final,
+                )  # fmt: skip
+            brief = {
+                "brief_version": BRIEF_VERSION,
+                "conversation_hook": wanted_hook,
+                "warnings": sorted(set(style_warnings)),
+            }
         if getattr(self._provider, "automatic", False):
             article = self._session.get(Article, request.article_id)
             article_text = f"{getattr(article, 'title', '')}\n{getattr(article, 'body', '')}"
@@ -532,6 +568,7 @@ class ThreadsProposalStockService:
                 now=now,
                 learning_as_of=as_of,
                 expected_guidance=request.guidance_fingerprint,
+                generation_brief=brief,
             )
         except ThreadsProposalError as exc:
             self._session.rollback()
@@ -579,6 +616,7 @@ class ThreadsProposalStockService:
             angles=[planned["angle"]],
             learning_as_of=now,
             requested_link_mode=planned["link_mode"],
+            conversation_hook=planned.get("conversation_hook"),
         )
         return GenerationRequest(
             request_id=request_id(
@@ -599,6 +637,7 @@ class ThreadsProposalStockService:
             created_at=now.isoformat(),
             reasons=tuple(planned["reasons"]),
             prompt=package.rendered_prompt,
+            conversation_hook=planned.get("conversation_hook"),
         )
 
     def _request_stale(self, request: GenerationRequest, now: datetime) -> bool:

@@ -458,6 +458,8 @@ def _md_threads(threads: dict) -> list[str]:
         perf = threads.get("performance") or {}
         latest = pubs.get("latest") or {}
         start = worker.get("runtime_start") or {}
+        generation = threads.get("generation") or {}
+        hook_policy = generation.get("conversation_hook_policy") or {}
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
             f" — {perf['rerun_reason']}"
@@ -497,6 +499,10 @@ def _md_threads(threads: dict) -> list[str]:
             f"pending {(threads.get('generation') or {}).get('manual_fallback_pending')}, last "
             f"{_fmt((threads.get('generation') or {}).get('last_generation_result'))} at "
             f"{_fmt((threads.get('generation') or {}).get('last_generation_at'))}",
+            "- conversation style: "
+            f"{generation.get('conversation_style')} (hooks {_fmt(hook_policy.get('hooks'))}; "
+            "about 4 in 5 active; not self-optimizing; no reach guarantee); proposals by hook "
+            f"{generation.get('proposals_by_conversation_hook')}",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

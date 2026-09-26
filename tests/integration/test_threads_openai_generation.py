@@ -54,6 +54,12 @@ from tests.integration.test_threads_proposal_stock_service import (
 def articles(session):
     """在庫の保守のテストと同じ 5 記事 (3 トピック)。"""
 
+    return seed_articles(session)
+
+
+def seed_articles(session):
+    """5 記事 (3 トピック) を入れる (ほかのテストのモジュールからも使う)。"""
+
     from app.models import Article, Keyword
 
     topics = {}
@@ -119,13 +125,17 @@ class FakeLuna:
             if isinstance(step, str) and step != "ok"
             else self.body_for(aid, angle, self.calls)
         )
+        props = payload["text"]["format"]["schema"]["properties"]["proposals"]["items"][
+            "properties"
+        ]
+        item = {"angle": angle, "link_mode": "none", "body": body}
+        if "conversation_hook" in props:  # T6.3: 求められたきっかけをそのまま返す
+            item = {"angle": angle, "conversation_hook": props["conversation_hook"]["enum"][0],
+                    "link_mode": "none", "body": body}  # fmt: skip
         if step == "malformed":
             text = "not json"
         else:
-            text = json.dumps(
-                {"proposals": [{"angle": angle, "link_mode": "none", "body": body}]},
-                ensure_ascii=False,
-            )
+            text = json.dumps({"proposals": [item]}, ensure_ascii=False)
         return httpx.Response(200, json={
             "id": f"resp_{self.calls}", "model": DEFAULT_MODEL, "status": "completed",
             "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}],
@@ -176,7 +186,7 @@ def test_luna_generates_validated_proposals_that_still_need_human_approval(
     assert (fmt["type"], fmt["strict"], fmt["name"]) == ("json_schema", True, "threads_proposals")
     item = fmt["schema"]["properties"]["proposals"]["items"]
     assert fmt["schema"]["additionalProperties"] is False and item["additionalProperties"] is False
-    assert item["required"] == ["angle", "link_mode", "body"]
+    assert item["required"] == ["angle", "conversation_hook", "link_mode", "body"]
     assert item["properties"]["link_mode"]["enum"] == ["none", "article"]
     assert payload["store"] is False
     assert fake.requests[0].headers["authorization"] == f"Bearer {API_KEY}"
@@ -432,6 +442,7 @@ def test_a_missing_api_key_keeps_the_worker_on_manual_requests(session, articles
     for request in provider.pending():
         (tmp_path / "gen" / "pending" / f"{request.request_id}.response.json").write_text(
             json.dumps({"proposals": [{"angle": request.angles[0], "link_mode": "none",
+                        "conversation_hook": request.conversation_hook,
                         "body": f"記事{request.article_id}の答え。体制を先に決める。"}]},
                        ensure_ascii=False), encoding="utf-8")  # fmt: skip
     later = _service(session, tmp_path, provider=provider).maintain(

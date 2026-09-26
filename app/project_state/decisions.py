@@ -270,6 +270,27 @@ DECISIONS = (
         "follow_up": "本番の確認点: 鍵と月の上限を用意し、最初の実際の生成を人が確かめる",
     },
     {
+        "id": "threads-conversation-hooks",
+        "area": "threads/generation",
+        "decision": (
+            "Threads の投稿案は、それだけで役に立つまま、約 5 本に 4 本で"
+            "自然な会話のきっかけを持つ "
+            "(none・question・choice・experience・opinion を決定的に割り当てる)"
+        ),
+        "rationale": (
+            "Threads は会話の場。反応を釣る言い回しにせず、話題から出るきっかけだけにする。"
+            "表示や到達が増えるとは主張せず、観測で測る。少ない数から割合を自動で変えない"
+        ),
+        "evidence": ["docs/operations/threads-proposal-stock.md"],
+        "phrase": "**目標: 約 5 本に 4 本がきっかけ付き",
+        "resulting_state": (
+            "実装済み (migration なし)。T6.3 より前の提案は legacy。"
+            "本番の新しい prompt の最初の生成は"
+            "人の確認点"
+        ),
+        "follow_up": "本番の確認点: 次の新しい依頼で、きっかけつきの実際の生成を人が確かめる",
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

@@ -57,8 +57,11 @@ class GenerationRequest:
     created_at: str
     reasons: tuple[str, ...] = ()
     prompt: str = field(default="", repr=False)
+    #: T6.3: 求める会話のきっかけ。T6.3 より前の依頼は ``None`` (きっかけ無しの形のまま)。
+    conversation_hook: str | None = None
 
     def as_dict(self) -> dict:
+        extra = {"conversation_hook": self.conversation_hook} if self.conversation_hook else {}
         return {
             "request_id": self.request_id,
             "article_id": self.article_id,
@@ -71,6 +74,7 @@ class GenerationRequest:
             "prompt_hash": self.prompt_hash,
             "created_at": self.created_at,
             "reasons": list(self.reasons),
+            **extra,
         }
 
     @classmethod
@@ -88,6 +92,7 @@ class GenerationRequest:
             created_at=str(data["created_at"]),
             reasons=tuple(data.get("reasons", ())),
             prompt=prompt,
+            conversation_hook=data.get("conversation_hook"),
         )
 
 

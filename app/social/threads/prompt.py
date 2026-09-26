@@ -26,6 +26,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
+from app.social.threads.conversation import HOOK_BRIEFS, HOOKS, WRITING_RULES
 from app.social.threads.guidance import ThreadsGenerationGuidance, render_prompt_sections
 from app.social.threads.policy import ThreadsStylePolicy
 from app.social.threads.proposal import LINK_MODES, LINK_PLACEHOLDER
@@ -82,12 +83,19 @@ def build_prompt(
     policy: ThreadsStylePolicy,
     guidance: ThreadsGenerationGuidance | None = None,
     requested_link_mode: str | None = None,
+    conversation_hook: str | None = None,
 ) -> ThreadsPromptPackage:
-    """決定的に prompt を組み立てる (外部呼び出しはしない)。"""
+    """決定的に prompt を組み立てる (外部呼び出しはしない)。
+
+    ``conversation_hook`` (T6.3) を渡したときだけ、会話のきっかけと書き方の節を足し、出力に
+    ``conversation_hook`` を求める。渡さなければ T6.3 より前とまったく同じ prompt になる。
+    """
 
     wanted = tuple(a for a in angles if a in policy.angles)
     if not wanted:
         raise ValueError("no supported angle was requested")
+    if conversation_hook is not None and conversation_hook not in HOOKS:
+        raise ValueError(f"unknown conversation_hook {conversation_hook!r}")
 
     body = (source_article_body or "").strip()
     truncated = len(body) > MAX_SOURCE_CHARACTERS
@@ -145,19 +153,31 @@ def build_prompt(
             "(記事に合わなければ none にしてよい)。"
         )
     lines.append("")
+    if conversation_hook is not None:
+        lines += [
+            "## 書き方 (Threads の会話)",
+            *[f"- {rule}" for rule in WRITING_RULES],
+            "",
+            f"## 会話のきっかけ (この依頼: conversation_hook={conversation_hook})",
+            f"- {conversation_hook}: {HOOK_BRIEFS[conversation_hook]}",
+            "- きっかけは任意の飾りではなく、話題から自然に出るものだけ。無理に作らない",
+            f"- 出力の conversation_hook は必ず {conversation_hook} にする (別の型にしない)",
+            "",
+        ]
     if guidance is not None:
         lines += [*render_prompt_sections(guidance), ""]
+    example = {"angle": wanted[0], "link_mode": "article", "body": f"...{LINK_PLACEHOLDER}"}
+    if conversation_hook is not None:
+        example = {
+            "angle": wanted[0],
+            "conversation_hook": conversation_hook,
+            "link_mode": "article",
+            "body": f"...{LINK_PLACEHOLDER}",
+        }
     lines += [
         "## 出力形式",
         "次の形の JSON だけを返す。説明文は付けない。",
-        json.dumps(
-            {
-                "proposals": [
-                    {"angle": wanted[0], "link_mode": "article", "body": f"...{LINK_PLACEHOLDER}"}
-                ]
-            },
-            ensure_ascii=False,
-        ),
+        json.dumps({"proposals": [example]}, ensure_ascii=False),
         "",
         f"## 記事 (id={source_article_id}): {source_article_title}",
         excerpt,
@@ -204,11 +224,11 @@ def parse_generated(raw_output: str) -> list[dict]:
         body = item.get("body")
         if not isinstance(angle, str) or not isinstance(body, str) or not body.strip():
             raise ValueError("each proposal needs an angle and a non-empty body")
-        drafts.append(
-            {
-                "angle": angle,
-                "body": body,
-                "link_mode": item.get("link_mode") or "none",
-            }
-        )
+        hook = item.get("conversation_hook")
+        if hook is not None and not isinstance(hook, str):
+            raise ValueError("conversation_hook must be a string")
+        draft = {"angle": angle, "body": body, "link_mode": item.get("link_mode") or "none"}
+        if hook is not None:
+            draft["conversation_hook"] = hook
+        drafts.append(draft)
     return drafts

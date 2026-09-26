@@ -83,28 +83,36 @@ class GenerationResult:
     attempts: list[dict] = field(default_factory=list)
 
 
-def proposal_schema(angles: tuple[str, ...] | list[str]) -> dict:
-    """Structured Outputs (strict) の JSON schema。manual の答えと同じ形。"""
+def proposal_schema(angles: tuple[str, ...] | list[str], conversation_hook: str | None = None):
+    """Structured Outputs (strict) の JSON schema。manual の答えと同じ形。
 
+    ``conversation_hook`` (T6.3) を求める依頼では、その値だけを許す enum の項目を足す
+    (モデルに別の型を選ばせない)。求めない依頼 (T6.3 より前) は前と同じ schema。
+    """
+
+    item = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["angle", "link_mode", "body"],
+        "properties": {
+            "angle": {"type": "string", "enum": sorted(set(angles))},
+            "link_mode": {"type": "string", "enum": ["none", "article"]},
+            "body": {"type": "string"},
+        },
+    }
+    if conversation_hook is not None:
+        item["required"] = ["angle", "conversation_hook", "link_mode", "body"]
+        item["properties"] = {
+            "angle": item["properties"]["angle"],
+            "conversation_hook": {"type": "string", "enum": [conversation_hook]},
+            "link_mode": item["properties"]["link_mode"],
+            "body": item["properties"]["body"],
+        }
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["proposals"],
-        "properties": {
-            "proposals": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["angle", "link_mode", "body"],
-                    "properties": {
-                        "angle": {"type": "string", "enum": sorted(set(angles))},
-                        "link_mode": {"type": "string", "enum": ["none", "article"]},
-                        "body": {"type": "string"},
-                    },
-                },
-            }
-        },
+        "properties": {"proposals": {"type": "array", "items": item}},
     }
 
 
@@ -150,7 +158,14 @@ class OpenAIResponsesClient:
         self._sleep = sleep
         self._max_output_tokens = max_output_tokens
 
-    def body(self, prompt: str, *, angles, feedback: tuple[str, str] | None = None) -> dict:
+    def body(
+        self,
+        prompt: str,
+        *,
+        angles,
+        feedback: tuple[str, str] | None = None,
+        conversation_hook: str | None = None,
+    ) -> dict:
         messages = [{"role": "user", "content": prompt}]
         if feedback is not None:
             previous, problems = feedback
@@ -167,15 +182,19 @@ class OpenAIResponsesClient:
                     "type": "json_schema",
                     "name": "threads_proposals",
                     "strict": True,
-                    "schema": proposal_schema(angles),
+                    "schema": proposal_schema(angles, conversation_hook),
                 }
             },
             "max_output_tokens": self._max_output_tokens,
             "store": False,
         }
 
-    def generate(self, prompt: str, *, angles, feedback=None) -> GenerationResult:
-        body = self.body(prompt, angles=angles, feedback=feedback)
+    def generate(
+        self, prompt: str, *, angles, feedback=None, conversation_hook=None
+    ) -> GenerationResult:
+        body = self.body(
+            prompt, angles=angles, feedback=feedback, conversation_hook=conversation_hook
+        )
         attempts: list[dict] = []
         headers = {"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"}
         with httpx.Client(timeout=self._timeout, transport=self._transport) as client:
@@ -396,7 +415,12 @@ class OpenAIGenerationProvider:
         }
         self._write_record(rid, record)  # 呼ぶ前に残す (途中で落ちても 2 度送らない)
         try:
-            result = self._client.generate(request.prompt, angles=request.angles, feedback=feedback)
+            result = self._client.generate(
+                request.prompt,
+                angles=request.angles,
+                feedback=feedback,
+                conversation_hook=getattr(request, "conversation_hook", None),
+            )
         except GenerationError as exc:
             attempts = getattr(exc, "attempts", [])
             record.update(

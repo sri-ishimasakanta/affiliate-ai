@@ -138,6 +138,8 @@ def _answer(provider: ManualFileProvider, body=None, *, extra=0) -> list[str]:
             {"angle": angle, "link_mode": "none", "body": f"追加の案{i}。{request.article_id}"}
             for i in range(extra)
         ]
+        if request.conversation_hook:  # T6.3: 求められたきっかけをそのまま返す (同じ schema)
+            items = [{**item, "conversation_hook": request.conversation_hook} for item in items]
         (provider.directory / "pending" / f"{request.request_id}.response.json").write_text(
             json.dumps({"proposals": items}, ensure_ascii=False), encoding="utf-8"
         )

@@ -154,6 +154,7 @@ class ThreadsProposalService:
         angles=None,
         learning_as_of: datetime | None = None,
         requested_link_mode: str | None = None,
+        conversation_hook: str | None = None,
     ) -> ThreadsPromptPackage:
         """生成に使う prompt を決定的に組み立てる (外部呼び出しなし)。
 
@@ -171,6 +172,7 @@ class ThreadsProposalService:
             policy=self._policy,
             guidance=guidance,
             requested_link_mode=requested_link_mode,
+            conversation_hook=conversation_hook,
         )
 
     # -- proposal -------------------------------------------------------------
@@ -284,10 +286,13 @@ class ThreadsProposalService:
         now: datetime | None = None,
         learning_as_of: datetime | None = None,
         expected_guidance: str | None = None,
+        generation_brief: dict | None = None,
     ) -> list[ThreadsPostProposal]:
         """検査を通った案だけを ``awaiting_approval`` として保存する。
 
         **承認はしない。公開もしない。** 使った学習の参考の小さな来歴を残す。
+        ``generation_brief`` (T6.3: 会話のきっかけなど) は同じ来歴の JSON に
+        ``generation_brief`` として残す (列は増やさない)。その ``warnings`` は提案の警告に足す。
         """
 
         now = now or datetime.now(UTC)
@@ -301,6 +306,10 @@ class ThreadsProposalService:
         provenance = self.learning_guidance(as_of=learning_as_of or now).provenance(
             verified_against_prompt=expected_guidance is not None
         )
+        extra_warnings: list[str] = []
+        if generation_brief:
+            extra_warnings = list(generation_brief.get("warnings") or [])
+            provenance = {**provenance, "generation_brief": dict(generation_brief)}
         if not prepared.candidates:
             raise ThreadsProposalError(
                 "no candidate passed validation; nothing was stored "
@@ -322,7 +331,7 @@ class ThreadsProposalService:
                 policy_version=candidate["policy_version"],
                 generator_version=candidate["generator_version"],
                 status=TP_AWAITING_APPROVAL,
-                warnings_json=candidate["warnings"] or None,
+                warnings_json=(list(candidate["warnings"] or []) + extra_warnings) or None,
                 learning_guidance_json=provenance,
                 created_at=to_storage_utc(now),
             )
