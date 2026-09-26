@@ -44,7 +44,7 @@ if "%PROFILE%"=="" set "PROFILE=observe"
 set "FLAGS="
 if /I "%PROFILE%"=="observe" set "FLAGS=--collect-insights --sync-approvals"
 if /I "%PROFILE%"=="operate" set "FLAGS=--collect-insights --sync-approvals --send-approval-digests"
-if /I "%PROFILE%"=="publish" set "FLAGS=--collect-insights --sync-approvals --send-approval-digests --auto-publish"
+if /I "%PROFILE%"=="publish" set "FLAGS=--collect-insights --sync-approvals --send-approval-digests --auto-publish --maintain-proposal-stock"
 if "%FLAGS%"=="" (
     echo unknown profile: %PROFILE% ^(expected observe, operate or publish^) 1>&2
     exit /b 64

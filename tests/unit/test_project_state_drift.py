@@ -239,7 +239,12 @@ def test_a_missing_worker_start_record_is_unresolved_not_invented(tmp_path) -> N
 def test_the_worker_log_start_line_is_parsed() -> None:
     event = runtime_records.last_started(WORKER_LOG + "noise\n", pid=4242)
     assert event["mode"] == "resident" and event["pid"] == 4242
-    assert event["capabilities"] == ["collect_insights", "sync_approvals", "send_approval_digests"]
+    assert event["capabilities"] == [
+        "collect_insights",
+        "sync_approvals",
+        "send_approval_digests",
+        "maintain_proposal_stock",
+    ]
     assert (event["auto_publish_flag"], event["auto_publish_policy"], event["can_publish"]) == (
         True,
         "enabled",
@@ -261,23 +266,53 @@ def test_make_tracking_on_articles_1_10_11_and_drift_when_it_differs(tmp_path) -
     assert found["authoritative_value"] == [10, 11]
 
 
-def test_stock_maintenance_on_is_configuration_drift_reported_once(tmp_path) -> None:
+OFF_LAUNCHER = 'if /I "%PROFILE%"=="publish" set "FLAGS=--resident --auto-publish"\n'
+
+
+def test_stock_maintenance_off_is_configuration_drift_reported_once(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
-    launcher = ctx.root / "scripts/run_threads_worker_task.cmd"
-    launcher.write_text(
-        'if /I "%PROFILE%"=="publish" set "FLAGS=--resident --auto-publish '
-        '--maintain-proposal-stock"\n',
-        encoding="utf-8",
-    )
+    assert build_report(ctx)["threads"]["worker"]["stock_maintenance_enabled"] is True  # 本番
+    (ctx.root / "scripts/run_threads_worker_task.cmd").write_text(OFF_LAUNCHER, encoding="utf-8")
     report = build_report(ctx)
-    found = _drift(report, "threads-stock-maintenance-on")
-    assert (found["classification"], found["severity"]) == ("configuration_drift", "high")
+    found = _drift(report, "threads-stock-maintenance-off")
+    assert (found["classification"], found["severity"]) == ("configuration_drift", "medium")
+    assert not found["blocking"]
     ids = [w["id"] for w in report["warnings"]]
-    assert "drift-threads-stock-maintenance-on" in ids
-    assert "invariant-threads-stock-maintenance-off" not in ids  # 同じことを 2 度言わない
-    assert "invariant threads-stock-maintenance-off failed (expected_state, high)" in (
-        strict.failures(report)
-    )
+    assert "drift-threads-stock-maintenance-off" in ids
+    assert "invariant-threads-stock-maintenance-on" not in ids  # 同じことを 2 度言わない
+    assert _inv(report, "threads-stock-maintenance-on")["result"] == "fail"
+    assert strict.failures(report) == []  # 劣化であって、安全の約束の破れではない
+
+
+def test_a_worker_started_before_the_flag_is_a_pending_restart(tmp_path) -> None:
+    old_log = WORKER_LOG.replace(",maintain_proposal_stock", "")
+    ctx, _, _ = _context(tmp_path, worker_log=old_log)
+    found = _drift(build_report(ctx), "threads-worker-stock-restart-pending")
+    assert (found["classification"], found["severity"]) == ("stale_runtime_record", "medium")
+    assert "restart" in found["recommended_resolution"] and not found["blocking"]
+    ctx2, _, _ = _context(tmp_path / "b")
+    assert _drift(build_report(ctx2), "threads-worker-stock-restart-pending") is None
+
+
+def test_generation_requests_waiting_for_a_manual_answer_are_surfaced(tmp_path) -> None:
+    ctx, _, _ = _context(tmp_path)
+    pending = ctx.root / "data/threads-generation/pending"
+    pending.mkdir(parents=True)
+    request = {"request_id": "10c423eb0b80f3e826b6", "article_id": 7,
+               "angles": ["common_mistake"], "created_at": "2026-09-26T11:25:03+00:00"}  # fmt: skip
+    (pending / "10c423eb0b80f3e826b6.request.json").write_text(json.dumps(request), "utf-8")
+    report = build_report(ctx)
+    listed = report["threads"]["stock"]["pending_generation_requests"]
+    assert listed == [{**request, "has_response": False}]
+    waiting = [w for w in report["warnings"] if w["id"] == "threads-generation-requests-waiting"]
+    warning = waiting[0]
+    assert warning["severity"] == "low" and "10c423eb0b80f3e826b6" in warning["message"]
+    answer = _action(report, "answer-pending-generation-requests")
+    assert answer["human_checkpoint_required"] and not answer["production_write_required"]
+    (pending / "10c423eb0b80f3e826b6.response.json").write_text("{}", "utf-8")
+    answered = build_report(ctx)
+    assert _action(answered, "answer-pending-generation-requests") is None
+    assert strict.failures(report) == []
 
 
 # == invariants =====================================================================
@@ -291,7 +326,7 @@ def test_invariants_are_split_into_hard_expected_and_advisory(tmp_path) -> None:
                 "scheduler-contract-threads-worker"):  # fmt: skip
         assert levels[iid] == "hard", iid
         assert _inv(report, iid)["result"] == "pass", iid
-    assert levels["threads-stock-maintenance-off"] == "expected_state"
+    assert levels["threads-stock-maintenance-on"] == "expected_state"
     assert levels["threads-automatic-publication-on"] == "expected_state"
     target = _inv(report, "threads-daily-activity-target")
     assert target["level"] == "advisory" and target["enforced"] is False
@@ -439,7 +474,9 @@ def test_the_stock_routine_decision_waits_for_the_mobile_observation(tmp_path) -
     assert _action(report, "decide-proposal-stock-routine") is None
     assert _action(report, "rerun-threads-performance-diagnostic") is None  # 診断は not_due
     stock_doc.write_text(recorded, encoding="utf-8")
-    observed = build_report(ctx)
+    assert _action(build_report(ctx), "decide-proposal-stock-routine") is None  # ON (本番)
+    (ctx.root / "scripts/run_threads_worker_task.cmd").write_text(OFF_LAUNCHER, encoding="utf-8")
+    observed = build_report(ctx)  # OFF のときだけ、有効化の行動を出す
     assert observed["approvals"]["genuine_mobile_render_observed"] is True
     assert _action(observed, "decide-proposal-stock-routine") is not None
     assert _action(observed, "observe-mobile-approval-render") is None
@@ -456,7 +493,7 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
     c10 = _action(report, "c10-after-maturity")
     assert c10["blocking"] and c10["prerequisites"] == []  # T7・N0 は完了、成熟を待つ
     info = {w["id"] for w in report["warnings"] if w["severity"] == "info"}
-    assert {"threads-stock-maintenance-off", "wp-media-99-duplicate",
+    assert {"wp-media-99-duplicate",
             "wp-api-user-author-role"} <= info  # fmt: skip
     git = next(w for w in report["warnings"] if w["id"] == "git-ahead-of-remote")
     assert git["severity"] == "low"
@@ -511,7 +548,7 @@ def test_strict_ignores_intentional_and_pending_states(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
     report = build_report(ctx)
     assert report["featured_images"]["media_99"]["exists"] is True
-    assert report["threads"]["worker"]["stock_maintenance_enabled"] is False
+    assert report["threads"]["worker"]["stock_maintenance_enabled"] is True
     assert report["git"]["ahead"] == 26
     assert report["approvals"]["genuine_mobile_render_observed"] is True
     assert strict.validate(report) == [] and strict.failures(report) == []

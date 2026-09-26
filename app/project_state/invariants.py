@@ -5,7 +5,7 @@
 - ``hard``: 破れたら運用の約束が破れている (DB が head・公開の窓・承認メールの窓・間隔 120 分・
   1 回に 1 本・スケジュールの契約)。
 - ``expected_state``: 今そうであるはずの状態 (T6 の本番の確認で決めた状態。自動公開 ON・
-  在庫の保守 OFF・featured image 25/25・W2 のカテゴリ・中継の配備)。変わったら理由を確かめる。
+  在庫の保守 ON・featured image 25/25・W2 のカテゴリ・中継の配備)。変わったら理由を確かめる。
 - ``advisory``: 運用の目安 (1 日 3〜5 本・push 済み・診断が新しい)。外れても誤りではない。
   警告にも strict の失敗にもしない。
 
@@ -192,13 +192,13 @@ def evaluate(state: Mapping) -> list[dict]:
             source="threads_operations_policy.json",
         ),
         _inv(
-            "threads-stock-maintenance-off",
+            "threads-stock-maintenance-on",
             "expected_state",
-            "resident proposal-stock maintenance stays OFF until the routine is decided",
-            expected=False,
+            "resident proposal-stock maintenance is ON (enabled 2026-09-26)",
+            expected=True,
             observed=(worker or {}).get("stock_maintenance_enabled"),
-            check=lambda v: v is False,
-            severity="high",
+            check=lambda v: v is True,
+            severity="medium",
             source="scripts/run_threads_worker_task.cmd",
         ),
         _inv(

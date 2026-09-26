@@ -119,23 +119,52 @@ def _worker_lock(state: Mapping) -> list[dict]:
 
 
 def _stock(state: Mapping) -> list[dict]:
-    enabled = _get(state, "threads", "worker", "stock_maintenance_enabled")
-    if enabled is not True:
-        return []
-    return [
-        finding(
-            "threads-stock-maintenance-on",
-            "threads",
-            "threads.worker.stock_maintenance_enabled",
-            authoritative_value="OFF (decision threads-stock-maintenance-off)",
-            conflicting_value="--maintain-proposal-stock is in the publish launcher flags",
-            authoritative_source="docs/decision-log (threads-stock-maintenance-off)",
-            conflicting_source="scripts/run_threads_worker_task.cmd",
-            classification="configuration_drift",
-            severity="high",
-            recommended_resolution="a human confirms the routine decision or removes the flag",
+    """在庫の保守は ON が意図した本番の設定 (2026-09-26 から)。"""
+
+    worker = _get(state, "threads", "worker") or {}
+    enabled = worker.get("stock_maintenance_enabled")
+    out = []
+    if enabled is False:
+        out.append(
+            finding(
+                "threads-stock-maintenance-off",
+                "threads",
+                "threads.worker.stock_maintenance_enabled",
+                authoritative_value="ON (decision threads-stock-maintenance-enabled, 2026-09-26)",
+                conflicting_value="--maintain-proposal-stock is missing from the publish flags",
+                authoritative_source="docs/decision-log (threads-stock-maintenance-enabled)",
+                conflicting_source="scripts/run_threads_worker_task.cmd",
+                classification="configuration_drift",
+                severity="medium",
+                recommended_resolution=(
+                    "a human restores the flag and restarts the worker once (documented procedure)"
+                ),
+            )
         )
-    ]
+    record = worker.get("runtime_start") or {}
+    if enabled is True and record.get("found") and worker.get("running"):
+        if "maintain_proposal_stock" not in (record.get("capabilities") or []):
+            out.append(
+                finding(
+                    "threads-worker-stock-restart-pending",
+                    "threads",
+                    "threads.worker.capabilities",
+                    authoritative_value="--maintain-proposal-stock in the publish launcher flags",
+                    conflicting_value=(
+                        f"running worker pid={record.get('pid')} started without "
+                        f"maintain_proposal_stock ({record.get('capabilities')})"
+                    ),
+                    authoritative_source="scripts/run_threads_worker_task.cmd",
+                    conflicting_source="worker start-up event (runtime record)",
+                    classification="stale_runtime_record",
+                    severity="medium",
+                    recommended_resolution=(
+                        "the flag takes effect at the next worker start; a human restarts it once "
+                        "(docs/operations/threads-proposal-stock.md)"
+                    ),
+                )
+            )
+    return out
 
 
 def _monetization(state: Mapping) -> list[dict]:

@@ -157,16 +157,24 @@ def build_warnings(state: Mapping) -> list[dict]:
             )
         )
     threads = state.get("threads") or {}
-    if _get(threads, "worker", "stock_maintenance_enabled") is False:
+    waiting = [
+        r
+        for r in _get(threads, "stock", "pending_generation_requests", default=[]) or []
+        if not r.get("has_response")
+    ]
+    if waiting:
         out.append(
             warning(
-                "threads-stock-maintenance-off",
-                "info",
+                "threads-generation-requests-waiting",
+                "low",
                 "threads",
-                "resident worker proposal-stock maintenance is OFF (not an error; enabling needs "
-                "the launcher flag and one worker restart by a human)",
-                evidence="docs/operations/threads-proposal-stock.md",
-                action_required="none until a human enables it",
+                f"{len(waiting)} proposal generation request(s) wait for a manual answer "
+                f"(ManualFileProvider): "
+                + ", ".join(f"{r['request_id']} (article {r.get('article_id')})" for r in waiting)
+                + "; unanswered requests go stale after 72 h",
+                evidence="data/threads-generation/pending/",
+                action_required="answer each prompt with a response.json; the next maintenance "
+                "cycle imports it",
             )
         )
     diagnostic = _get(state, "timing", "diagnostic") or {}
@@ -336,7 +344,7 @@ def _drift_warnings(state: Mapping) -> list[dict]:
 _COVERED_BY = {
     "wordpress-featured-images-complete": "wp-missing-featured-images",
     "wordpress-taxonomy-matches-plan": "drift-wp-taxonomy-drift",
-    "threads-stock-maintenance-off": "drift-threads-stock-maintenance-on",
+    "threads-stock-maintenance-on": "drift-threads-stock-maintenance-off",
 }
 
 
@@ -399,6 +407,7 @@ ACTION_RANK = {
     "confirm-next-daily-run": 4,
     "t7-validate-project-state": 5,
     "observe-mobile-approval-render": 10,
+    "answer-pending-generation-requests": 12,
     "set-up-missing-affiliate-programs": 20,
     "rerun-threads-performance-diagnostic": 30,
     "decide-proposal-stock-routine": 40,
@@ -588,6 +597,19 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 ),
                 why="the genuine mobile approval rendering has been observed",
                 production_write_required=True,
+                human_checkpoint_required=True,
+            )
+        )
+    if "threads-generation-requests-waiting" in ids:
+        out.append(
+            action(
+                "answer-pending-generation-requests",
+                "P2",
+                "threads",
+                "answer the pending proposal generation request(s): run pending/<id>.prompt.txt "
+                "and save pending/<id>.response.json (facts from the prompt only); the resident "
+                "maintenance imports them as awaiting_approval proposals",
+                why="the manual provider creates requests automatically but never writes answers",
                 human_checkpoint_required=True,
             )
         )

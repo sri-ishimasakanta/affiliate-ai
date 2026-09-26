@@ -175,6 +175,29 @@ def worker_flags(root: Path) -> dict:
     }
 
 
+def pending_generation_requests(root: Path) -> list[dict]:
+    """manual provider の答え待ちの依頼 (``pending/*.request.json``。読むだけ)。"""
+
+    pending = root / STOCK_STATUS.parent / "pending"
+    out = []
+    for path in sorted(pending.glob("*.request.json")) if pending.is_dir() else []:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        rid = data.get("request_id") or path.name.removesuffix(".request.json")
+        out.append(
+            {
+                "request_id": rid,
+                "article_id": data.get("article_id"),
+                "angles": data.get("angles"),
+                "created_at": data.get("created_at"),
+                "has_response": (pending / f"{rid}.response.json").exists(),
+            }
+        )
+    return out
+
+
 def performance_state(root: Path, conn, *, now: datetime) -> dict:
     report = _read_json(root, PERFORMANCE_REPORT)
     if report is None:
@@ -352,6 +375,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "latest": _iso(guidance["latest"]),
         },
         "stock": {
+            "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,
             "freshness": "recorded" if stock else "unverified",
             "note": "runtime file from the last stock run; the live queue counts above are "

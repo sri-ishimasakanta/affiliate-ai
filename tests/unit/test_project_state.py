@@ -278,7 +278,8 @@ SCHEDULER_ROWS = [
 SCHEDULER_JSON = json.dumps(SCHEDULER_ROWS)
 WORKER_LOG = (
     "2026-09-25T18:43:43+0900 threads-worker INFO event=started mode=resident pid=4242 "
-    "policy=t6.0 capabilities=collect_insights,sync_approvals,send_approval_digests "
+    "policy=t6.0 capabilities=collect_insights,sync_approvals,send_approval_digests,"
+    "maintain_proposal_stock "
     "auto_publish_flag=True auto_publish_policy=enabled can_publish=True\n"
 )
 
@@ -431,11 +432,10 @@ def test_threads_state_is_read_without_writing_the_database(tmp_path) -> None:
     threads = report["threads"]
     assert threads["account"] == ["bizfluxlab"]
     assert threads["worker"]["running"] is True
-    assert threads["worker"]["stock_maintenance_enabled"] is False  # 在庫の保守は OFF
+    assert threads["worker"]["stock_maintenance_enabled"] is True  # 2026-09-26 から ON
     assert threads["policy"]["soft_min_gap_minutes"] == 120
     assert threads["policy"]["fixed_posting_times"] is False
-    assert any(w["id"] == "threads-stock-maintenance-off" and w["severity"] == "info"
-               for w in report["warnings"])  # fmt: skip
+    assert not any("stock-maintenance" in w["id"] for w in report["warnings"])  # 意図どおり
     assert report["approvals"]["genuine_mobile_render_observed"] is True  # 2026-09-26
 
 

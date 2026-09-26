@@ -90,14 +90,22 @@ DECISIONS = (
         ),
     },
     {
-        "id": "threads-stock-maintenance-off",
+        # 以前の決定 threads-stock-maintenance-off (無効のまま) は、決定の記録に歴史として残る。
+        "id": "threads-stock-maintenance-enabled",
         "area": "threads",
-        "decision": "常駐 worker の提案の在庫の保守 (--maintain-proposal-stock) は無効のまま",
-        "rationale": "在庫づくりを自動で回す前に、人が運用の手順と携帯での承認を確かめる",
+        "decision": (
+            "常駐 worker の提案の在庫の保守 (--maintain-proposal-stock) を 2026-09-26 に有効にした"
+        ),
+        "rationale": (
+            "有効にする前の条件 (携帯の承認ページの本文表示を本物の承認依頼で確かめる) を満たした。"
+            "manual provider なので、依頼は自動で出るが、答え (response.json) は人が作る"
+        ),
         "evidence": ["docs/operations/threads-proposal-stock.md"],
-        "phrase": "**まだ有効にしていない**",
-        "resulting_state": "提案づくりは手動 (collect-only / 明示の実行) のまま",
-        "follow_up": "携帯での承認の表示を実際に確かめてから、在庫の運用の手順を人が決める",
+        "phrase": "**有効 (2026-09-26 20:25 JST から)**",
+        "resulting_state": (
+            "worker pid 4840 が maintain_proposal_stock つきで起動。最初の保守で依頼 1 件"
+        ),
+        "follow_up": "答え待ちの依頼に答える運用 (72 時間で stale)",
     },
     {
         "id": "threads-no-fixed-times",

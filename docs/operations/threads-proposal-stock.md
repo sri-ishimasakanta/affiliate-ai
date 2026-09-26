@@ -26,8 +26,8 @@ uv run python scripts/maintain_threads_proposal_stock.py --execute
 uv run python scripts/audit_threads_proposal_guidance.py --proposal-id 12
 ```
 
-常駐 worker に載せるときは `--maintain-proposal-stock` を付ける (既定では **無効**。
-本番のタスクのプロファイルには入れていない)。
+常駐 worker に載せるときは `--maintain-proposal-stock` を付ける (コードの既定では無効)。
+本番では 2026-09-26 から `publish` プロファイルに入れて **有効** (下の「本番での有効化」)。
 
 ## 在庫の区分
 
@@ -219,11 +219,24 @@ URL の範囲を文章として数えない (`validators.style_analysis_text`)�
 
 ### 本番での有効化
 
-常駐 worker の在庫の保守 (`--maintain-proposal-stock`) は **まだ有効にしていない**
-(タスクのプロファイルにも入れていない)。有効にする前の条件のうち、承認ページの本文表示は
-2026-09-26 に本物の承認依頼で確かめた (上の表)。人は有効化を承認済み。
+常駐 worker の在庫の保守 (`--maintain-proposal-stock`) は **有効 (2026-09-26 20:25 JST から)**。
+有効にする前の条件 (承認ページの本文表示を本物の承認依頼で確かめる) を 2026-09-26 に満たし
+(上の表)、人が有効化を承認して、ランチャーの変更と worker の再起動を人が行った。
 
-**有効にする方法 (既存の仕組み)**: ランチャー `scripts/run_threads_worker_task.cmd` の
+| 項目 | 内容 |
+| --- | --- |
+| ランチャー | `publish` の `FLAGS` に `--maintain-proposal-stock` を追加 (人が編集) |
+| 再起動 | 旧 PID 16200 → 新 PID 4840 (20:25:02 JST 起動、`reclaimed_stale=True`)。起動の記録の capabilities に `maintain_proposal_stock`、`can_publish=True` |
+| 最初の保守 (20:25:06) | `usable=2 needs_generation=True requests_created=1 created=0 provider=manual`。次は 2026-09-27 02:25:03 JST |
+| 依頼 | `10c423eb0b80f3e826b6` (記事 7、common_mistake、link article)。答え待ち |
+| 公開 | 再起動で公開は起きていない (#9 は `gap_not_elapsed` のまま) |
+| 変えていないもの | 自動公開 (有効)・公開窓・承認メールの窓・間隔 120 分・1 サイクル 1 件・下限 3 / 上限 15 / 1 回 3 件・保守の間隔 (360 分・最短 60 分)・タスクの定義・ポリシー |
+
+**ログの `pending_requests` の意味**: 保守の 1 回の中で、答えの取り込みの後・新しい依頼の前に数えた値 (その回に出した依頼を含まない)。最初の保守の `pending_requests=0 requests_created=1` は「待っていた依頼は 0 件、この回に 1 件出した」で、回の後の待ちは 1 件。
+
+**`status.json` の意味**: 最後の保守の時点の要約。保守の間に公開・承認があると古くなる。在庫の数は DB が正 (プロジェクトの状態の報告は `recorded` として扱う)。
+
+**有効にする方法 (既存の仕組み。2026-09-26 にこの手順で有効にした)**: ランチャー `scripts/run_threads_worker_task.cmd` の
 `publish` プロファイルの `FLAGS` に `--maintain-proposal-stock` を足し、常駐 worker を 1 回
 再起動する (フラグは起動のときにだけ読まれる)。タスクの定義 (`publish` を渡すだけ)・ポリシー・
 間隔は変えない。再起動は上の「worker の再起動の手順」に従う。

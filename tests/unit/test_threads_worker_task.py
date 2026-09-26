@@ -67,6 +67,13 @@ def test_only_the_publish_profile_passes_auto_publish() -> None:
     assert "--auto-publish" in _profile_flags("publish")
 
 
+def test_only_the_publish_profile_maintains_proposal_stock() -> None:
+    # 2026-09-26 に本番で有効にした (docs/operations/threads-proposal-stock.md)
+    assert "--maintain-proposal-stock" in _profile_flags("publish")
+    assert "--maintain-proposal-stock" not in _profile_flags("observe")
+    assert "--maintain-proposal-stock" not in _profile_flags("operate")
+
+
 def test_the_launcher_carries_no_secret_material() -> None:
     lowered = _launcher().lower()
     for marker in ("access_token", "password", "secret=", "thaa", "bearer"):
