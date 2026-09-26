@@ -48,6 +48,12 @@ def main(
         help="届いた生成結果を取り込むだけ。新しい生成の依頼は出さない",
     )
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
+    parser.add_argument(
+        "--supersede-request",
+        metavar="REQUEST_ID",
+        help="答え待ちの依頼を置き換え済みとして閉じる (--reason が必要。--execute で実行)",
+    )
+    parser.add_argument("--reason", help="--supersede-request の理由 (監査に残る)")
     args = parser.parse_args(argv)
 
     if session_factory is None:
@@ -58,6 +64,18 @@ def main(
         from app.config.settings import get_settings
 
         settings = get_settings()
+
+    if args.supersede_request:
+        with session_factory() as session:
+            service = ThreadsProposalStockService(session, settings=settings, **(overrides or {}))
+            result = service.supersede_pending(
+                args.supersede_request, reason=args.reason or "", now=now, execute=args.execute
+            )
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        if not args.execute and result["result"] == "would_supersede":
+            print("PLAN only: nothing was changed. Run with --execute to supersede.")
+        return EXIT_OK if result["result"] in ("would_supersede", "superseded",
+                                                "already_superseded") else 2  # fmt: skip
 
     with session_factory() as session:
         service = ThreadsProposalStockService(session, settings=settings, **(overrides or {}))

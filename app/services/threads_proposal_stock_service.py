@@ -97,6 +97,8 @@ SCHEMA = "threads-proposal-stock/1"
 def _saved_hook(row) -> str | None:
     hook = hook_from_provenance(getattr(row, "learning_guidance_json", None))
     return None if hook == LEGACY else hook
+
+
 ALERT_SOURCE = "threads_proposal_stock"
 
 
@@ -394,6 +396,66 @@ class ThreadsProposalStockService:
         self._provider.write_status(status)
         outcome["status"] = status
         return outcome
+
+    def supersede_pending(
+        self,
+        request_id: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+        execute: bool = False,
+    ) -> dict:
+        """答え待ちの依頼を「置き換え済み (superseded)」として閉じる (監査つき・冪等)。
+
+        prompt / schema の版が変わって古くなった依頼のため。**LLM を呼ばない・提案を作らない・
+        承認も公開もしない。** 依頼と prompt のファイルは消さずに ``failed/`` へ移し、
+        ``outcome.json`` に ``result: superseded``・理由・時刻を残す (取り込みに成功したとは
+        記録しない)。``execute=False`` (既定) は何も変えずに、何が起きるかだけを返す。
+
+        断るとき: 依頼が無い・答え (``response.json``) が取り込みを待っている・もう取り込み済み
+        (``done/``)。もう置き換え済みなら何もしない (``already_superseded``)。
+        """
+
+        now = ensure_aware(now or datetime.now(UTC))
+        reason = (reason or "").strip()
+        base = {"request_id": request_id, "executed": False, "reason": reason}
+        if not reason:
+            return {**base, "result": "refused", "why": "a reason is required"}
+        directory = getattr(self._provider, "directory", None)
+        outcome_of = (
+            (lambda folder: directory / folder / f"{request_id}.outcome.json")
+            if directory is not None
+            else (lambda folder: None)
+        )
+        done = outcome_of("done")
+        failed = outcome_of("failed")
+        if done is not None and done.exists():
+            return {**base, "result": "refused", "why": "the request was already imported"}
+        if failed is not None and failed.exists():
+            previous = json.loads(failed.read_text(encoding="utf-8"))
+            if previous.get("result") == "superseded":
+                return {**base, "result": "already_superseded", "previous": previous}
+            closed = previous.get("result")
+            return {**base, "result": "refused", "why": f"already closed ({closed})"}
+        request = next((r for r in self._provider.pending() if r.request_id == request_id), None)
+        if request is None:
+            return {**base, "result": "refused", "why": "no such pending request"}
+        if self._provider.collect(request) is not None:
+            return {
+                **base,
+                "result": "refused",
+                "why": "a response is waiting to be imported; import or review it first",
+            }
+        record = {
+            "result": "superseded",
+            "reason": reason,
+            "at": now.isoformat(),
+            "had_conversation_hook": bool(getattr(request, "conversation_hook", None)),
+        }
+        if not execute:
+            return {**base, "result": "would_supersede", "outcome": record}
+        self._provider.complete(request, ok=False, outcome=record)
+        return {**base, "executed": True, "result": "superseded", "outcome": record}
 
     def generate_pending(self, request_id: str, *, now: datetime | None = None) -> dict:
         """既にある依頼を、自動生成の provider で明示に 1 回だけ生成して取り込む。

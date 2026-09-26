@@ -348,3 +348,20 @@ worker を 1 回再起動する。依頼のファイルの形は同じなので�
   共有率 (views が 0 なら None) を出す。**生成のやり方は自動で変えない。** 指標の取り込みも変えない。
 - プロジェクトの状態の報告: `threads.generation` に `conversation_style`・きっかけの方針
   (`self_optimizing: false`・`reach_guarantee: false`)・提案のきっかけ別の数を出す。
+
+### 古くなった依頼を閉じる (supersede)
+
+prompt / schema の版が変わって古くなった答え待ちの依頼 (例: T6.3 より前の、きっかけの無い依頼) は、
+監査つきで「置き換え済み」として閉じられる。**LLM を呼ばない・提案を作らない・承認も公開もしない。**
+
+```bash
+# PLAN (何も変えない): 閉じられるかと、残す記録を表示する
+uv run python scripts/maintain_threads_proposal_stock.py --supersede-request <request_id> --reason "<理由>"
+
+# 実行: 依頼と prompt を消さずに failed/ へ移し、outcome.json に result=superseded・理由・時刻を残す
+uv run python scripts/maintain_threads_proposal_stock.py --supersede-request <request_id> --reason "<理由>" --execute
+```
+
+- 断る: 理由が無い・依頼が無い・答え (`response.json`) が取り込みを待っている・もう取り込み済み
+  (`done/`)・別の理由で閉じ済み。2 回目は `already_superseded` で何もしない (冪等)。
+- ほかの依頼には触れない。閉じた依頼は答え待ちの数から外れ、次の保守が必要なら新しい依頼を作る。
