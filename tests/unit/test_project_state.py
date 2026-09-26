@@ -436,7 +436,7 @@ def test_threads_state_is_read_without_writing_the_database(tmp_path) -> None:
     assert threads["policy"]["fixed_posting_times"] is False
     assert any(w["id"] == "threads-stock-maintenance-off" and w["severity"] == "info"
                for w in report["warnings"])  # fmt: skip
-    assert report["approvals"]["genuine_mobile_render_observed"] is False
+    assert report["approvals"]["genuine_mobile_render_observed"] is True  # 2026-09-26
 
 
 def test_the_readonly_engine_cannot_write(tmp_path) -> None:

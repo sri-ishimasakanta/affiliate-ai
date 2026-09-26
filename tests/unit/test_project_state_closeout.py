@@ -183,14 +183,15 @@ def test_operational_warnings_do_not_block_and_actions_follow_the_order(tmp_path
     report = build_report(ctx)
     ids = {w["id"] for w in report["warnings"]}
     assert {"ops-latest-daily-run-not-clean", "monetization-missing-tracking",
-            "approvals-mobile-render-unobserved", "git-ahead-of-remote",
+            "git-ahead-of-remote",
             "threads-stock-maintenance-off", "wp-media-99-duplicate"} <= ids  # fmt: skip
     assert not [w for w in report["warnings"] if w["blocking"]]
     assert strict.failures(report) == []
     order = _action_ids(report)
-    expected = ["check-daily-run", "observe-mobile-approval-render",
-                "set-up-missing-affiliate-programs", "start-next-phase", "later-roadmap-phases",
+    expected = ["check-daily-run", "set-up-missing-affiliate-programs",
+                "decide-proposal-stock-routine", "start-next-phase", "later-roadmap-phases",
                 "c10-after-maturity"]  # fmt: skip
+    assert "observe-mobile-approval-render" not in order  # 2026-09-26 に確認済み
     assert [a for a in order if a in expected] == expected
     assert "t7-validate-project-state" not in order
     nxt = next(a for a in report["next_actions"] if a["id"] == "start-next-phase")

@@ -427,19 +427,24 @@ def test_diagnostic_states(newly, age_days, expected) -> None:
 # == next actions ===================================================================
 def test_the_stock_routine_decision_waits_for_the_mobile_observation(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
+    stock_doc = ctx.root / "docs/operations/threads-proposal-stock.md"
+    recorded = stock_doc.read_text(encoding="utf-8")
+    assert "確認済み (2026-09-26、人が実機で確認)" in recorded  # 2026-09-26 に記録した
+    stock_doc.write_text(  # 確認前の状態を再現する
+        recorded.replace("確認済み (2026-09-26、人が実機で確認)", "未確認"), encoding="utf-8"
+    )
     report = build_report(ctx)
     assert report["approvals"]["genuine_mobile_render_observed"] is False
     assert _action(report, "observe-mobile-approval-render") is not None
     assert _action(report, "decide-proposal-stock-routine") is None
     assert _action(report, "rerun-threads-performance-diagnostic") is None  # 診断は not_due
-    stock_doc = ctx.root / "docs/operations/threads-proposal-stock.md"
-    stock_doc.write_text(
-        stock_doc.read_text(encoding="utf-8").replace("未確認", "確認済み"), encoding="utf-8"
-    )
+    stock_doc.write_text(recorded, encoding="utf-8")
     observed = build_report(ctx)
     assert observed["approvals"]["genuine_mobile_render_observed"] is True
     assert _action(observed, "decide-proposal-stock-routine") is not None
     assert _action(observed, "observe-mobile-approval-render") is None
+    enable = _action(observed, "decide-proposal-stock-routine")
+    assert enable["human_checkpoint_required"] and "--maintain-proposal-stock" in enable["action"]
 
 
 def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
@@ -508,7 +513,7 @@ def test_strict_ignores_intentional_and_pending_states(tmp_path) -> None:
     assert report["featured_images"]["media_99"]["exists"] is True
     assert report["threads"]["worker"]["stock_maintenance_enabled"] is False
     assert report["git"]["ahead"] == 26
-    assert report["approvals"]["genuine_mobile_render_observed"] is False
+    assert report["approvals"]["genuine_mobile_render_observed"] is True
     assert strict.validate(report) == [] and strict.failures(report) == []
 
 

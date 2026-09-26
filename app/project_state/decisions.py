@@ -231,6 +231,20 @@ DECISIONS = (
         "follow_up": None,
     },
     {
+        "id": "t6-1-mobile-render-observed",
+        "area": "threads/approvals",
+        "decision": (
+            "T6.1: 携帯の承認ページの本文表示を、本物の承認依頼で実機で確かめた (提案 #10)"
+        ),
+        "rationale": (
+            "デプロイの時点ではテストでだけ確かめていた。在庫の保守を有効にする前の条件だった"
+        ),
+        "evidence": ["docs/operations/threads-proposal-stock.md"],
+        "phrase": "確認済み (2026-09-26、人が実機で確認)",
+        "resulting_state": "「投稿される本文」が表示され、承認・却下のボタンも通常どおり",
+        "follow_up": "在庫の保守の有効化 (ランチャーのフラグ + worker の再起動) は人が行う",
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

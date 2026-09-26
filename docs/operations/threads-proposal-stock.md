@@ -201,7 +201,7 @@ URL の範囲を文章として数えない (`validators.style_analysis_text`)�
 | デプロイ前 | 5239 tests passed、ruff・`alembic check` clean、スキーマ変更なし |
 | 中継 | 人が XServer の 2 ファイルを PC へ退避 (`D:\Backups\affiliate-ai\relay-pre-t6.1\`、`09a4a39` と一致) してから HEAD の版に置き換えた |
 | 中継の確認 (読むだけ) | 実在しないセッション ID の承認ページの枠を読み戻し、手元で描いた各版の script と比較。前: `09a4a39` と一致。後 (18:26 JST): HEAD と一致、`reviewModel`・「投稿される本文」あり、セキュリティヘッダーと `robots.txt` は変化なし。18:27:46 の worker の署名付き同期も正常 |
-| 実物の携帯表示 | **未確認 (次の本物の承認依頼で確認する)**。本物の snapshot を描くにはレビューのセッションが要り、承認・却下の操作を伴うため、このデプロイでは作らなかった。表示と `review_text_missing` の拒否はテストで確認済み |
+| 実物の携帯表示 | **確認済み (2026-09-26、人が実機で確認)**: 手動の在庫補充で作った提案 #8〜#10 の本物の承認依頼 (digest #3、18:39 JST 送信) を携帯のブラウザで開き、提案 #10 のレビュー画面で「投稿される本文」に本文が表示され、目立つ途切れが無く、承認・却下のボタンが通常どおり表示されることを確かめた (スクリーンショットはリポジトリに置かない)。デプロイの時点ではレビューのセッションが無かったため、表示と `review_text_missing` の拒否はテストでだけ確かめていた |
 | worker の再起動 (1 回) | 旧 PID 12512 (14:02:41 起動)。タスクの停止は `cmd.exe` だけを止め、uv / python が残ったため、その 3 つの PID を止めた (18:28:49)。旧いロックが古くなる 18:42:46 を待って、タスクを 1 回だけ開始 (18:43:42)。新 PID 16200 が `reclaimed_stale=True` でロックを取得。18:40 の定期トリガーの起動は `already_running` で何もせず終了 |
 | タスクの定義 | 変更なし: `run_threads_worker_task.cmd publish` (`--resident --collect-insights --sync-approvals --send-approval-digests --auto-publish`)、IgnoreNew、15 分ごと。`--maintain-proposal-stock` なし |
 | 公開の規則 | 再起動後の最初の評価: `next_candidate=6 blockers=gap_not_elapsed`、次の評価 19:43:24 JST (#4 の実際の公開 17:43:24 から 120 分)。取り戻しの連続公開なし |
@@ -220,5 +220,18 @@ URL の範囲を文章として数えない (`validators.style_analysis_text`)�
 ### 本番での有効化
 
 常駐 worker の在庫の保守 (`--maintain-proposal-stock`) は **まだ有効にしていない**
-(タスクのプロファイルにも入れていない)。有効にする前に、manual の依頼に人が答える
-運用の手順を決め、次の本物の承認依頼で承認ページの本文表示を確かめる。
+(タスクのプロファイルにも入れていない)。有効にする前の条件のうち、承認ページの本文表示は
+2026-09-26 に本物の承認依頼で確かめた (上の表)。人は有効化を承認済み。
+
+**有効にする方法 (既存の仕組み)**: ランチャー `scripts/run_threads_worker_task.cmd` の
+`publish` プロファイルの `FLAGS` に `--maintain-proposal-stock` を足し、常駐 worker を 1 回
+再起動する (フラグは起動のときにだけ読まれる)。タスクの定義 (`publish` を渡すだけ)・ポリシー・
+間隔は変えない。再起動は上の「worker の再起動の手順」に従う。
+
+- ランチャーは cmd.exe が **実行中に** バイト位置で読み直すので、worker を止めてから書き換える
+  (動いている間に書き換えると、再開した行がずれることがある)。
+- 保守は起動直後に 1 回動き、その後は 6 時間ごと (queue が変われば前倒し、60 分より早くはしない)。
+- provider は `manual` (`ManualFileProvider`、非同期)。保守がするのは `pending/<id>.prompt.txt`
+  の依頼を書くことと、置かれた `response.json` を次の回に取り込むことだけ。**文章は自動で
+  作られない** — 人 (または人が頼んだ作業) が依頼に答えるまで提案は増えない。答えの無い依頼は
+  72 時間で `failed/` (stale) になり、その間は新しい依頼を出さない。

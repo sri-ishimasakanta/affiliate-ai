@@ -163,9 +163,10 @@ def build_warnings(state: Mapping) -> list[dict]:
                 "threads-stock-maintenance-off",
                 "info",
                 "threads",
-                "resident worker proposal-stock maintenance is intentionally OFF",
+                "resident worker proposal-stock maintenance is OFF (not an error; enabling needs "
+                "the launcher flag and one worker restart by a human)",
                 evidence="docs/operations/threads-proposal-stock.md",
-                action_required="none (design choice)",
+                action_required="none until a human enables it",
             )
         )
     diagnostic = _get(state, "timing", "diagnostic") or {}
@@ -580,10 +581,13 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 "P3",
                 "threads",
                 (
-                    "decide the proposal-stock operating routine (keep --maintain-proposal-stock "
-                    "OFF until decided)"
+                    "enable resident proposal-stock maintenance when decided: add "
+                    "--maintain-proposal-stock to the publish launcher profile and restart the "
+                    "worker once (human; docs/operations/threads-proposal-stock.md). The manual "
+                    "provider still needs a person to answer each generation request"
                 ),
                 why="the genuine mobile approval rendering has been observed",
+                production_write_required=True,
                 human_checkpoint_required=True,
             )
         )
