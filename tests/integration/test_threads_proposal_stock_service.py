@@ -140,6 +140,11 @@ def _answer(provider: ManualFileProvider, body=None, *, extra=0) -> list[str]:
         ]
         if request.conversation_hook:  # T6.3: 求められたきっかけをそのまま返す (同じ schema)
             items = [{**item, "conversation_hook": request.conversation_hook} for item in items]
+            if request.link_mode == "article":  # T6.3.1a: 計画の link_mode は拘束
+                items = [
+                    {**item, "link_mode": "article", "body": item["body"] + "\n{link}"}
+                    for item in items
+                ]
         (provider.directory / "pending" / f"{request.request_id}.response.json").write_text(
             json.dumps({"proposals": items}, ensure_ascii=False), encoding="utf-8"
         )
@@ -272,11 +277,13 @@ def test_a_duplicate_output_is_skipped_without_an_alert(session, articles, tmp_p
     notifier = _Notifier()
     service = _service(session, tmp_path, notifier=notifier)
     service.maintain(now=_NOW, execute=True)
+    # T6.3.1a: link_mode=article の依頼はリンクを持つので、同じ文でも別の投稿になる。
+    linked = sum(1 for r in service.provider.pending() if r.link_mode == "article")
     _answer(service.provider, body="まったく同じ本文。")
     outcome = service.maintain(now=_NOW + timedelta(hours=1), execute=True)
     # 1 本目は保存され、同じ本文の残りは重複として止まる。
-    assert _proposal_count(session) == 1
-    assert len(outcome["failures"]) == 2
+    assert _proposal_count(session) == 1 + linked
+    assert len(outcome["failures"]) == 2 - linked
     assert notifier.sent == []
 
 
@@ -660,12 +667,13 @@ def test_collect_only_ingests_existing_responses_without_a_second_batch(
 def test_collect_only_keeps_the_normal_skip_and_fail_semantics(session, articles, tmp_path) -> None:
     normal = _service(session, tmp_path)
     normal.maintain(now=_NOW, execute=True)
+    linked = sum(1 for r in normal.provider.pending() if r.link_mode == "article")
     _answer(normal.provider, body="まったく同じ本文。")  # 1 本目は保存、残りは重複
     outcome = _collect(session, tmp_path).maintain(
         now=_NOW + timedelta(hours=1), execute=True, collect_only=True
     )
-    assert len(outcome["created"]) == 1
-    assert len(outcome["failures"]) == 2
+    assert len(outcome["created"]) == 1 + linked
+    assert len(outcome["failures"]) == 2 - linked
     assert outcome["requests_created"] == []
 
 

@@ -193,8 +193,10 @@ def test_subjective_style_issues_become_warnings_not_rejections(
         body = f"記事{request.article_id}の要点。体制を先に決めるほうが早い。どう思いますか？"
         if request.conversation_hook == "none":
             body = f"記事{request.article_id}の要点。体制を先に決めるほうが早い。道具から入る？"
+        if request.link_mode == "article":
+            body += "\n{link}"
         (tmp_path / "gen" / "pending" / f"{request.request_id}.response.json").write_text(
-            json.dumps({"proposals": [{"angle": request.angles[0], "link_mode": "none",
+            json.dumps({"proposals": [{"angle": request.angles[0], "link_mode": request.link_mode,
                         "conversation_hook": request.conversation_hook, "body": body}]},
                        ensure_ascii=False), encoding="utf-8")  # fmt: skip
     out = _service(session, tmp_path, provider=manual).maintain(

@@ -40,6 +40,7 @@ from app.services.threads_generation_provider import (
     ProviderAvailability,
 )
 from app.social.threads.errors import redact
+from app.social.threads.quality import reason_ids
 
 PROVIDER_OPENAI = "openai"
 DEFAULT_MODEL = "gpt-5.6-luna"
@@ -83,7 +84,11 @@ class GenerationResult:
     attempts: list[dict] = field(default_factory=list)
 
 
-def proposal_schema(angles: tuple[str, ...] | list[str], conversation_hook: str | None = None):
+def proposal_schema(
+    angles: tuple[str, ...] | list[str],
+    conversation_hook: str | None = None,
+    link_mode: str | None = None,
+):
     """Structured Outputs (strict) の JSON schema。manual の答えと同じ形。
 
     ``conversation_hook`` (T6.3) を求める依頼では、その値だけを許す enum の項目を足す
@@ -100,6 +105,9 @@ def proposal_schema(angles: tuple[str, ...] | list[str], conversation_hook: str 
             "body": {"type": "string"},
         },
     }
+    if link_mode in ("none", "article"):
+        # T6.3.1a: 計画の link_mode はモデルに変えさせない (その値だけの enum)。
+        item["properties"]["link_mode"] = {"type": "string", "enum": [link_mode]}
     if conversation_hook is not None:
         item["required"] = ["angle", "conversation_hook", "link_mode", "body"]
         item["properties"] = {
@@ -165,6 +173,7 @@ class OpenAIResponsesClient:
         angles,
         feedback: tuple[str, str] | None = None,
         conversation_hook: str | None = None,
+        link_mode: str | None = None,
     ) -> dict:
         messages = [{"role": "user", "content": prompt}]
         if feedback is not None:
@@ -182,7 +191,7 @@ class OpenAIResponsesClient:
                     "type": "json_schema",
                     "name": "threads_proposals",
                     "strict": True,
-                    "schema": proposal_schema(angles, conversation_hook),
+                    "schema": proposal_schema(angles, conversation_hook, link_mode),
                 }
             },
             "max_output_tokens": self._max_output_tokens,
@@ -190,10 +199,14 @@ class OpenAIResponsesClient:
         }
 
     def generate(
-        self, prompt: str, *, angles, feedback=None, conversation_hook=None
+        self, prompt: str, *, angles, feedback=None, conversation_hook=None, link_mode=None
     ) -> GenerationResult:
         body = self.body(
-            prompt, angles=angles, feedback=feedback, conversation_hook=conversation_hook
+            prompt,
+            angles=angles,
+            feedback=feedback,
+            conversation_hook=conversation_hook,
+            link_mode=link_mode,
         )
         attempts: list[dict] = []
         headers = {"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"}
@@ -403,6 +416,8 @@ class OpenAIGenerationProvider:
             return None  # 同じ依頼を 2 度送らない
         if feedback is not None and record.get("repairs", 0) >= MAX_REPAIRS:
             return None
+        purpose = "repair" if feedback is not None else "initial"
+        history = list(record.get("history") or [])
         record = {
             "request_id": rid,
             "model": self.model,
@@ -414,47 +429,99 @@ class OpenAIGenerationProvider:
             "updated_at": _now(),
         }
         self._write_record(rid, record)  # 呼ぶ前に残す (途中で落ちても 2 度送らない)
+        call = {
+            "ordinal": len(history) + 1,
+            "purpose": purpose,
+            "at": _now(),
+            "requested_model": self.model,
+        }
+        if feedback is not None:
+            call["repair_reason_ids"] = reason_ids(feedback[1])
+            call["repair_reasons"] = redact(feedback[1])[:1500]
+        link_mode = request.link_mode if getattr(request, "conversation_hook", None) else None
         try:
             result = self._client.generate(
                 request.prompt,
                 angles=request.angles,
                 feedback=feedback,
                 conversation_hook=getattr(request, "conversation_hook", None),
+                link_mode=link_mode,
             )
         except GenerationError as exc:
             attempts = getattr(exc, "attempts", [])
+            call.update(result=f"failed:{exc.category}", http_attempts=attempts, usage={})
+            history.append(call)
             record.update(
                 calls=record["calls"] + max(1, len(attempts)),
                 result=f"failed:{exc.category}",
                 fallback="manual",
                 attempts=attempts,
                 updated_at=_now(),
+                **_call_totals(history),
             )
             self._write_record(rid, record)
             return None
         except Exception as exc:  # 生成の故障で worker を止めない
+            call.update(result=f"failed:unexpected:{type(exc).__name__}", usage={})
+            history.append(call)
             record.update(result=f"failed:unexpected:{type(exc).__name__}", fallback="manual",
-                          updated_at=_now())  # fmt: skip
+                          updated_at=_now(), **_call_totals(history))  # fmt: skip
             self._write_record(rid, record)
             return None
         pending = self.directory / "pending"
         (pending / f"{rid}.response.json").write_text(result.text, encoding="utf-8")
+        call.update(
+            result="ok",
+            returned_model=result.model,
+            response_id=result.response_id,
+            http_attempts=result.attempts,
+            usage=result.usage,
+            output=_sanitized_output(result.text),
+        )
+        history.append(call)
         record.update(
             calls=record["calls"] + len(result.attempts),
             result="generated" if feedback is None else "repaired",
             response_source=PROVIDER_OPENAI,
             response_model=result.model,
             response_id=result.response_id,
-            usage=result.usage,
             attempts=result.attempts,
             fallback=None,
             updated_at=_now(),
+            **_call_totals(history),
         )
         self._write_record(rid, record)
         return result.text
 
+    def record_validation(self, request: GenerationRequest, *, ok: bool, reasons=None,
+                          audit=None) -> None:  # fmt: skip
+        """最後の呼び出しの検査の結果を、呼び出しの履歴に残す (理由の ID つき。秘密は残さない)。"""
+
+        rid = request.request_id
+        record = self._read_record(rid)
+        history = list(record.get("history") or [])
+        if not history:
+            return
+        text = redact(str(reasons or ""))[:1500]
+        history[-1]["validation"] = {
+            "ok": bool(ok),
+            "reason_ids": [] if ok else reason_ids(text),
+            "reasons": None if ok else text,
+            **({"audit": audit} if audit else {}),
+        }
+        record["history"] = history
+        record["updated_at"] = _now()
+        self._write_record(rid, record)
+
     def _record_path(self, rid: str) -> Path:
-        return self.directory / "pending" / f"{rid}{RECORD_SUFFIX}"
+        pending = self.directory / "pending" / f"{rid}{RECORD_SUFFIX}"
+        if pending.exists():
+            return pending
+        for folder in ("done", "failed"):
+            path = self.directory / folder / f"{rid}{RECORD_SUFFIX}"
+            if path.exists():
+                return path
+        return pending
 
     def _read_record(self, rid: str) -> dict:
         path = self._record_path(rid)
@@ -469,6 +536,44 @@ class OpenAIGenerationProvider:
         path = self._record_path(rid)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _sanitized_output(text: str) -> dict | str:
+    """モデルの構造化出力を、秘密らしい値を落として残す (本文は監査のために残す)。"""
+
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return redact(text)[:4000]
+    items = []
+    for item in (data.get("proposals") or []) if isinstance(data, dict) else []:
+        if isinstance(item, dict):
+            items.append(
+                {
+                    key: (redact(item[key]) if isinstance(item.get(key), str) else item.get(key))
+                    for key in ("angle", "conversation_hook", "link_mode", "body")
+                    if key in item
+                }
+            )
+    return {"proposals": items}
+
+
+def _call_totals(history: list[dict]) -> dict:
+    """呼び出しの数え方をはっきり分ける (1 件の依頼 = 生成の試み 1 回)。"""
+
+    usage: dict[str, int] = {}
+    for call in history:
+        for key, value in (call.get("usage") or {}).items():
+            if isinstance(value, int):
+                usage[key] = usage.get(key, 0) + value
+    return {
+        "generation_attempts": 1,
+        "model_calls": len(history),
+        "repair_calls": sum(1 for c in history if c.get("purpose") == "repair"),
+        "http_requests": sum(len(c.get("http_attempts") or []) or 1 for c in history),
+        "usage": usage,
+        "history": history,
+    }
 
 
 def build_openai_provider(settings, directory: Path) -> OpenAIGenerationProvider:

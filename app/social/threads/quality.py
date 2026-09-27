@@ -287,6 +287,41 @@ def recent_topic_lines(recent: Iterable[Mapping]) -> list[str]:
     return lines
 
 
+# 書き直し / 検査落ちの理由の文 → 決定的な理由の ID (監査用)。文の形に合わせた正規表現。
+REASON_IDS = (
+    ("prose_over_quality_limit", re.compile(r"chars; keep it within")),
+    ("excessive_price_density", re.compile(r"\d+ prices \(")),
+    ("hook_semantic_mismatch", re.compile(r"ending is an A/B choice|no alternatives are offered")),
+    ("hook_mismatch", re.compile(r"conversation_hook \S+ does not match the requested")),
+    (
+        "link_mode_mismatch",
+        re.compile(
+            r"link_mode \S+ does not match the requested|must not contain \{link\}"
+            r"|must contain \{link\} at most once"
+        ),
+    ),
+    ("recent_topic_overlap", re.compile(r"recent topic overlap with")),
+    ("fact_boundary", re.compile(r"failed the fact boundary")),
+    (
+        "conversation_rule",
+        re.compile(
+            r"asks for comments|unsupported audience|recommendation or reach|first-person "
+            r"experience|more than one question|must not solicit"
+        ),
+    ),
+    ("malformed_output", re.compile(r"malformed output")),
+    ("duplicate", re.compile(r"already exists|duplicate of another proposal")),
+    ("validation_failed", re.compile(r"no candidate passed validation|no proposal matched")),
+)
+
+
+def reason_ids(text: str) -> list[str]:
+    """理由の文に含まれる決定的な ID (見つからなければ ``other``。空なら [])。"""
+
+    found = [rid for rid, pattern in REASON_IDS if pattern.search(text or "")]
+    return found or (["other"] if (text or "").strip() else [])
+
+
 QUALITY_RULES = (
     "Threads は記事の圧縮ではない。記事は証拠であって、要約のチェックリストではない",
     "要点は 1 つだけ (間違い 1 つ・違い 1 つ・最初の一歩 1 つ・トレードオフ 1 つ・意外な事実 1 つ)",

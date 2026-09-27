@@ -399,3 +399,41 @@ T6.3 の最初の本番の案 (#12) は、本文 322 字 (+ 追跡 URL 約 147 �
   (記事・製品・軸・数値・長さ、決定的な指紋) を足した。列は増やさない (migration なし)。
 - **観測** (`threads_conversation_report`): 公開ごとに、きっかけ・話題の指紋・記事・切り口・
   リンク・本文の長さ・指標・率を出す。**少ない数から自動で調整しない。**
+
+## 方針を守らせる (T6.3.1a)
+
+T6.3.1 の最初の本番の確認 (#13〜#21) で 4 つの穴が見えた: 書き直された #14・#15 の元の出力と
+理由が残らない (記録の calls=2 なのに attempts=1 で、1 回目が上書きされる) / link none を
+求めた 9 件のうち 7 件が article で返った / prompt に古い「目安 380」が残っていた / 本番で
+重なりを止めた例がまだ無く、止めなかった判断も記録されない。T6.3.1a で次を足した
+(閾値・在庫の規則・公開の方針・計画のリンクの割合は変えない。migration なし)。
+
+- **呼び出しごとの記録** (`pending/<id>.openai.json` の `history`): 1 件の依頼 = 生成の試み 1 回
+  (`generation_attempts=1`)。呼び出しごとに `ordinal`・`purpose` (initial / repair)・`at`・
+  `requested_model` / `returned_model`・`result`・秘密を落とした構造化出力 (`output`)・
+  検査の結果 (`validation`: ok・理由の ID・理由の文・重なりの記録)・`usage` を残す。書き直しの
+  呼び出しは送った理由 (`repair_reasons`) と決定的な ID (`repair_reason_ids`) を持つ。
+  **1 回目は上書きしない。** 合計は `model_calls` / `repair_calls` / `http_requests` と、
+  呼び出しを足した `usage`。履歴の無い古い記録はそのまま読める (書き換えない)。鍵・認証の
+  ヘッダは残さない。
+- **理由の ID** (`quality.reason_ids`): prose_over_quality_limit / excessive_price_density /
+  hook_semantic_mismatch / hook_mismatch / link_mode_mismatch / recent_topic_overlap /
+  fact_boundary / conversation_rule / malformed_output / duplicate / validation_failed
+  (どれにも合わなければ other)。
+- **link_mode の拘束**: 計画の link_mode を strict schema の enum で 1 つに固定し、prompt にも
+  「この依頼の link_mode は ○○ に固定する」と書く。検査: none → 返りも none・`{link}` なし /
+  article → 返りも article・`{link}` は多くても 1 つ (無ければ末尾に URL を足す、T2 のまま)。
+  食い違いは既存の書き直し 1 回の理由になり、書き直しでも同じ link_mode を求める。書き直しでも
+  食い違えば保存しない (依頼は manual の依頼として残る。記録は全部残る。送り直さない)。
+  **計画のリンクの割合 (article_link_share_max 0.34) は変えない。**
+- **長さの方針は 1 つ**: きっかけつきの依頼の prompt は「1 投稿 500 文字以内 (URL を含む)」と
+  「本文は普通 280〜360 字、420 字を超えない」だけ。古い「目安 380」は T6.3 より前の形の依頼にだけ
+  残る (manual と OpenAI で同じ prompt)。
+- **重なりの判断の記録**: 検査のたびに `validation.audit.overlap` (と提案の
+  `generation_brief.overlap`) に、比べた最近の件数 (`recent_window`)・3-gram の重なりの最大・
+  近い上位 3 件 (相手・話題の指紋・共通の製品 / 数値 / 軸・重なり)・止めたか・止めた相手
+  (`blocked_by`)・理由 (`recent_topic_overlap`) を残す。閾値は T6.3.1 のまま。
+  **本番で重なりを止めた例はまだ無い** (テストの中でだけ止めた): 「重なりの検査は本番で動いている /
+  止める経路はテスト済み / 本番で実際に止めた例はまだ観測していない」。作った例は記録しない。
+- **Project State**: `generation.audit` に、記録の数・履歴つき / 古い記録・書き直しの数・本番で
+  重なりを止めた数 (`production_overlap_block_observed`)・link の食い違いの数を出す (読むだけ)。

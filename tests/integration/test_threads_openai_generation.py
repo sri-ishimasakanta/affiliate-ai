@@ -147,7 +147,12 @@ class FakeLuna:
             hook = props["conversation_hook"]["enum"][0]
             if self._default_body and not (isinstance(step, str) and step != "ok"):
                 body = body + HOOK_ENDINGS[hook]  # T6.3.1: 求めた形に合う終わり方
-            item = {"angle": angle, "conversation_hook": hook, "link_mode": "none", "body": body}
+            link = props["link_mode"]["enum"][0] if len(props["link_mode"]["enum"]) == 1 else "none"
+            if link == "article" and "{link}" not in body:
+                body = body + "\n{link}"  # T6.3.1a: 計画の link_mode は拘束
+            item = {"angle": angle, "conversation_hook": hook, "link_mode": link, "body": body}
+        if isinstance(step, dict):  # T6.3.1a: 項目を上書きする (schema に反する答えの代役)
+            item.update(step)
         if step == "malformed":
             text = "not json"
         else:
@@ -203,7 +208,9 @@ def test_luna_generates_validated_proposals_that_still_need_human_approval(
     item = fmt["schema"]["properties"]["proposals"]["items"]
     assert fmt["schema"]["additionalProperties"] is False and item["additionalProperties"] is False
     assert item["required"] == ["angle", "conversation_hook", "link_mode", "body"]
-    assert item["properties"]["link_mode"]["enum"] == ["none", "article"]
+    # T6.3.1a: 計画の link_mode だけを許す (モデルに変えさせない)
+    assert len(item["properties"]["link_mode"]["enum"]) == 1
+    assert item["properties"]["link_mode"]["enum"][0] in ("none", "article")
     assert payload["store"] is False
     assert fake.requests[0].headers["authorization"] == f"Bearer {API_KEY}"
     assert str(fake.requests[0].url) == "https://api.openai.com/v1/responses"
@@ -457,9 +464,11 @@ def test_a_missing_api_key_keeps_the_worker_on_manual_requests(session, articles
     # 人が答えれば、manual と同じように取り込まれる (フォールバック)
     for request in provider.pending():
         (tmp_path / "gen" / "pending" / f"{request.request_id}.response.json").write_text(
-            json.dumps({"proposals": [{"angle": request.angles[0], "link_mode": "none",
+            json.dumps({"proposals": [{"angle": request.angles[0],
+                        "link_mode": request.link_mode,
                         "conversation_hook": request.conversation_hook,
-                        "body": f"記事{request.article_id}の答え。体制を先に決める。"}]},
+                        "body": f"記事{request.article_id}の答え。体制を先に決める。"
+                        + ("\n{link}" if request.link_mode == "article" else "")}]},
                        ensure_ascii=False), encoding="utf-8")  # fmt: skip
     later = _service(session, tmp_path, provider=provider).maintain(
         now=_NOW + timedelta(hours=1), execute=True

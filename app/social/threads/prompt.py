@@ -111,7 +111,13 @@ def build_prompt(
         "記事の要約ではない。同じ論点を Threads 用に書き直す。",
         "",
         "## 文体",
-        f"- 1 投稿 {policy.max_characters} 文字以内 (目安 {policy.preferred_max_characters} 文字)",
+        (
+            f"- 1 投稿 {policy.max_characters} 文字以内 (URL を含む。"
+            "本文の長さは下の「1 投稿 1 要点」)"
+            if conversation_hook is not None
+            else f"- 1 投稿 {policy.max_characters} 文字以内 "
+            f"(目安 {policy.preferred_max_characters} 文字)"
+        ),
         "- 口語寄り。短い文。体言止めや言い切りを使ってよい",
         "- 結論を先に置く",
         "- リンクを開かなくても、それだけで役に立つ内容にする",
@@ -148,7 +154,17 @@ def build_prompt(
         f"link_mode は {' か '.join(LINK_MODES)} のどちらか。",
         "リンクが宣伝臭くなる投稿では none にしてよい。",
     ]
-    if requested_link_mode in LINK_MODES:
+    if requested_link_mode in LINK_MODES and conversation_hook is not None:
+        # T6.3.1a: 計画の link_mode は拘束。出力で変えない (検査で確かめる)。
+        lines.append(
+            f"この依頼の link_mode は {requested_link_mode} に固定する (変えない)。"
+            + (
+                f"{LINK_PLACEHOLDER} もURLも書かない。"
+                if requested_link_mode == "none"
+                else f"本文に {LINK_PLACEHOLDER} を 1 つだけ置く。"
+            )
+        )
+    elif requested_link_mode in LINK_MODES:
         # T6: 在庫の保守が出す依頼の目安。検査はしない (記事に合わなければ変えてよい)。
         lines.append(
             f"この依頼では link_mode={requested_link_mode} を基本にする "

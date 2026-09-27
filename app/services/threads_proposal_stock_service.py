@@ -78,6 +78,7 @@ from app.social.threads.quality import (
     RECENT_WINDOW,
     hook_forms,
     money_figures,
+    overlap,
     prose_length,
     quality_findings,
     recent_overlap,
@@ -104,6 +105,41 @@ from app.social.threads.stock import (
 from app.social.threads.validators import normalized_identity
 
 SCHEMA = "threads-proposal-stock/1"
+
+
+def _overlap_audit(body: str, recent: list[dict]) -> dict:
+    """最近の話題との比較の記録 (窓の大きさ・近い上位 3 件・止めたか・止めた相手)。"""
+
+    compared = []
+    for item in recent:
+        result = overlap(body, item.get("text") or "")
+        compared.append(
+            {
+                "ref": item.get("ref"),
+                "signature": topic_signature(
+                    article_id=item.get("article_id"),
+                    angle=item.get("angle"),
+                    link_mode=item.get("link_mode"),
+                    body=item.get("text") or "",
+                )["fingerprint"],
+                **result,
+            }
+        )
+    compared.sort(
+        key=lambda c: (
+            not c["high"], -len(c["shared_numbers"]), -len(c["shared_entities"]),
+            -c["containment"], str(c["ref"]),
+        )
+    )  # fmt: skip
+    blocking = next((c for c in compared if c["high"]), None)
+    return {
+        "recent_window": len(recent),
+        "max_containment": max((c["containment"] for c in compared), default=0.0),
+        "top": compared[:3],
+        "blocked": blocking is not None,
+        "blocked_by": blocking["ref"] if blocking else None,
+        "reason": "recent_topic_overlap" if blocking else None,
+    }
 
 
 def _saved_hook(row) -> str | None:
@@ -135,6 +171,7 @@ class ThreadsProposalStockService:
         self._proposals = proposal_service or ThreadsProposalService(session)
         self._tz = timezone or get_c8_policy().timezone
         self._alert_notifiers = alert_notifiers
+        self._audit: dict | None = None
 
     @property
     def provider(self) -> ThreadsProposalGenerationProvider:
@@ -505,13 +542,17 @@ class ThreadsProposalStockService:
         """検査落ちなら、書き直せる provider に 1 回だけ書き直させる (上限は provider が守る)。"""
 
         repair = getattr(self._provider, "repair", None)
+        note = getattr(self._provider, "record_validation", None)
         if repair is None:
             self._ingest(request, output, now, room, outcome, alerts)
             return
         # 1 回目は質の検査 (長さ・密度・きっかけの形・最近の話題) も書き直しの対象にする。
+        self._audit = None
         problem = self._ingest(
             request, output, now, room, outcome, alerts, final=False, strict_quality=True
         )
+        if note is not None:  # T6.3.1a: 呼び出しごとの検査の結果を残す
+            note(request, ok=problem is None, reasons=problem, audit=self._audit)
         if problem is None:
             return
         repaired = repair(request, output, problem)
@@ -520,7 +561,20 @@ class ThreadsProposalStockService:
             alerts.append(_alert_invalid_output(request.request_id, "invalid"))
             return
         # 書き直しの後: 好みの問題は警告として残す。最近の話題の重なりは保存しない。
+        before = len(outcome["created"])
+        self._audit = None
         self._ingest(request, repaired, now, room, outcome, alerts)
+        if note is not None:
+            ok = len(outcome["created"]) > before
+            reason = next(
+                (
+                    f["reason"]
+                    for f in reversed(outcome["failures"])
+                    if f.get("request_id") == request.request_id
+                ),
+                None,
+            )
+            note(request, ok=ok, reasons=None if ok else reason, audit=self._audit)
 
     def _reject(self, request, outcome, alerts, reason: str, kind: str | None, final: bool):
         if not final:
@@ -539,7 +593,16 @@ class ThreadsProposalStockService:
             .order_by(ThreadsPostProposal.created_at.desc(), ThreadsPostProposal.id.desc())
             .limit(RECENT_WINDOW)
         ).all()
-        return [{"ref": f"proposal #{row.id}", "text": row.content_text or ""} for row in rows]
+        return [
+            {
+                "ref": f"proposal #{row.id}",
+                "text": row.content_text or "",
+                "article_id": row.source_article_id,
+                "angle": row.angle,
+                "link_mode": row.link_mode,
+            }
+            for row in rows
+        ]
 
     def _ingest(
         self, request, output, now, room, outcome, alerts, *, final=True, strict_quality=False
@@ -569,6 +632,20 @@ class ThreadsProposalStockService:
                 errors, warnings = conversation_errors(item["body"], wanted_hook)
                 problems += errors
                 style_warnings += warnings
+                # T6.3.1a: 計画の link_mode は拘束 (モデルに変えさせない)。
+                wanted_link = request.link_mode
+                got_link = item.get("link_mode") or "none"
+                if got_link != wanted_link:
+                    problems.append(
+                        f"link_mode {got_link!r} does not match the requested {wanted_link!r}; "
+                        f"keep link_mode={wanted_link}"
+                    )
+                if wanted_link == "none" and "{link}" in item["body"]:
+                    problems.append("link_mode none must not contain {link}; remove the link")
+                if wanted_link == "article" and item["body"].count("{link}") > 1:
+                    problems.append(
+                        "link_mode article must contain {link} at most once; keep one {link}"
+                    )
             if problems:
                 return self._reject(
                     request, outcome, alerts,
@@ -581,7 +658,9 @@ class ThreadsProposalStockService:
             )
             recent = self._recent_items()
             quality_problems = []
+            overlap_audit = []
             for item in items:
+                overlap_audit.append(_overlap_audit(item["body"], recent))
                 soft, warns = quality_findings(item["body"], wanted_hook)
                 style_warnings += warns
                 if strict_quality:
@@ -601,6 +680,7 @@ class ThreadsProposalStockService:
                         quality_problems.append(message)
                     else:
                         style_warnings.append(f"quality: {message}")
+            self._audit = {"overlap": overlap_audit[0] if overlap_audit else None}
             if quality_problems:
                 return self._reject(
                     request, outcome, alerts,
@@ -624,6 +704,7 @@ class ThreadsProposalStockService:
                     link_mode=items[0].get("link_mode"),
                     body=first,
                 ),
+                "overlap": overlap_audit[0] if overlap_audit else None,
             }
         if getattr(self._provider, "automatic", False):
             article = self._session.get(Article, request.article_id)

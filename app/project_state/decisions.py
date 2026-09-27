@@ -307,6 +307,29 @@ DECISIONS = (
         "follow_up": "本番の質の確認: 次の新しい依頼の実際の出力を人が確かめる",
     },
     {
+        "id": "threads-generation-policy-t631a",
+        "area": "threads/generation",
+        "decision": (
+            "T6.3.1a: 自動生成の呼び出しを 1 回ずつ記録する (1 回目を上書きしない・書き直しの理由の"
+            " ID)。計画の link_mode を schema と検査で拘束する。"
+            "本文の長さの方針は 280〜360 字だけ。重なりの判断を記録する"
+        ),
+        "rationale": (
+            "T6.3.1 の確認で、#14・#15 の書き直しの元の出力と理由が残らず、link none の依頼 9 件中"
+            " 7 件が article で返り、prompt に古い目安 380 が残っていた。本番で重なりを止めた例は"
+            "まだ無い (作らない)"
+        ),
+        "evidence": ["docs/operations/threads-proposal-stock.md"],
+        "phrase": "## 方針を守らせる (T6.3.1a)",
+        "resulting_state": (
+            "実装済み (migration なし)。閾値・計画のリンクの割合は同じ。本番の worker は"
+            " 79e831c のまま (切り替えは人の確認点)"
+        ),
+        "follow_up": (
+            "本番の切り替え: worker を新しい commit で再起動し、次の自然な依頼の記録を確かめる"
+        ),
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

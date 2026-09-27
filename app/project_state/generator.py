@@ -461,6 +461,7 @@ def _md_threads(threads: dict) -> list[str]:
         generation = threads.get("generation") or {}
         hook_policy = generation.get("conversation_hook_policy") or {}
         quality = generation.get("quality_policy") or {}
+        audit = generation.get("audit") or {}
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
             f" — {perf['rerun_reason']}"
@@ -510,6 +511,11 @@ def _md_threads(threads: dict) -> list[str]:
             f"{quality.get('hard_platform_ceiling')}; one main point; recent-topic window "
             f"{quality.get('recent_topic_window')}; "
             "no self-tuning)",
+            f"- generation audit: link_mode binding {_fmt(quality.get('link_mode_binding'))}; "
+            f"records {audit.get('records')} (with call history "
+            f"{audit.get('records_with_call_history')}, legacy "
+            f"{audit.get('legacy_records_without_call_history')}); production overlap block "
+            f"observed {_fmt(audit.get('production_overlap_block_observed'))}",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

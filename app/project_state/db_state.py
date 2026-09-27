@@ -278,6 +278,46 @@ def quality_policy() -> dict:
         "recent_topic_window": RECENT_WINDOW,
         "active_hook_target": "about 4 in 5 (unchanged)",
         "self_tuning": False,
+        "per_call_audit": True,
+        "repair_reason_persisted": True,
+        "link_mode_binding": True,
+        "overlap_decisions_audited": True,
+    }
+
+
+def generation_audit(root: Path) -> dict:
+    """自動生成の呼び出しの記録から数える (読むだけ)。本番で重なりを止めた例があるか。"""
+
+    base = root / STOCK_STATUS.parent
+    records = legacy = with_history = repairs = overlap_blocks = link_mismatches = 0
+    for path in sorted(base.glob("*/*.openai.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        records += 1
+        history = data.get("history")
+        if not history:
+            legacy += 1
+            continue
+        with_history += 1
+        repairs += int(data.get("repair_calls") or 0)
+        ids = {
+            rid
+            for call in history
+            for rid in (call.get("repair_reason_ids") or [])
+            + ((call.get("validation") or {}).get("reason_ids") or [])
+        }
+        overlap_blocks += int("recent_topic_overlap" in ids)
+        link_mismatches += int("link_mode_mismatch" in ids)
+    return {
+        "records": records,
+        "legacy_records_without_call_history": legacy,
+        "records_with_call_history": with_history,
+        "repair_calls": repairs,
+        "production_overlap_blocks": overlap_blocks,
+        "production_overlap_block_observed": overlap_blocks > 0,
+        "link_mode_mismatches": link_mismatches,
     }
 
 
@@ -460,6 +500,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
         "generation": {
             **generation_state(stock, pending_generation_requests(root)),
             **conversation_state(conn),
+            "audit": generation_audit(root),
         },
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
