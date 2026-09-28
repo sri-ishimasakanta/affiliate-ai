@@ -74,12 +74,13 @@
 ファイルを上げる方法 (配備の道具や資格情報はリポジトリに無い)。本番の今の `lib-core.php` は
 T6.1 の版 (`08d5ed12…`) で、表示されるページの script が一致する (読むだけで確認)。
 
-- 戻す用の写し: `D:\Backupsffiliate-aielay-pre-t6.4\lib-core.php` (`08d5ed12…`)
-- 上げるファイル: `D:\Backupsffiliate-aielay-t6.4-upload\lib-core.php` (`3f0799dc…`、PHP の構文 ok)
+- 戻す用の写し: `D:\Backups\affiliate-ai\relay-pre-t6.4\lib-core.php` (`08d5ed12…`)
+elay-pre-t6.4\lib-core.php` (`08d5ed12…`)
+- 上げるファイル: `D:\Backups\affiliate-ai\relay-t6.4-upload\lib-core.php` (`3f0799dc…`、PHP の構文 ok)
+elay-t6.4-upload\lib-core.php` (`3f0799dc…`、PHP の構文 ok)
 - 置き場所: `wp-content/mu-plugins/bizfluxlab-approval-relay/lib-core.php` (この 1 つだけ。
   `bizfluxlab-approval-relay.php` は変わらない。`tests/` は上げない)
 - 上げた後の確認 (読むだけ): 任意の session id の `/bfl-approval/<32桁>` を取り、script が
   `3f0799dc…` の版の描画と一致すること・安全のヘッダが同じこと・worker の次の同期が通ること。
   携帯では #27 (または次の) 承認のリンクを開いて、投稿種別・状態・元記事・会話フック・トピック・
   警告の欄を見る (承認・却下は人がいつも通り判断する)。
-
