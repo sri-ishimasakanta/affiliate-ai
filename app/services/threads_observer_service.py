@@ -50,7 +50,9 @@ def record_run(session: Session, result: CollectionResult) -> ThreadsObserverRun
         selector_version=sel.SELECTOR_VERSION,
         artifacts_json=(
             {"screenshots": dict(result.screenshots), "pages_opened": result.pages_opened,
-             "scrolls": result.scrolls}
+             "scrolls": result.scrolls,
+             # T6.5B.1: 候補ごとの結果と理由 (勘定が合うか)。件数の上限の意味は collector。
+             "candidate_accounting": result.accounting_summary()}
         ),  # fmt: skip
     )
     session.add(run)

@@ -425,6 +425,28 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-observer-data-quality-t65b1",
+        "area": "threads/analytics",
+        "decision": (
+            "T6.5B.1: 外の観察の元の記録は書き換えず、分析の層で決まった規則で本文を直す。"
+            "読んだ候補はすべて理由つきで勘定し、合わなければ実行を捨てる"
+        ),
+        "rationale": (
+            "run 1 で本文に画面の部品が混ざり、投稿が 1 件黙って抜けた。証拠を残したまま、"
+            "分析が汚れないようにし、黙って消える投稿を作らない"
+        ),
+        "evidence": ["docs/operations/threads-trend-intelligence.md"],
+        "phrase": "**候補の数 = 結果ごとの数の合計**",
+        "resulting_state": (
+            "collector-3・selector v2・card accounting・threads-body-normalizer-1。"
+            "For You の dry-run で確認。run 1 は書き換えていない"
+        ),
+        "follow_up": (
+            "ほかの画面 (検索・トレンド・カスタムフィード・アカウント) を dry-run で確かめる。"
+            "引用の投稿と meta.ai の札の DOM は、出てきたら画面で照らす"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (

@@ -6,6 +6,13 @@
 - 1 件の投稿の形が崩れていれば、その投稿だけを捨てる (数える)。半分以上が崩れていれば、
   ページ全体を ``dom_unrecognized`` にする。
 - 見えない指標は ``None`` (0 にしない)。外の表示回数は読まない (見えない)。
+- **まとまりの勘定** (T6.5B.1): ページの投稿のまとまりには 1 つずつ、決まった結果の理由
+  (``CARD_*``) を付ける (``PageResult.cards``)。それとは別に、投稿の時刻のリンク
+  (``/@名前/post/コード`` で ``<time>`` を含む) を数え、どのまとまりにも入っていない投稿も
+  理由つきで数える。黙って消える投稿を作らない。
+- **本文** (T6.5B.1): 本文の ``span[dir=auto]`` の中の、続きの投稿の印 (「1/2」) の ``div`` は
+  本文ではない (2026-09-28 の画面で確認: ``div > div > [span 数, div > span 区切り, span 数]``)。
+  書いた人の「1/2の確率」は本文の文字の span の中にあるので残る。
 """
 
 from __future__ import annotations
@@ -47,6 +54,36 @@ class ExternalPostRecord:
     features: dict
 
 
+#: まとまりの結果の理由 (安定した ID)。
+CARD_OK = "ok"
+CARD_MALFORMED_NO_PERMALINK = "malformed_no_permalink"
+CARD_MALFORMED_EMPTY_BODY = "malformed_empty_body"
+CARD_DUPLICATE_IN_FRAME = "duplicate_in_frame"
+CARD_UNSUPPORTED_NESTED = "unsupported_nested_card"
+CARD_UNSUPPORTED_OUTSIDE = "unsupported_outside_container"
+CARD_REASONS = (
+    CARD_OK, CARD_MALFORMED_NO_PERMALINK, CARD_MALFORMED_EMPTY_BODY, CARD_DUPLICATE_IN_FRAME,
+    CARD_UNSUPPORTED_NESTED, CARD_UNSUPPORTED_OUTSIDE,
+)  # fmt: skip
+MALFORMED_REASONS = (CARD_MALFORMED_NO_PERMALINK, CARD_MALFORMED_EMPTY_BODY)
+
+#: 続きの投稿の印 (「1/2」) の div の文字。
+_THREAD_MARKER = re.compile(r"\s*\d+\s*/\s*\d+\s*")
+
+
+@dataclass(frozen=True)
+class CardEval:
+    """ページの中の 1 つの投稿のまとまり (または、まとまりの外の投稿) の読み取りの結果。"""
+
+    index: int
+    key: str | None
+    handle: str | None
+    reason: str
+    record: ExternalPostRecord | None = None
+    #: キーの無いまとまりを、読みをまたいで同じものと分かるための印 (文字の hash の先頭)。
+    fingerprint: str | None = None
+
+
 @dataclass
 class PageResult:
     status: str
@@ -54,6 +91,10 @@ class PageResult:
     rejected: int = 0
     reason: str | None = None
     trending_topics: list[str] = field(default_factory=list)
+    #: ページのすべての投稿のまとまりの結果 (上から順)。
+    cards: list[CardEval] = field(default_factory=list)
+    #: 投稿の時刻のリンクから独立に数えた、ページの投稿のキー (上から順)。
+    anchor_keys: list[str] = field(default_factory=list)
 
 
 def parse_count(text: str | None) -> int | None:
@@ -80,10 +121,31 @@ def _parse_time(value: str | None) -> datetime | None:
         return None
 
 
+def _in_nested(node: Node, card: Node) -> bool:
+    """``card`` の中の、別の投稿のまとまり (引用した投稿など) の中にあるか。"""
+
+    for ancestor in node.ancestors():
+        if ancestor is card:
+            return False
+        if ancestor.matches(**sel.POST_CONTAINER):
+            return True
+    return False
+
+
+def _own(card: Node, tag: str | None = None, **conditions) -> list[Node]:
+    """``card`` 自身の要素だけ (中に入っている別の投稿のまとまりの要素は除く)。
+
+    2026-09-28 の画面で確認: 引用した投稿は外側の投稿のまとまりの中に、自分のまとまり
+    (いいね・返信のボタンつき) として入っている。外側の数を引用の数で読まない。
+    """
+
+    return [n for n in card.find_all(tag, **conditions) if not _in_nested(n, card)]
+
+
 def _metric_values(card: Node) -> dict[str, int | None]:
     values: dict[str, int | None] = {"likes": None, "replies": None, "reposts": None,
                                       "shares": None}  # fmt: skip
-    for svg in card.find_all("svg"):
+    for svg in _own(card, "svg"):
         name = sel.METRIC_LABELS.get(_icon_label(svg))
         if name is None or values.get(name) is not None:
             continue
@@ -116,9 +178,29 @@ def _texts(node: Node) -> list[str]:
     return out
 
 
+def _is_thread_marker(node: Node) -> bool:
+    return node.tag == "div" and bool(_THREAD_MARKER.fullmatch(node.text() or ""))
+
+
+def _body_text(node: Node) -> str:
+    """本文の span の文字。続きの投稿の印の div は入れない。"""
+
+    parts: list[str] = []
+    for child in node.children:
+        if isinstance(child, str):
+            parts.append(child)
+        elif child.tag == "br":
+            parts.append("\n")
+        elif child.tag in ("script", "style") or _is_thread_marker(child):
+            continue
+        else:
+            parts.append(_body_text(child))
+    return "".join(parts)
+
+
 def _body(card: Node) -> str:
     lines: list[str] = []
-    for span in card.find_all("span", dir="auto"):
+    for span in _own(card, "span", dir="auto"):
         if any(a.tag == "a" for a in span.ancestors()):
             continue  # 名前・リンクの文字は本文に入れない
         if span.find("time") is not None:
@@ -127,16 +209,16 @@ def _body(card: Node) -> str:
             continue  # いいね等のボタンの中の数は本文ではない
         if any(p.tag == "span" and p.attrs.get("dir") == "auto" for p in span.ancestors()):
             continue  # 入れ子は外側で数える
-        text = span.text().strip()
+        text = _body_text(span).strip()
         if text and (not lines or lines[-1] != text):
             lines.append(text)
     return "\n".join(lines)
 
 
 def _media(card: Node) -> str:
-    if card.find("video") is not None:
+    if _own(card, "video"):
         return "video"
-    for img in card.find_all("img"):
+    for img in _own(card, "img"):
         alt = img.attrs.get("alt", "")
         if "プロフィール写真" in alt or "profile picture" in alt.lower():
             continue
@@ -144,28 +226,40 @@ def _media(card: Node) -> str:
     return "none"
 
 
+def _post_anchor(card: Node) -> Node | None:
+    """投稿そのもののリンク: 時刻を含む permalink (無ければ最初の permalink)。"""
+
+    links = [a for a in _own(card, "a") if _PERMALINK.match(a.attrs.get("href", ""))]
+    return next((a for a in links if a.find("time") is not None), links[0] if links else None)
+
+
 def _card(card: Node) -> ExternalPostRecord | None:
-    link = next((a for a in card.find_all("a")
-                 if _PERMALINK.match(a.attrs.get("href", ""))), None)  # fmt: skip
+    return _evaluate(card, 0).record
+
+
+def _evaluate(card: Node, index: int) -> CardEval:
+    link = _post_anchor(card)
     if link is None:
-        return None
+        digest = hashlib.sha256(card.text().encode("utf-8")).hexdigest()[:16]
+        return CardEval(index, None, None, CARD_MALFORMED_NO_PERMALINK, fingerprint=digest)
     match = _PERMALINK.match(link.attrs["href"])
     handle, code = match.group(1), match.group(2)
+    key = f"threads:{code}"
     body = _body(card)
     if not body:
-        return None
-    time_node = card.find("time")
+        return CardEval(index, key, handle, CARD_MALFORMED_EMPTY_BODY)
+    time_node = next(iter(_own(card, "time")), None)
     posted = _parse_time(time_node.attrs.get("datetime")) if time_node is not None else None
-    topic_node = card.find(**sel.TOPIC_LINK)
+    topic_node = next(iter(_own(card, **sel.TOPIC_LINK)), None)
     topic = topic_node.text().strip() if topic_node is not None else None
     has_link = any(
-        a.attrs.get("href", "").startswith(sel.EXTERNAL_LINK_PREFIXES) for a in card.find_all("a")
+        a.attrs.get("href", "").startswith(sel.EXTERNAL_LINK_PREFIXES) for a in _own(card, "a")
     )
     metrics = _metric_values(card)
     media = _media(card)
     features = extract(body, topic=topic, media_type=media, posted_at=posted).as_dict()
-    return ExternalPostRecord(
-        external_post_key=f"threads:{code}",
+    record = ExternalPostRecord(
+        external_post_key=key,
         author_handle=handle,
         permalink=f"{sel.BASE_URL}/@{handle}/post/{code}",
         post_timestamp=posted,
@@ -181,6 +275,18 @@ def _card(card: Node) -> ExternalPostRecord | None:
         shares=metrics["shares"],
         features=features,
     )
+    return CardEval(index, key, handle, CARD_OK, record)
+
+
+def _anchor_keys(root: Node) -> list[tuple[str, str, Node]]:
+    """投稿の時刻のリンク (まとまりとは独立に数える)。(キー, 名前, リンク)。"""
+
+    out = []
+    for a in root.find_all("a"):
+        match = _PERMALINK.match(a.attrs.get("href", ""))
+        if match and a.find("time") is not None:
+            out.append((f"threads:{match.group(2)}", match.group(1), a))
+    return out
 
 
 def parse_page(html: str, *, limit: int) -> PageResult:
@@ -196,28 +302,40 @@ def parse_page(html: str, *, limit: int) -> PageResult:
             return PageResult(PAGE_DOM_UNRECOGNIZED,
                               reason=f"no post container matched ({sel.SELECTOR_VERSION})")
         return PageResult(PAGE_EMPTY, reason="empty page")  # fmt: skip
-    # 入れ子のまとまり (引用の中の投稿など) は外側だけを使う。
-    outer = [c for c in cards if not any(a in cards for a in c.ancestors())]
-    posts: list[ExternalPostRecord] = []
-    rejected = 0
+    ids = {id(c) for c in cards}
+    evals: list[CardEval] = []
     seen: set[str] = set()
-    for card in outer:
-        if len(posts) >= limit:
-            break
-        record = _card(card)
-        if record is None:
-            rejected += 1
+    for index, card in enumerate(cards):
+        if any(id(a) in ids for a in card.ancestors()):
+            # 入れ子のまとまり (引用の中の投稿など) は読まないが、理由つきで数える。
+            link = _post_anchor(card)
+            match = _PERMALINK.match(link.attrs["href"]) if link is not None else None
+            evals.append(CardEval(
+                index, f"threads:{match.group(2)}" if match else None,
+                match.group(1) if match else None, CARD_UNSUPPORTED_NESTED,
+            ))  # fmt: skip
             continue
-        if record.external_post_key in seen:
-            continue
-        seen.add(record.external_post_key)
-        posts.append(record)
-    examined = len(posts) + rejected
+        result = _evaluate(card, index)
+        if result.reason == CARD_OK and result.key in seen:
+            result = CardEval(index, result.key, result.handle, CARD_DUPLICATE_IN_FRAME)
+        if result.key is not None:
+            seen.add(result.key)
+        evals.append(result)
+    # まとまりの外にある投稿 (時刻のリンクがどのまとまりにも入っていない) も数える。
+    anchors = _anchor_keys(root)
+    for key, handle, anchor in anchors:
+        if not any(id(a) in ids for a in anchor.ancestors()):
+            evals.append(CardEval(len(evals), key, handle, CARD_UNSUPPORTED_OUTSIDE))
+    rejected = sum(1 for e in evals if e.reason in MALFORMED_REASONS)
+    examined = sum(1 for e in evals if e.reason in (CARD_OK, *MALFORMED_REASONS))
     if examined and rejected * 2 > examined:
-        return PageResult(PAGE_DOM_UNRECOGNIZED, rejected=rejected,
+        return PageResult(PAGE_DOM_UNRECOGNIZED, rejected=rejected, cards=evals,
+                          anchor_keys=[k for k, _, _ in anchors],
                           reason=f"{rejected} of {examined} post cards did not match "
                           f"({sel.SELECTOR_VERSION}); nothing stored")  # fmt: skip
-    return PageResult(PAGE_OK, posts=posts, rejected=rejected)
+    posts = [e.record for e in evals if e.reason == CARD_OK][:limit]
+    return PageResult(PAGE_OK, posts=posts, rejected=rejected, cards=evals,
+                      anchor_keys=[k for k, _, _ in anchors])
 
 
 def parse_trending_topics(html: str, *, limit: int) -> PageResult:
@@ -239,6 +357,8 @@ def parse_trending_topics(html: str, *, limit: int) -> PageResult:
     return PageResult(PAGE_OK, trending_topics=names)
 
 
-__all__ = ["PAGE_DOM_UNRECOGNIZED", "PAGE_EMPTY", "PAGE_LOGIN_REQUIRED", "PAGE_OK",
-           "ExternalPostRecord", "PageResult", "parse_count", "parse_page",
-           "parse_trending_topics"]  # fmt: skip
+__all__ = ["CARD_DUPLICATE_IN_FRAME", "CARD_MALFORMED_EMPTY_BODY", "CARD_MALFORMED_NO_PERMALINK",
+           "CARD_OK", "CARD_REASONS", "CARD_UNSUPPORTED_NESTED", "CARD_UNSUPPORTED_OUTSIDE",
+           "MALFORMED_REASONS", "PAGE_DOM_UNRECOGNIZED", "PAGE_EMPTY", "PAGE_LOGIN_REQUIRED",
+           "PAGE_OK", "CardEval", "ExternalPostRecord", "PageResult", "parse_count",
+           "parse_page", "parse_trending_topics"]  # fmt: skip

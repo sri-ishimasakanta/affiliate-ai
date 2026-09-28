@@ -39,9 +39,21 @@ def card(
     video: bool = False,
     link: str | None = None,
     inner: str = "",
+    thread_marker: str | None = None,
 ) -> str:
-    lines = "".join(f'<span dir="auto"><span>{escape(line)}</span></span>'
-                    for line in body.split("\n"))  # fmt: skip
+    """``thread_marker="1/2"``: 本物の形の続きの投稿の印を、最後の行の本文の span に入れる。"""
+
+    parts = body.split("\n")
+    marker = ""
+    if thread_marker:
+        first, second = thread_marker.split("/")
+        marker = (f"<div><div><span>{first}</span><div><span>/</span></div>"
+                  f"<span>{second}</span></div></div>")  # fmt: skip
+    lines = "".join(
+        f'<span dir="auto"><span>{escape(line)}</span>{marker if i == len(parts) - 1 else ""}'
+        "</span>"
+        for i, line in enumerate(parts)
+    )
     time_html = f'<time datetime="{posted}" title="2026年9月27日">1日</time>' if posted else ""
     topic_html = (
         f'<a href="/search?q={escape(topic)}&amp;serp_type=tags"><span>{escape(topic)}</span></a>'
@@ -102,6 +114,9 @@ class FakePage:
         self.scrolls = 0
         self.screenshots: list[Path] = []
         self.closed = False
+        self.waits = 0
+        #: True なら「待つ」たびに次の HTML を返す (描いた後の差し込みの再現)。
+        self.advance_on_wait = False
         self._url: str | None = None
         self._index = 0
 
@@ -114,6 +129,11 @@ class FakePage:
     def scroll(self) -> None:
         self.scrolls += 1
         self._index += 1
+
+    def wait(self, ms: int) -> None:
+        self.waits += 1
+        if self.advance_on_wait:
+            self._index += 1
 
     def content(self) -> str:
         frames = self.pages.get(self._url or "")

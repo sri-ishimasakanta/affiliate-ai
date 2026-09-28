@@ -214,7 +214,7 @@ PLAYWRIGHT_BROWSERS_PATH=D:/Projects/affiliate-ai/data/playwright-browsers
 - 特徴は決定的に作り直せる (5 件とも保存値と同じ)。観測の行は変わらない。
 - 外の分析: 投稿 5・観測 5・投稿者 5・基準を作れた投稿者 0 (伸びた候補なし。少ない数)。
 
-### パイロットで見つかった問題 (直すのは次の段階。今回は観察の振る舞いを変えていない)
+### パイロットで見つかった問題 (T6.5B.1 で直した。下の「観察の質の強化」)
 
 1. **本文に画面の部品が混ざる**: 続きの投稿の印「1/2」(`\xa01/2`) が本文の末尾に入った
    (1 件)。「meta.ai」の青い札が本文の先頭に入った (2 件)。前の dry-run の 1 件でも「1/2」が
@@ -223,22 +223,115 @@ PLAYWRIGHT_BROWSERS_PATH=D:/Projects/affiliate-ai/data/playwright-browsers
    保存した本文は「最初に見た本文を残す」ので、後の観測では直らない。
 2. **For You の 5 番目の投稿が保存されなかった**: スクロール後の画面では changna… と
    hi.yumama… の間に別の投稿 (「1/2」の印つき) があるが、保存されず、捨てた数にも入って
-   いない。原因は未確認 (描画の時機か、続きの投稿の入れ子の形か)。集めた 5 件の値は正しいが、
+   いない。(原因は T6.5B.1 で確認: 描いた後の差し込み。) 集めた 5 件の値は正しいが、
    「画面の上から 5 件」とは限らない。
 3. 外の分析の文字の出力に「少ない数 (insufficient evidence)」の明示が無い (本数は出ている)。
 
+## 観察の質の強化 (T6.5B.1、2026-09-28)
+
+上の 3 つの問題を、For You の **dry-run だけ** で調べて直した (本番の観察の記録は書き換えて
+いない。保存つきの観察もしていない)。調べるときは、For You を読むだけの診断 (保存なし・
+押さない) で、画面の構造を文字を伏せて保存した (`artifacts/threads-observer/`、git に入らない)。
+
+### 原因 (画面で確かめた)
+
+1. **「1/2」**: 続きの投稿の印は、本文の `span[dir=auto]` の **中の** `div`
+   (`div > div > [span 数, div > span 区切り, span 数]`) だった。下書きの parser は本文の span の
+   文字を丸ごと取っていたので、印も入った。7 回の診断の読みで、古い取り方では 40 件の本文に
+   印が入り、新しい取り方では 0 件。
+2. **「meta.ai」**: 画面では本文の上の、アイコンつきの青い札。**DOM の形は見られなかった**
+   (診断 7 回・約 50 件の中に無かった)。dry-run で 1 件あり、保存前の本文の先頭に入っていた。
+3. **保存されなかった 5 番目の投稿**: Threads は、描いた **後で**、すでに描いた投稿の **間に**
+   投稿を差し込む (最初の読みで 4 件 → 2 秒後に 14 件。すでにあった 2 件の間に 4 件が入った、
+   など)。run 1 の collector は、差し込まれる前の画面を読んで 5 件をそろえたので、後から
+   changna… と hi.yumama… の間に入った投稿は **読んでいない** (捨てたのではない)。入れ子の
+   まとまり・まとまりの外の投稿・形の崩れは、診断では 1 件も無かった。さらに、読みと読みの間
+   だけ現れて消えた投稿も 1 回見た (画面の保存にだけ写った)。
+
+### 直したこと
+
+- **本文 (DOM の段階)**: 本文の span の中の「数 / 数」だけの `div` (続きの投稿の印) は本文に
+  入れない。書いた人の「1/2の確率」は本文の文字の span の中にあるので残る (試験あり)。
+- **引用した投稿**: dry-run で、外側の投稿の返信の数に **引用した投稿の返信の数** が入っていた
+  (外側 ♡5 💬2、引用 ♡5 💬8 → 読んだ値 5 / 8)。まとまりの中の別のまとまり (引用) の要素は、
+  外側の投稿の指標・本文・メディア・トピック・時刻・リンクに使わない。**run 1 の 5 件には引用が
+  無かった (画面で確認)** ので、保存した値は影響を受けていない。直した後の画面ではまだ引用の
+  投稿を見ていない (試験で確かめた)。
+- **候補の勘定** (`t6.5b-card-accounting-1`): 読んだ候補の 1 つずつに、結果 1 つと理由を付ける。
+  - 結果: `accepted` / `malformed` / `duplicate` / `filtered` / `unsupported` /
+    `other_explicit_reason`。
+  - 理由 (安定した ID): `accepted`・`malformed_no_permalink`・`malformed_empty_body`・
+    `duplicate_in_frame`・`filtered_over_limit`・`unsupported_nested_card`・
+    `unsupported_outside_container`・`late_inserted_after_read`。
+  - **候補の数 = 結果ごとの数の合計**。さらに、投稿の時刻のリンクから独立に数えたキーが、
+    すべて勘定に入っていなければ、実行は `accounting_mismatch` (投稿は保存しない。状態の列が
+    24 文字なので `candidate_accounting_mismatch` ではなくこの名前)。
+  - 仮想化で画面から外れた投稿は、勘定済みのまま数える (`virtualized_out`)。
+  - 勘定は実行の `artifacts_json.candidate_accounting` に残す (列は増やしていない)。
+- **読む時機**: 並びが 2 回続けて同じになるまで読む (1 秒ごと、最大 3 回)。画面を保存するときは
+  **撮った直後に読み**、その読みを使う (画面と読んだものを同じ時点にそろえる)。最後にもう一度
+  読み、読んだ投稿より上に後から差し込まれた投稿を `late_inserted_after_read` として数える
+  (読んでいないので保存しない。実行は `partial`)。
+- collector `t6.5b-collector-3`、selector `threads-web-verified-2026-09-28-v2`。
+
+### 件数の上限の意味
+
+`--limit-total N` = **読んだ候補の流れ** (読んだ時点の画面の上からの順、決まった回数の
+スクロールまで) の中から、受け入れた投稿を最大 N 件。**「画面に表示された最初の N 件」では
+ない** (後から差し込まれる投稿があるため、それは約束できない)。読んだ候補の数・受け入れた数・
+それ以外の数と理由・候補の順を、実行ごとに残す。
+
+### 元の記録と分析用の本文 (run 1 を含む)
+
+- 保存した本文・hash・保存した特徴・指標・実行の状態は **書き換えない** (証拠)。
+- 分析の層で、決まった規則 (`threads-body-normalizer-1`、`observer/normalize.py`) で
+  分析用の本文を作り、特徴を作り直す。`raw_body_hash`・`normalized_body_hash`・
+  `normalization_version`・`normalization_flags` を付ける。規則は 2 つだけ:
+  本文の末尾の「NBSP + 数/数」(古い collector の印) と、本文の先頭の `meta.ai` の札。
+  **本文が本当に `meta.ai` で始まる投稿も除かれる** (残る危険。印で分かる)。
+- run 1: `collection_status=succeeded`・`post_collection_quality=partial`・
+  `text_quality=normalized_with_known_ui_chrome`・`candidate_completeness=not_guaranteed`。
+  3 件の本文を分析用に直した (「1/2」で数字の数 2 → 0、「meta.ai」の札を除いた。ほかの文字は
+  そのまま)。
+
+### 質の印
+
+投稿ごと: `text_clean` / `ui_chrome_removed` / `text_contaminated`、`metrics_verified` /
+`metrics_unverified`、`partial_metrics`、`selector_verified`、`candidate_accounting_complete` /
+`candidate_accounting_not_guaranteed`。**`text_contaminated` の投稿は特徴の形の数え上げから
+外す** (いいね・返信の数の分析には使う)。
+
+### 少ない数
+
+外の観測で、特徴の数え上げに使える投稿が 30 件未満、または基準を作れた投稿者が 0 人なら、
+分析の出力の先頭に出す:
+
+「外部投稿の観測数が少ないため、現時点では傾向を判断できません。
+以下は観測値の一覧であり、伸びる要因を示す証拠ではありません。」
+
+(標本の数・基準の有無・候補の数は、そのまま出す。)
+
+### dry-run の確認 (For You、5 件、保存なし)
+
+直した後の For You の dry-run を画面と照らした (最後の 2 回は、画面を撮った直後の読みを使う
+形)。最後の回: 候補 6 = 受け入れ 5 + 上限で外した 1、勘定が合う、画面に写った投稿 6 件と
+候補 6 件が同じ順で一致。本文に「1/2」「1/3」「1/4」の印が入らない (画面では 3 件に印あり)。
+投稿者・permalink・時刻・トピック・いいね・返信 (空は `None`) が画面と一致。再投稿の見出し
+つきの投稿も正しく読めた。**DB への書き込みは 0。**
+
 ## 次の確認点: ほかの画面の dry-run (保存しない)
 
-それぞれ **dry-run だけ・5 件以下・画面と照らす**。確かめた画面ごとに selectors の確認の状態を
-記録してから、保存に使う。先に上の問題 1・2 を直し、For You で dry-run をやり直す。
+それぞれ **dry-run だけ・5 件以下・画面と照らす** (`--show-posts --diagnose`)。確かめた画面ごとに
+selectors の確認の状態を記録してから、保存に使う。
 
 - A. 検索: `observe_threads.py --search "<語>" --limit-total 5 --headed --screenshots --dry-run
-  --show-posts`。
+  --show-posts --diagnose`。
 - B. トレンドのトピック: まずトピックの一覧の画面だけを確かめる。そのあと 1 つのトピックから
   5 件以下。
 - C. カスタムフィード: `--custom-feed <id> --limit-total 5 ... --dry-run`。
 - D. 知っているアカウント: `--account <名前> --limit-total 5 ... --dry-run`。
 
+引用した投稿を含む画面と、「meta.ai」の札の DOM の形は、どの画面でも出てきたら照らす。
 夜の定期の観察・自動の提案は、まだ作らない。
 
 ## してはいけないこと

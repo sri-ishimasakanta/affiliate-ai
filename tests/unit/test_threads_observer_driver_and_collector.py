@@ -66,7 +66,8 @@ def test_other_urls_are_refused(url: str) -> None:
 
 def test_the_browser_page_has_no_interaction_methods() -> None:
     public = {name for name, _ in inspect.getmembers(PlaywrightPage) if not name.startswith("_")}
-    assert public == {"goto", "scroll", "content", "screenshot", "wait_for_human", "close"}
+    assert public == {"goto", "scroll", "wait", "content", "screenshot", "wait_for_human",
+                      "close"}
     for name in public:
         assert not any(name == word or name.startswith(f"{word}_") for word in FORBIDDEN), name
 
@@ -171,12 +172,28 @@ def test_screenshots_are_optional_and_per_page(tmp_path: Path) -> None:
     fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
     collect(fake, CollectionPlan(for_you=True), screenshot_dir=tmp_path)
     assert fake.screenshots == []
-    # 足りたらスクロールしない → 最初の状態の 1 枚だけ。
+    # 足りたらスクロールしない → 最初に読んだ状態と、最後の確かめの読みの状態の 2 枚。
+    fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
     result = collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path,
                      limits={"for_you": 2})  # fmt: skip
-    assert fake.screenshots == [tmp_path / "for_you.png"]
-    assert result.screenshots == {"for_you": str(tmp_path / "for_you.png")}
+    assert fake.scrolls == 0
+    assert fake.screenshots == [tmp_path / "for_you.png", tmp_path / "for_you-final.png"]
+    assert result.screenshots == {"for_you": str(tmp_path / "for_you.png"),
+                                  "for_you-final": str(tmp_path / "for_you-final.png")}  # fmt: skip
     assert result.posts[0].source_type == SOURCE_FOR_YOU
+
+
+def test_the_first_screenshot_is_taken_after_the_feed_settles(tmp_path: Path) -> None:
+    # 読む前に並びが変わる (待つたびに次の HTML)。画面の保存は落ち着いた後。
+    fake = FakePage({sel.for_you_url(): [page(*_cards("a", 1)), page(*_cards("a", 3)),
+                                         page(*_cards("a", 3))]})  # fmt: skip
+    fake.advance_on_wait = True
+    order: list[str] = []
+    original = fake.screenshot
+    fake.screenshot = lambda path: (order.append(f"shot@{fake._index}"), original(path))
+    collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path,
+            limits={"for_you": 3})  # fmt: skip
+    assert order[0] == "shot@2"  # 3 回目の読み (落ち着いた状態) の後
 
 
 def test_a_scrolled_page_is_shot_before_and_after(tmp_path: Path) -> None:

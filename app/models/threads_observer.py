@@ -42,7 +42,11 @@ RUN_PARTIAL = "partial"
 RUN_FAILED = "failed"
 RUN_LOGIN_REQUIRED = "login_required"
 RUN_DOM_UNRECOGNIZED = "dom_unrecognized"
-RUN_STATUSES = (RUN_SUCCEEDED, RUN_PARTIAL, RUN_FAILED, RUN_LOGIN_REQUIRED, RUN_DOM_UNRECOGNIZED)
+#: T6.5B.1: 候補の勘定が合わない (黙って消えた投稿がある)。その実行の投稿は保存しない。
+#: (``status`` の列は 24 文字なので ``candidate_accounting_mismatch`` ではなくこの名前。)
+RUN_ACCOUNTING_MISMATCH = "accounting_mismatch"
+RUN_STATUSES = (RUN_SUCCEEDED, RUN_PARTIAL, RUN_FAILED, RUN_LOGIN_REQUIRED, RUN_DOM_UNRECOGNIZED,
+                RUN_ACCOUNTING_MISMATCH)  # fmt: skip
 
 
 class ThreadsObserverRun(Base):

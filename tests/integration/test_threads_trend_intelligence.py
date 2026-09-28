@@ -456,8 +456,9 @@ def test_the_output_does_not_use_winner_words(session: Session, article: Article
 class _StrictPage(FakePage):
     """読む以外の操作に触れたら落ちる。"""
 
-    ALLOWED = {"goto", "scroll", "content", "screenshot", "close", "pages", "default",
-               "visited", "scrolls", "screenshots", "closed", "_url", "_index"}  # fmt: skip
+    ALLOWED = {"goto", "scroll", "wait", "content", "screenshot", "close", "pages", "default",
+               "visited", "scrolls", "screenshots", "closed", "_url", "_index", "waits",
+               "advance_on_wait"}  # fmt: skip
 
     def __getattribute__(self, name):
         if not name.startswith("__") and name not in _StrictPage.ALLOWED:
@@ -509,7 +510,7 @@ def test_project_state_reports_the_observer_facts(session: Session) -> None:
     assert state["read_only"] is True and state["social_actions"] is False
     assert state["scheduled"] is False and state["fed_back_to_generation"] is False
     assert state["selector_verified"] is True
-    assert state["selector_version"] == "threads-web-verified-2026-09-28-v1"
+    assert state["selector_version"] == sel.SELECTOR_VERSION == "threads-web-verified-2026-09-28-v2"
     session.execute(text("DROP TABLE threads_external_observations"))
     session.commit()
     missing = observer_state(session.connection())

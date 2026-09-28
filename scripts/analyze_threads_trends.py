@@ -29,7 +29,20 @@ def render(report: dict) -> str:
     if not ext.get("available", True):
         lines.append(f"  利用できない: {ext['reason']}")
     else:
+        evidence = ext["evidence"]
+        if evidence["message_ja"]:
+            lines.append(f"  ※ {evidence['message_ja']}")
+        lines.append(f"  標本: {evidence['sample_size']} 件 (特徴の数え上げに使える "
+                     f"{evidence['usable_for_patterns']} 件、傾向の目安 "
+                     f"{evidence['min_posts_for_patterns']} 件以上)")  # fmt: skip
         lines.append(f"  実行: {ext['runs_by_status'] or 'なし'}")
+        for run in ext["run_quality"]:
+            lines.append(f"  run {run['run_id']}: collection_status={run['collection_status']} "
+                         f"post_collection_quality={run['post_collection_quality']} "
+                         f"text_quality={run['text_quality']} "
+                         f"candidate_completeness={run['candidate_completeness']}")  # fmt: skip
+        lines.append(f"  本文の質: {ext['text_quality']} (数え上げから外した "
+                     f"{ext['excluded_from_patterns']} 件)")  # fmt: skip
         lines.append(f"  投稿 {ext['posts']} 件 / 観測 {ext['observations']} 回 / "
                      f"複数回見た投稿 {ext['posts_with_repeated_snapshots']} 件")  # fmt: skip
         lines.append(f"  投稿者 {ext['authors']} 人 "

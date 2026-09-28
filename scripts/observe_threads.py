@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -70,7 +71,10 @@ def _summary(result) -> dict:
 def _post_summary(item) -> dict:
     """照合用の 1 件 (公開の名前・キー・数・特徴。**本文そのものは出さない**)。"""
 
+    from app.social.threads.observer.normalize import normalize_body
+
     record = item.record
+    text = normalize_body(record.body_text)
     return {
         "source_type": item.source_type,
         "external_post_key": record.external_post_key,
@@ -87,6 +91,11 @@ def _post_summary(item) -> dict:
         "shares": record.shares,
         "cta_class": record.features.get("cta_class"),
         "structure_class": record.features.get("structure_class"),
+        "numeric_facts_count": record.features.get("numeric_facts_count"),
+        "text_quality": text.text_quality,
+        "normalization_flags": list(text.normalization_flags),
+        "ends_with_thread_marker": bool(re.search(r"\d+\s*/\s*\d+\Z", record.body_text)),
+        "starts_with_meta_ai": record.body_text.startswith("meta.ai"),
     }
 
 
@@ -109,6 +118,8 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
     parser.add_argument("--dry-run", action="store_true", help="保存しない")
     parser.add_argument("--show-posts", action="store_true",
                         help="画面と照らすため、投稿ごとの取り出した値を出す (本文は長さだけ)")
+    parser.add_argument("--diagnose", action="store_true",
+                        help="候補ごとの結果と理由を出す (名前は先頭 3 文字・キーは末尾 4 文字)")
     parser.add_argument("--profile-dir", default=str(DEFAULT_PROFILE_DIR))
     args = parser.parse_args(argv)
     profile = Path(args.profile_dir)
@@ -181,8 +192,24 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
             run = record_run(session, result)
             summary["run_id"] = run.id
     summary["stored"] = not args.dry_run
+    accounting = result.accounting_summary()
+    summary["candidate_accounting"] = {k: v for k, v in accounting.items() if k != "sources"}
+    if args.diagnose:
+        summary["candidates"] = [
+            {"source": src["source_type"], "seq": e["seq"], "frame": e["frame"],
+             "index": e["index"], "author": e["author_masked"],
+             "key_suffix": e["key"][-4:] if e["key"] else None, "outcome": e["outcome"],
+             "reason": e["reason"]}
+            for src in accounting["sources"] for e in src["sequence"]
+        ]  # fmt: skip
+        summary["virtualized_out"] = sum(s["virtualized_out"] for s in accounting["sources"])
     if args.show_posts:
-        summary["posts"] = [_post_summary(item) for item in result.posts]
+        final = {k: v for s in accounting["sources"] for k, v in s["final_check_metrics"].items()}
+        summary["posts"] = [
+            {**_post_summary(item),
+             "final_check": final.get(item.record.external_post_key)}
+            for item in result.posts
+        ]  # fmt: skip
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if result.status == RUN_LOGIN_REQUIRED:
         print("human login required: run `uv run python scripts/observe_threads.py --login`")

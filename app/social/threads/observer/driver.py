@@ -1,7 +1,7 @@
 """読むだけのブラウザの操作 (T6.5B)。**押す・書く・送る操作は、この型に存在しない。**
 
-使えるのは: 許可した Threads の URL を開く / 決まった量だけスクロールする / HTML を読む /
-画面を保存する、だけ。いいね・返信・フォロー・再投稿・引用・DM・投稿・ログインの自動入力の
+使えるのは: 許可した Threads の URL を開く / 決まった量だけスクロールする / 待つ / HTML を
+読む / 画面を保存する、だけ。いいね・返信・フォロー・再投稿・引用・DM・投稿・ログインの自動入力の
 方法は作らない (型に無いので、呼び出す道も無い)。
 
 Playwright は実際に観察するときだけ読み込む (試験では使わない)。ブラウザのプロファイルは
@@ -30,6 +30,8 @@ class ReadOnlyPage(Protocol):
     def goto(self, url: str) -> None: ...
 
     def scroll(self) -> None: ...
+
+    def wait(self, ms: int) -> None: ...
 
     def content(self) -> str: ...
 
@@ -83,6 +85,11 @@ class PlaywrightPage:
     def scroll(self) -> None:
         self._page.mouse.wheel(0, SCROLL_PIXELS)
         self._page.wait_for_timeout(1500)
+
+    def wait(self, ms: int) -> None:
+        """画面が描き終わるのを待つだけ (何も操作しない)。"""
+
+        self._page.wait_for_timeout(int(ms))
 
     def content(self) -> str:
         return self._page.content()

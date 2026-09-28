@@ -13,18 +13,27 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-COLLECTOR_VERSION = "t6.5b-collector-2"
+#: collector-3 (T6.5B.1): 続きの投稿の印を DOM で除く・候補の勘定・並びが落ち着くまで待つ。
+COLLECTOR_VERSION = "t6.5b-collector-3"
 #: 本物の画面で確かめた版 (T6.5B パイロット)。形を直したら版を上げる。
-SELECTOR_VERSION = "threads-web-verified-2026-09-28-v1"
+#: v2 (T6.5B.1): 本文の中の続きの投稿の印 (「1/2」の div) を除く・引用した投稿の中の要素を
+#: 外側の投稿として読まない・候補の勘定。For You の dry-run で画面と照らして確認
+#: (2026-09-28、5 件 × 5 回)。
+SELECTOR_VERSION = "threads-web-verified-2026-09-28-v2"
 SELECTOR_VERIFIED = True
 #: パイロットで画面と照らして確かめたもの。**ここに無いものは未確認。**
 VERIFIED_SURFACES = (
     "for_you_card", "body", "author_handle", "permalink", "post_timestamp", "topic",
-    "likes", "replies", "media_image",
+    "likes", "replies", "media_image", "thread_marker_exclusion", "reposted_by_header_card",
+    "candidate_accounting",
 )  # fmt: skip
+#: ``quoted_post_scoping`` は画面で問題を見つけ (外側の返信の数に引用の数が入った)、試験で
+#: 直したが、直した後の画面ではまだ確かめていない。``meta_ai_label_dom`` は DOM の形を見て
+#: いない (分析の層の決まった規則で除く: ``observer.normalize``)。
 UNVERIFIED_SURFACES = (
-    "reposts", "shares", "quotes", "media_video", "has_link", "search_page", "trending_page",
-    "topic_page", "custom_feed_page", "account_page",
+    "reposts", "shares", "quotes", "media_video", "has_link", "quoted_post_scoping",
+    "meta_ai_label_dom", "search_page", "trending_page", "topic_page", "custom_feed_page",
+    "account_page",
 )  # fmt: skip
 
 BASE_URL = "https://www.threads.com"

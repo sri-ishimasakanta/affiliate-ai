@@ -5,18 +5,32 @@
 - ログインの画面なら、そこで止めて ``login_required`` (人がログインする)。
 - 画面の形が違えば (DOM drift)、そこで止めて ``dom_unrecognized``。その実行で集めたものは
   **全部捨てる** (壊れた値を残さない)。
-- スクリーンショットは任意 (出どころのページごとに、最初の状態と、スクロールしたなら最後の
-  状態)。投稿ごとには撮らない。
+- スクリーンショットは任意 (出どころのページごとに、最初に読んだ状態 (並びが落ち着いた後) と、
+  最後の確かめの読みの状態)。投稿ごとには撮らない。
+
+**まとまりの勘定** (T6.5B.1): 読んだ投稿の候補 (まとまり) には、1 つずつ決まった結果と理由を
+付ける (``OUTCOME_*`` / ``REASON_*``)。候補の数 = 結果ごとの数の合計。さらに、投稿の時刻の
+リンクから独立に数えたキーが、すべて勘定に入っているかを確かめる。合わなければ
+``accounting_mismatch`` にして、その実行の投稿を捨てる。
+
+**件数の上限の意味** (``--limit-total``): 読んだ候補の流れ (読んだ時点の画面の上からの順、
+決まった回数のスクロールまで) の中から、受け入れた投稿を最大 N 件。**「画面に表示された
+最初の N 件」ではない。** Threads は描いた後で、すでに描いた投稿の **間に** 投稿を差し込む
+(2026-09-28 の診断で確認)。そのため、読む前に並びが落ち着くまで待ち (上限つき)、最後に
+もう一度読んで、読んだ投稿より上に後から差し込まれた投稿を ``late_inserted_after_read``
+として数える (読んでいないので保存しない)。
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models.threads_observer import (
+    RUN_ACCOUNTING_MISMATCH,
     RUN_DOM_UNRECOGNIZED,
     RUN_LOGIN_REQUIRED,
     RUN_PARTIAL,
@@ -30,12 +44,48 @@ from app.models.threads_observer import (
 from app.social.threads.observer import selectors as sel
 from app.social.threads.observer.driver import ReadOnlyPage
 from app.social.threads.observer.parser import (
+    CARD_DUPLICATE_IN_FRAME,
+    CARD_MALFORMED_EMPTY_BODY,
+    CARD_MALFORMED_NO_PERMALINK,
+    CARD_OK,
+    CARD_UNSUPPORTED_NESTED,
+    CARD_UNSUPPORTED_OUTSIDE,
     PAGE_DOM_UNRECOGNIZED,
     PAGE_LOGIN_REQUIRED,
     ExternalPostRecord,
     parse_page,
     parse_trending_topics,
 )
+
+ACCOUNTING_VERSION = "t6.5b-card-accounting-1"
+
+OUTCOME_ACCEPTED = "accepted"
+OUTCOME_MALFORMED = "malformed"
+OUTCOME_DUPLICATE = "duplicate"
+OUTCOME_FILTERED = "filtered"
+OUTCOME_UNSUPPORTED = "unsupported"
+OUTCOME_OTHER = "other_explicit_reason"
+OUTCOMES = (OUTCOME_ACCEPTED, OUTCOME_MALFORMED, OUTCOME_DUPLICATE, OUTCOME_FILTERED,
+            OUTCOME_UNSUPPORTED, OUTCOME_OTHER)  # fmt: skip
+
+REASON_ACCEPTED = "accepted"
+REASON_FILTERED_OVER_LIMIT = "filtered_over_limit"
+REASON_LATE_INSERTED = "late_inserted_after_read"
+#: 理由 → 結果 (安定した ID)。
+OUTCOME_BY_REASON = {
+    REASON_ACCEPTED: OUTCOME_ACCEPTED,
+    CARD_MALFORMED_NO_PERMALINK: OUTCOME_MALFORMED,
+    CARD_MALFORMED_EMPTY_BODY: OUTCOME_MALFORMED,
+    CARD_DUPLICATE_IN_FRAME: OUTCOME_DUPLICATE,
+    REASON_FILTERED_OVER_LIMIT: OUTCOME_FILTERED,
+    CARD_UNSUPPORTED_NESTED: OUTCOME_UNSUPPORTED,
+    CARD_UNSUPPORTED_OUTSIDE: OUTCOME_UNSUPPORTED,
+    REASON_LATE_INSERTED: OUTCOME_OTHER,
+}
+
+#: 並びが落ち着くまで読むときの間隔と、読む回数の上限。
+SETTLE_MS = 1000
+SETTLE_READS = 3
 
 
 @dataclass(frozen=True)
@@ -83,12 +133,86 @@ class CollectionResult:
     scrolls: int = 0
     source_types: list[str] = field(default_factory=list)
     item_limit: int = 0
+    #: 出どころごとの候補の勘定 (``_Ledger.summary``)。
+    accounting: list[dict] = field(default_factory=list)
+
+    def accounting_summary(self) -> dict:
+        by_outcome: Counter = Counter()
+        by_reason: Counter = Counter()
+        for item in self.accounting:
+            by_outcome.update(item["by_outcome"])
+            by_reason.update(item["by_reason"])
+        candidates = sum(item["candidate_cards"] for item in self.accounting)
+        return {
+            "version": ACCOUNTING_VERSION,
+            "candidate_cards": candidates,
+            "by_outcome": dict(sorted(by_outcome.items())),
+            "by_reason": dict(sorted(by_reason.items())),
+            "equality_holds": candidates == sum(by_outcome.values()),
+            "complete": all(item["complete"] for item in self.accounting),
+            "sources": self.accounting,
+        }
 
 
 class _Stop(Exception):
     def __init__(self, status: str, reason: str) -> None:
         super().__init__(reason)
         self.status, self.reason = status, reason
+
+
+class _Ledger:
+    """1 つの出どころの候補ごとの結果 (見た順)。1 つの候補に結果は 1 つだけ。"""
+
+    def __init__(self, source_type: str, query: str | None) -> None:
+        self.source_type, self.query = source_type, query
+        self.entries: dict[str, dict] = {}
+        self.anchor_keys: set[str] = set()
+        self.virtualized_out = 0
+        self._last_keys: set[str] = set()
+        #: 監査用: 受け入れた投稿の、最後の確かめの読みでの数 (保存する値は最初の読みのまま)。
+        self.final_check_metrics: dict[str, dict] = {}
+        #: 並びが落ち着いた読みと、画面を撮った直後の読みで、投稿の並びが違った回数。
+        self.changed_during_screenshot = 0
+
+    def add(self, cid: str, *, key: str | None, reason: str, frame: int, index: int,
+            handle: str | None = None) -> None:  # fmt: skip
+        if cid in self.entries:
+            return
+        self.entries[cid] = {"seq": len(self.entries), "frame": frame, "index": index,
+                             "key": key, "author_masked": _mask(handle),
+                             "outcome": OUTCOME_BY_REASON[reason], "reason": reason}  # fmt: skip
+
+    def accepted(self) -> int:
+        return sum(1 for e in self.entries.values() if e["outcome"] == OUTCOME_ACCEPTED)
+
+    def note_frame(self, keys: list[str]) -> None:
+        current = set(keys)
+        # 前に読んだ投稿が画面から外れた (仮想化)。すでに勘定済みなので数えるだけ。
+        self.virtualized_out += len(self._last_keys - current)
+        self._last_keys = current
+        self.anchor_keys.update(keys)
+
+    def summary(self) -> dict:
+        by_outcome = Counter(e["outcome"] for e in self.entries.values())
+        by_reason = Counter(e["reason"] for e in self.entries.values())
+        keys = {e["key"] for e in self.entries.values() if e["key"]}
+        unaccounted = sorted(self.anchor_keys - keys)
+        valid = all(e["outcome"] in OUTCOMES and e["reason"] in OUTCOME_BY_REASON
+                    for e in self.entries.values())  # fmt: skip
+        equality = len(self.entries) == sum(by_outcome.values())
+        return {
+            "source_type": self.source_type,
+            "source_query": self.query,
+            "candidate_cards": len(self.entries),
+            "by_outcome": dict(sorted(by_outcome.items())),
+            "by_reason": dict(sorted(by_reason.items())),
+            "unaccounted_anchor_keys": unaccounted,
+            "virtualized_out": self.virtualized_out,
+            "final_check_metrics": self.final_check_metrics,
+            "changed_during_screenshot": self.changed_during_screenshot,
+            "complete": equality and valid and not unaccounted,
+            "sequence": sorted(self.entries.values(), key=lambda e: e["seq"]),
+        }
 
 
 def collect(
@@ -121,13 +245,19 @@ def collect(
                   f"account-{_slug(handle)}")  # fmt: skip
     except _Stop as stop:
         result.status, result.reason = stop.status, stop.reason
-        if stop.status == RUN_DOM_UNRECOGNIZED:
+        if stop.status in (RUN_DOM_UNRECOGNIZED, RUN_ACCOUNTING_MISMATCH):
             result.posts.clear()  # 壊れたかもしれない実行の値は残さない
             result.trending_topics.clear()
     else:
-        if result.rejected and result.status == RUN_SUCCEEDED:
+        summary = result.accounting_summary()
+        skipped = {r: n for r, n in summary["by_reason"].items()
+                   if OUTCOME_BY_REASON[r] in (OUTCOME_MALFORMED, OUTCOME_UNSUPPORTED,
+                                               OUTCOME_OTHER)}  # fmt: skip
+        if skipped and result.status == RUN_SUCCEEDED:
             result.status = RUN_PARTIAL
-            result.reason = f"{result.rejected} post card(s) did not match and were skipped"
+            result.reason = "candidate cards not collected: " + ", ".join(
+                f"{reason}={n}" for reason, n in sorted(skipped.items())
+            )
     result.finished_at = clock()
     return result
 
@@ -136,36 +266,107 @@ def _room(result: CollectionResult, limits: dict) -> int:
     return max(0, int(limits["run_total"]) - len(result.posts))
 
 
+def _settled(page: ReadOnlyPage) -> str:
+    """投稿の並びが 2 回続けて同じになるまで読む (最大 ``SETTLE_READS`` 回)。"""
+
+    html = page.content()
+    keys = parse_page(html, limit=0).anchor_keys
+    for _ in range(SETTLE_READS - 1):
+        page.wait(SETTLE_MS)
+        again = page.content()
+        again_keys = parse_page(again, limit=0).anchor_keys
+        html = again
+        if again_keys == keys:
+            break
+        keys = again_keys
+    return html
+
+
+def _check(parsed, source_type: str) -> None:
+    if parsed.status == PAGE_LOGIN_REQUIRED:
+        raise _Stop(RUN_LOGIN_REQUIRED, f"{source_type}: {parsed.reason}")
+    if parsed.status == PAGE_DOM_UNRECOGNIZED:
+        raise _Stop(RUN_DOM_UNRECOGNIZED, f"{source_type}: {parsed.reason}")
+
+
 def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_dir, shot_name):
     want = min(int(per_source), _room(result, limits))
     if want <= 0:
         return
     page.goto(url)
     result.pages_opened += 1
-    gathered: dict[str, ExternalPostRecord] = {}
-    rejected = 0
+    ledger = _Ledger(source_type, query)
+    gathered: list[ExternalPostRecord] = []
     shoot = plan.screenshots and shot_dir is not None
+    attempt = 0
     for attempt in range(int(limits["max_scrolls"]) + 1):
+        html = _settled(page)
         if shoot and attempt == 0:
-            # 最初に見た状態 (スクロールの前) を撮る。
+            # 最初に読む状態 (並びが落ち着いた後・スクロールの前) を撮り、**撮った直後にもう一度
+            # 読んで、その読みを使う** (画面の保存と読んだものを同じ時点にそろえる)。
             _shot(page, result, shot_dir, shot_name)
-        parsed = parse_page(page.content(), limit=want)
-        if parsed.status == PAGE_LOGIN_REQUIRED:
-            raise _Stop(RUN_LOGIN_REQUIRED, f"{source_type}: {parsed.reason}")
-        if parsed.status == PAGE_DOM_UNRECOGNIZED:
-            raise _Stop(RUN_DOM_UNRECOGNIZED, f"{source_type}: {parsed.reason}")
-        rejected = max(rejected, parsed.rejected)
-        for record in parsed.posts:
-            gathered.setdefault(record.external_post_key, record)
-        if len(gathered) >= want or attempt == int(limits["max_scrolls"]):
+            after_shot = page.content()
+            if parse_page(after_shot, limit=0).anchor_keys != parse_page(html, limit=0).anchor_keys:
+                ledger.changed_during_screenshot += 1
+            html = after_shot
+        parsed = parse_page(html, limit=10_000)
+        _check(parsed, source_type)
+        ledger.note_frame(parsed.anchor_keys)
+        occurrences: Counter = Counter()
+        for card in parsed.cards:
+            if card.reason == CARD_DUPLICATE_IN_FRAME:
+                occurrences[card.key] += 1
+                cid = f"dup:{card.key}:{occurrences[card.key]}"
+            elif card.key is None:
+                cid = f"nokey:{card.fingerprint or f'{attempt}:{card.index}'}"
+            else:
+                cid = card.key if card.reason == CARD_OK else f"{card.reason}:{card.key}"
+            if cid in ledger.entries:
+                continue  # 前の読みで勘定済みの同じ候補
+            reason = card.reason
+            if reason == CARD_OK:
+                if ledger.accepted() < want:
+                    reason = REASON_ACCEPTED
+                    gathered.append(card.record)
+                else:
+                    reason = REASON_FILTERED_OVER_LIMIT
+            ledger.add(cid, key=card.key, reason=reason, frame=attempt, index=card.index,
+                       handle=card.handle)  # fmt: skip
+        if ledger.accepted() >= want or attempt == int(limits["max_scrolls"]):
             break
         page.scroll()
         result.scrolls += 1
-    if shoot and attempt > 0:
-        # スクロールしたなら、最後の状態も撮る (集めた投稿を画面と照らせるように)。
+    # 最後にもう一度読む: 読んだ投稿より上に後から差し込まれた投稿を数える (保存しない)。
+    # 画面を保存するなら、撮った直後に読む (最後の画面と最後の読みを同じ時点にそろえる)。
+    page.wait(SETTLE_MS)
+    if shoot:
         _shot(page, result, shot_dir, f"{shot_name}-final")
-    result.rejected += rejected
-    for record in list(gathered.values())[:want]:
+    final = parse_page(page.content(), limit=0)
+    accepted_keys = {r.external_post_key for r in gathered}
+    for card in final.cards:
+        if card.record is not None and card.key in accepted_keys:
+            ledger.final_check_metrics[card.key] = {"likes": card.record.likes,
+                                                    "replies": card.record.replies}  # fmt: skip
+    if final.status not in (PAGE_LOGIN_REQUIRED, PAGE_DOM_UNRECOGNIZED):
+        known = {e["key"] for e in ledger.entries.values() if e["key"]}
+        read_keys = set(ledger.anchor_keys)  # 読んだときに画面にあった投稿
+        seen_positions = [i for i, k in enumerate(final.anchor_keys) if k in known]
+        if seen_positions:
+            for position, key in enumerate(final.anchor_keys[: seen_positions[-1]]):
+                # 読んだときには無かった投稿だけが「後から差し込まれた」。読んだときにあったのに
+                # 勘定に無い投稿は、ここで救わない (勘定が合わない → 実行を捨てる)。
+                if key not in known and key not in read_keys:
+                    ledger.add(f"late:{key}", key=key, reason=REASON_LATE_INSERTED,
+                               frame=attempt + 1, index=position)  # fmt: skip
+                    ledger.anchor_keys.add(key)
+    summary = ledger.summary()
+    result.accounting.append(summary)
+    if not summary["complete"]:
+        raise _Stop(RUN_ACCOUNTING_MISMATCH,
+                    f"{source_type}: candidate accounting mismatch "
+                    f"(unaccounted {len(summary['unaccounted_anchor_keys'])})")  # fmt: skip
+    result.rejected += summary["by_outcome"].get(OUTCOME_MALFORMED, 0)
+    for record in gathered:
         result.posts.append(CollectedPost(source_type, query, record))
 
 
@@ -193,9 +394,16 @@ def _trending(page, result, limits, plan, shot_dir):
         result.trending_topics.append((topic, len(result.posts) - before))
 
 
+def _mask(handle: str | None) -> str | None:
+    """診断用の名前 (先頭 3 文字だけ)。"""
+
+    return f"{handle[:3]}…" if handle else None
+
+
 def _slug(text: str) -> str:
     keep = "".join(ch if ch.isalnum() else "-" for ch in text.strip().lower())
     return keep.strip("-")[:40] or "x"
 
 
-__all__ = ["CollectedPost", "CollectionPlan", "CollectionResult", "collect"]
+__all__ = ["ACCOUNTING_VERSION", "OUTCOMES", "OUTCOME_BY_REASON", "CollectedPost",
+           "CollectionPlan", "CollectionResult", "collect"]  # fmt: skip
