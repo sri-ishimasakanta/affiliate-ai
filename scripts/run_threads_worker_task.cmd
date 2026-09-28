@@ -18,6 +18,8 @@ rem  Profiles (each includes the previous one):
 rem      observe  --collect-insights --sync-approvals    (reads + local records)
 rem      operate  + --send-approval-digests              (approval digest email)
 rem      publish  + --auto-publish                        (automatic posting)
+rem               + --maintain-proposal-stock --maintain-growth-posts
+rem                 (prepare awaiting_approval proposals only; T6 / T6.3.3)
 rem
 rem  SAFETY: the publish profile still posts NOTHING while
 rem  automatic_publication.enabled is false in threads_operations_policy.json.
@@ -44,7 +46,7 @@ if "%PROFILE%"=="" set "PROFILE=observe"
 set "FLAGS="
 if /I "%PROFILE%"=="observe" set "FLAGS=--collect-insights --sync-approvals"
 if /I "%PROFILE%"=="operate" set "FLAGS=--collect-insights --sync-approvals --send-approval-digests"
-if /I "%PROFILE%"=="publish" set "FLAGS=--collect-insights --sync-approvals --send-approval-digests --auto-publish --maintain-proposal-stock"
+if /I "%PROFILE%"=="publish" set "FLAGS=--collect-insights --sync-approvals --send-approval-digests --auto-publish --maintain-proposal-stock --maintain-growth-posts"
 if "%FLAGS%"=="" (
     echo unknown profile: %PROFILE% ^(expected observe, operate or publish^) 1>&2
     exit /b 64

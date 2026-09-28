@@ -74,6 +74,13 @@ def test_only_the_publish_profile_maintains_proposal_stock() -> None:
     assert "--maintain-proposal-stock" not in _profile_flags("operate")
 
 
+def test_only_the_publish_profile_maintains_growth_posts() -> None:
+    # T6.3.3: 2026-09-28 に本番で有効にした (docs/operations/threads-growth-posts.md)
+    assert "--maintain-growth-posts" in _profile_flags("publish")
+    assert "--maintain-growth-posts" not in _profile_flags("observe")
+    assert "--maintain-growth-posts" not in _profile_flags("operate")
+
+
 def test_the_launcher_carries_no_secret_material() -> None:
     lowered = _launcher().lower()
     for marker in ("access_token", "password", "secret=", "thaa", "bearer"):

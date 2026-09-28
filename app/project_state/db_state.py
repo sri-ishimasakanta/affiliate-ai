@@ -178,6 +178,8 @@ def worker_flags(root: Path) -> dict:
     return {
         "publish_profile_flags": flags,
         "stock_maintenance_enabled": "--maintain-proposal-stock" in flags,
+        #: T6.3.3: 毎日 1 本の Growth Post を用意するか (ランチャーの宣言)。
+        "growth_maintenance_enabled": "--maintain-growth-posts" in flags,
     }
 
 

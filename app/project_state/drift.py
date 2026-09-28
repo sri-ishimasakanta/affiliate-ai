@@ -142,6 +142,28 @@ def _stock(state: Mapping) -> list[dict]:
             )
         )
     record = worker.get("runtime_start") or {}
+    growth = worker.get("growth_maintenance_enabled")
+    if growth is True and record.get("found") and worker.get("running"):
+        if "maintain_growth_posts" not in (record.get("capabilities") or []):
+            out.append(
+                finding(
+                    "threads-worker-growth-restart-pending",
+                    "threads",
+                    "threads.worker.capabilities",
+                    authoritative_value="--maintain-growth-posts in the publish launcher flags",
+                    conflicting_value=(
+                        f"running worker pid={record.get('pid')} started without "
+                        f"maintain_growth_posts ({record.get('capabilities')})"
+                    ),
+                    authoritative_source="scripts/run_threads_worker_task.cmd",
+                    conflicting_source="worker start-up event (runtime record)",
+                    classification="stale_runtime_record",
+                    severity="medium",
+                    recommended_resolution=(
+                        "a human restarts the worker once (documented procedure)"
+                    ),
+                )
+            )
     if enabled is True and record.get("found") and worker.get("running"):
         if "maintain_proposal_stock" not in (record.get("capabilities") or []):
             out.append(

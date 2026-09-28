@@ -467,10 +467,12 @@ def _md_threads(threads: dict) -> list[str]:
         growth = threads.get("growth") or {}
         gpol = growth.get("policy") or {}
         growth_live = "maintain_growth_posts" in (start.get("capabilities") or [])
+        growth_flag = bool(worker.get("growth_maintenance_enabled"))
         growth_line = (
             f"{gpol.get('per_jst_day')}/JST day from {gpol.get('eligible_from_jst')} "
             f"(supplemental; no catch-up; target {gpol.get('follower_target')} followers; human "
-            f"approval; no topic; no link); worker enabled {_fmt(growth_live)}; schema ready "
+            f"approval; no topic; no link); launcher flag {_fmt(growth_flag)}; worker enabled "
+            f"{_fmt(growth_live)}; schema ready "
             f"{_fmt(growth.get('schema_ready'))}; proposals {growth.get('proposals')}, published "
             f"{growth.get('published')}; target reached "
             f"{_fmt(growth.get('follower_target_reached'))}"

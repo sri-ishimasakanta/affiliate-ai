@@ -736,3 +736,17 @@ def test_the_cli_plan_writes_and_calls_nothing(session, tmp_path, capsys) -> Non
     assert code == 0 and "due                 = True" in out and "plan only" in out
     assert fake.calls == 0 and _growth_rows(session) == []
     assert not (tmp_path / "growth").exists()
+
+
+def test_project_state_flags_a_worker_started_without_the_growth_flag() -> None:
+    from app.project_state.drift import _stock
+
+    def state(caps):
+        return {"threads": {"worker": {
+            "stock_maintenance_enabled": True, "growth_maintenance_enabled": True,
+            "running": True, "runtime_start": {"found": True, "pid": 1, "capabilities": caps},
+        }}}  # fmt: skip
+
+    stale = _stock(state(["maintain_proposal_stock"]))
+    assert [f["id"] for f in stale] == ["threads-worker-growth-restart-pending"]
+    assert _stock(state(["maintain_proposal_stock", "maintain_growth_posts"])) == []
