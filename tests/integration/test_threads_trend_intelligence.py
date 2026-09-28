@@ -193,6 +193,8 @@ def test_c_missing_metrics_are_stored_as_null(session: Session) -> None:
     partial, complete = observations[posts["threads:B1"]], observations[posts["threads:B2"]]
     assert (partial.likes, partial.replies, partial.reposts, partial.shares) == (3, None, None,
                                                                                  None)  # fmt: skip
+    # 再投稿・共有は画面に数があっても読まない (意味を確かめていない)。
+    assert (complete.reposts, complete.shares) == (None, None)
     assert partial.quotes is None
     assert partial.extraction_status == EXTRACTION_PARTIAL
     assert complete.extraction_status == EXTRACTION_COMPLETE
@@ -506,7 +508,8 @@ def test_project_state_reports_the_observer_facts(session: Session) -> None:
     assert (state["posts"], state["observations"]) == (1, 1)
     assert state["read_only"] is True and state["social_actions"] is False
     assert state["scheduled"] is False and state["fed_back_to_generation"] is False
-    assert state["selector_verified"] is False
+    assert state["selector_verified"] is True
+    assert state["selector_version"] == "threads-web-verified-2026-09-28-v1"
     session.execute(text("DROP TABLE threads_external_observations"))
     session.commit()
     missing = observer_state(session.connection())

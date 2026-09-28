@@ -67,7 +67,7 @@
      "note": "implemented 2026-09-28 (read-only; no new table; features t6.5-features-1, source=rule; small-sample warnings; no causal claims; nothing fed back to generation)"},
     {"id": "T6.5B", "title": "External Threads Observer Foundation (Playwright, read-only, hard limits, fail-closed selectors)", "status": "active",
      "evidence": {"files": ["docs/operations/threads-trend-intelligence.md"], "commits": []},
-     "note": "implemented 2026-09-28; migration 2cfa0ccb2059 not applied to production (declared pending); selectors are an unverified draft; Playwright not installed; manual read-only pilot required (the human approves the install, logs in, then a tiny no-store collection); no scheduler"},
+     "note": "implemented 2026-09-28; read-only Playwright pilot done 2026-09-28 (human login, 5 For You posts, no store): selectors verified for For You card/body/author/permalink/timestamp/topic/likes/replies/image (threads-web-verified-2026-09-28-v1); reposts/shares/quotes/video/links and other pages unverified; migration 2cfa0ccb2059 not applied to production (declared pending); production migration checkpoint next; no scheduler"},
     {"id": "T6.5C", "title": "Breakout Detector", "status": "planned",
      "evidence": {"files": ["docs/operations/threads-trend-intelligence.md"], "commits": []},
      "note": "not started; after the T6.5A-B manual read-only pilot; author-normalized breakout candidates (foundation in T6.5B)"},

@@ -171,7 +171,41 @@ def test_screenshots_are_optional_and_per_page(tmp_path: Path) -> None:
     fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
     collect(fake, CollectionPlan(for_you=True), screenshot_dir=tmp_path)
     assert fake.screenshots == []
-    result = collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path)
+    # 足りたらスクロールしない → 最初の状態の 1 枚だけ。
+    result = collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path,
+                     limits={"for_you": 2})  # fmt: skip
     assert fake.screenshots == [tmp_path / "for_you.png"]
     assert result.screenshots == {"for_you": str(tmp_path / "for_you.png")}
     assert result.posts[0].source_type == SOURCE_FOR_YOU
+
+
+def test_a_scrolled_page_is_shot_before_and_after(tmp_path: Path) -> None:
+    fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
+    result = collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path)
+    assert fake.scrolls == sel.LIMITS["max_scrolls"]
+    assert fake.screenshots == [tmp_path / "for_you.png", tmp_path / "for_you-final.png"]
+    assert set(result.screenshots) == {"for_you", "for_you-final"}
+
+
+class _RecordingPlaywrightPage:
+    """Playwright の page の代わり (呼ばれた操作を記録する)。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __getattr__(self, name):
+        def record(*args, **kwargs):
+            self.calls.append(name)
+
+        return record
+
+
+def test_the_driver_waits_for_cards_with_read_only_calls() -> None:
+    driver = PlaywrightPage.__new__(PlaywrightPage)
+    driver._page = _RecordingPlaywrightPage()
+    driver.goto(sel.for_you_url())
+    driver.content()
+    assert driver._page.calls == ["goto", "wait_for_selector", "wait_for_timeout", "content"]
+    with pytest.raises(ObserverError):
+        driver.goto("https://www.threads.com/login")
+    assert "goto" not in driver._page.calls[4:]

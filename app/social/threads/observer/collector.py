@@ -5,7 +5,8 @@
 - ログインの画面なら、そこで止めて ``login_required`` (人がログインする)。
 - 画面の形が違えば (DOM drift)、そこで止めて ``dom_unrecognized``。その実行で集めたものは
   **全部捨てる** (壊れた値を残さない)。
-- スクリーンショットは任意 (出どころのページごとに 1 枚)。投稿ごとには撮らない。
+- スクリーンショットは任意 (出どころのページごとに、最初の状態と、スクロールしたなら最後の
+  状態)。投稿ごとには撮らない。
 """
 
 from __future__ import annotations
@@ -143,7 +144,11 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
     result.pages_opened += 1
     gathered: dict[str, ExternalPostRecord] = {}
     rejected = 0
+    shoot = plan.screenshots and shot_dir is not None
     for attempt in range(int(limits["max_scrolls"]) + 1):
+        if shoot and attempt == 0:
+            # 最初に見た状態 (スクロールの前) を撮る。
+            _shot(page, result, shot_dir, shot_name)
         parsed = parse_page(page.content(), limit=want)
         if parsed.status == PAGE_LOGIN_REQUIRED:
             raise _Stop(RUN_LOGIN_REQUIRED, f"{source_type}: {parsed.reason}")
@@ -156,13 +161,18 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
             break
         page.scroll()
         result.scrolls += 1
-    if plan.screenshots and shot_dir is not None:
-        path = shot_dir / f"{shot_name}.png"
-        page.screenshot(path)
-        result.screenshots[shot_name] = str(path)
+    if shoot and attempt > 0:
+        # スクロールしたなら、最後の状態も撮る (集めた投稿を画面と照らせるように)。
+        _shot(page, result, shot_dir, f"{shot_name}-final")
     result.rejected += rejected
     for record in list(gathered.values())[:want]:
         result.posts.append(CollectedPost(source_type, query, record))
+
+
+def _shot(page, result, shot_dir: Path, name: str) -> None:
+    path = shot_dir / f"{name}.png"
+    page.screenshot(path)
+    result.screenshots[name] = str(path)
 
 
 def _trending(page, result, limits, plan, shot_dir):

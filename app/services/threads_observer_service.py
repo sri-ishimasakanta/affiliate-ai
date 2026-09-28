@@ -29,9 +29,9 @@ from app.social.threads.observer import selectors as sel
 from app.social.threads.observer.collector import CollectionResult
 
 EXTRACTION_COMPLETE = "complete"
-#: 見える指標の一部が読めなかった (読めない指標は NULL)。
+#: 確かめた指標 (いいね・返信) の一部が読めなかった (読めない指標は NULL)。
 EXTRACTION_PARTIAL = "partial_metrics"
-_VISIBLE_METRICS = ("likes", "replies", "reposts", "shares")
+_VISIBLE_METRICS = sel.VERIFIED_METRICS
 
 
 def record_run(session: Session, result: CollectionResult) -> ThreadsObserverRun:

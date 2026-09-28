@@ -67,6 +67,29 @@ def _summary(result) -> dict:
     }
 
 
+def _post_summary(item) -> dict:
+    """照合用の 1 件 (公開の名前・キー・数・特徴。**本文そのものは出さない**)。"""
+
+    record = item.record
+    return {
+        "source_type": item.source_type,
+        "external_post_key": record.external_post_key,
+        "author_handle": record.author_handle,
+        "post_timestamp": record.post_timestamp.isoformat() if record.post_timestamp else None,
+        "body_length": record.features.get("body_length"),
+        "body_lines": record.body_text.count("\n") + 1,
+        "topic": record.topic,
+        "media_type": record.media_type,
+        "has_link": record.has_link,
+        "likes": record.likes,
+        "replies": record.replies,
+        "reposts": record.reposts,
+        "shares": record.shares,
+        "cta_class": record.features.get("cta_class"),
+        "structure_class": record.features.get("structure_class"),
+    }
+
+
 def main(argv: list[str] | None = None, *, session_factory=None, page_factory=None,
          now: datetime | None = None) -> int:  # fmt: skip
     parser = argparse.ArgumentParser(description=__doc__,
@@ -84,6 +107,8 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
     parser.add_argument("--screenshots", action="store_true", help="ページごとに画面を保存する")
     parser.add_argument("--headed", action="store_true", help="画面を表示して観察する")
     parser.add_argument("--dry-run", action="store_true", help="保存しない")
+    parser.add_argument("--show-posts", action="store_true",
+                        help="画面と照らすため、投稿ごとの取り出した値を出す (本文は長さだけ)")
     parser.add_argument("--profile-dir", default=str(DEFAULT_PROFILE_DIR))
     args = parser.parse_args(argv)
     profile = Path(args.profile_dir)
@@ -156,6 +181,8 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
             run = record_run(session, result)
             summary["run_id"] = run.id
     summary["stored"] = not args.dry_run
+    if args.show_posts:
+        summary["posts"] = [_post_summary(item) for item in result.posts]
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if result.status == RUN_LOGIN_REQUIRED:
         print("human login required: run `uv run python scripts/observe_threads.py --login`")

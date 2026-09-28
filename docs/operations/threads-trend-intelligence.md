@@ -8,7 +8,7 @@ BizFluxLab 自身の投稿の成績と、Threads 全体で伸びている投稿�
 | 段階 | 名前 | 状態 |
 | --- | --- | --- |
 | T6.5A | Own Performance Feature Store (自分の投稿の特徴と記述の基準) | 実装済み (active) |
-| T6.5B | External Threads Observer Foundation (外の投稿を読むだけで観察する土台) | 実装済み・**手動の読むだけのパイロット待ち** (active) |
+| T6.5B | External Threads Observer Foundation (外の投稿を読むだけで観察する土台) | 実装済み・読むだけのパイロットで selectors を確認済み (2026-09-28)・**本番の migration の確認点待ち** (active) |
 | T6.5C | Breakout Detector (伸びた候補の検出) | planned |
 | T6.5D | Pattern Miner (繰り返し出る形の抽出) | planned |
 | T6.5E | Velocity / Early Trend Detection (反応の速さ・早い兆し) | planned |
@@ -75,8 +75,10 @@ median」を示し、足りなければ「insufficient sample」。**原因は�
 
 ### 仕組み
 
-- `observer/selectors.py`: 画面の読み方 (版つき)。**まだ本物の画面で確かめていない下書き**
-  (`SELECTOR_VERSION = threads-web-draft-2026-09-28`、`SELECTOR_VERIFIED = False`)。
+- `observer/selectors.py`: 画面の読み方 (版つき)。2026-09-28 の読むだけのパイロットで本物の
+  画面と照らして確かめた (`SELECTOR_VERSION = threads-web-verified-2026-09-28-v1`、
+  `SELECTOR_VERIFIED = True`)。**確かめたのは For You の画面の一部だけ** (下の「パイロットの
+  結果」)。
 - `observer/parser.py`: 保存した HTML から決定的に取り出す (標準ライブラリの `html.parser`)。
   期待する形が無ければ **ページ全体を `dom_unrecognized` として止める** (fail closed)。半分より
   多くの投稿の形が崩れていても止める。形の違う要素を、いいね等として読み替えない。数が読め
@@ -114,7 +116,8 @@ median」を示し、足りなければ「insufficient sample」。**原因は�
 
 ### 画面の保存 (任意)
 
-`--screenshots` のときだけ、出どころのページごとに 1 枚 (投稿ごとには撮らない):
+`--screenshots` のときだけ、出どころのページごとに、最初の状態と (スクロールしたなら) 最後の状態 (`-final`) を
+ページ全体で撮る (投稿ごとには撮らない):
 `artifacts/threads-observer/YYYY-MM-DD/HHMMSS/for_you.png`・`trends.png`・`search-ai.png`
 など。監査・調べもの用で、**git に入らない。** アカウントの設定の画面などは開かない。
 
@@ -141,17 +144,64 @@ uv run python scripts/observe_threads.py --for-you --headed --screenshots --dry-
 - `observe_threads.py`: 手動のパイロット用。**定期の実行には登録しない。** 観察の表が無い DB では
   ブラウザを開かずに止まる (`--dry-run` は保存しない)。
 
-## 手動の読むだけのパイロット (次の確認点)
+## 読むだけのパイロットの結果 (T6.5B、2026-09-28)
 
-1. 人が、Playwright と Chromium を入れることを許可する
-   (`uv add playwright` → `uv run playwright install chromium`)。
-2. 人が `observe_threads.py --login` で専用のプロファイルに画面からログインする。
-3. 保存なしで小さく試す: `observe_threads.py --for-you --limit-total 5 --headed --screenshots
-   --dry-run`。取れた件数・捨てた件数・画面と照らし、selectors を本物の画面に合わせる。
-   合ったら `SELECTOR_VERSION` を上げ、`SELECTOR_VERIFIED = True` にする。
-4. 人の許可のもとで、観察の表の migration (`2cfa0ccb2059`) を本番に適用してから、保存つきで
-   小さく試す。
-5. 夜の定期の観察は、パイロットが通ってから別に決める。
+人の許可のもとで行った (Playwright 1.63.0 + Chromium 153.0.8010.12、専用のプロファイル、人が
+画面でログイン、For You を 5 件、保存なし `--dry-run`、画面の保存あり)。
+
+- 結果: `succeeded`、5 件を認識・捨てた 0 件。DB への保存 0。Threads への書き込み・社会的な
+  操作 0。OpenAI の呼び出し 0。
+- 下書きの selectors は **本物の画面と違っていた**:
+  - 指標のアイコンの名前は `aria-label` ではなく svg の `title` 属性 (「いいね！」・返信・
+    再投稿・シェアする)。数は同じボタンの中の `span[dir=auto]`。**0 のときは数が出ない (空)。**
+  - 見出しの相対時刻 (「44分」) を包む `span[dir=auto]` と、ボタンの中の数の `span[dir=auto]`
+    が本文に混ざっていた (下書きの parser の誤り。指標は読めずに `None` だったので、誤った
+    値は出ていない)。
+  - 投稿は後から描かれる (固定の待ち時間では足りない)。
+- 直したこと (最小限): アイコンの名前を `title` 属性 / `<title>` / `aria-label` から読む。時刻を
+  包む span とボタンの中の span を本文から外す。投稿のまとまりが出るまで待つ (最大 15 秒、
+  出なくても parser が判定する)。画面の保存はページ全体で、最初の状態とスクロール後の状態。
+  fail closed の規則 (まとまりが無い → `dom_unrecognized`、半分より多く崩れている → 実行を
+  捨てる、読めない数 → `None`、OCR なし、表示回数を作らない) は変えていない。
+- 画面と照らして確かめたもの (5 件すべて): For You の投稿のまとまり・本文 (行の数まで)・
+  投稿者の公開の名前・permalink / 投稿のキー (時刻のリンクの `/@名前/post/コード`、名前が
+  表示の投稿者と一致)・投稿時刻 (`time[datetime]`、表示の「○分」と一致)・トピック
+  (「› note」「› インサイト祭り」)・いいねの数・返信の数・画像の有無 (プロフィール写真は
+  数えない)。
+- **確かめていないもの** (読まない / 未確認のまま): 再投稿の数 (画面に数は出るが、引用を
+  含むかどうかが画面から分からない → `None`)・共有 (数が出ない → `None`)・引用 (別に出ない
+  → `None`)・動画・外部リンクの有無 (今回の 5 件に無かった)・検索・トレンド・トピック・
+  カスタムフィード・アカウントの画面。
+- 数が空 (0 のときの表示) は `None` のまま。0 と決めつけない。
+- 本物の入れ子をもとにした合成の fixture:
+  `tests/fixtures/threads_observer/for_you_verified_2026-09-28.html` (文字・名前・コード・
+  URL はすべて合成)。
+- 画面の保存は `artifacts/threads-observer/2026-09-28/` (git に入らない)。自分のアカウントの
+  左のメニューとアイコンが写るので、外に出さない。
+
+### Windows での Chromium の置き場所
+
+`uv run playwright install chromium` の既定の置き場所 (`%LOCALAPPDATA%\ms-playwright`) では、
+この PC の Windows が Chromium を起動しなかった ("side-by-side configuration is incorrect"、
+入れ直しても同じ。同じファイルを別の場所に置くと起動する)。そこで、Playwright の標準の
+環境変数で、git に入らない `data/playwright-browsers/` を使う:
+
+```
+PLAYWRIGHT_BROWSERS_PATH=D:/Projects/affiliate-ai/data/playwright-browsers
+```
+
+(`uv run playwright install chromium` をこの環境変数つきで実行しても同じ場所に入る。)
+コードは変えていない。
+
+## 次の確認点: 本番の migration と、保存つきの小さな観察
+
+1. 人の許可のもとで、本番の DB を backup してから `2cfa0ccb2059` を適用する
+   (観察の 4 つの表を足すだけ。既存の表は変えない)。worker の再起動は要らない
+   (worker はこの表を使わない)。
+2. 保存つきで小さく試す: `observe_threads.py --for-you --limit-total 5 --headed --screenshots`
+   → `analyze_threads_trends.py` で 1 回分の観察が見えることを確かめる。
+3. 検索・トレンドなどほかの画面は、それぞれ小さく `--dry-run` で画面と照らしてから使う。
+4. 夜の定期の観察は、そのあとで別に決める。
 
 ## してはいけないこと
 

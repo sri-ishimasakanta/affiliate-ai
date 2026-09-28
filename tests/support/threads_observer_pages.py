@@ -1,7 +1,8 @@
 """T6.5B の試験用: Threads の Web 画面に似せた HTML と、読むだけの偽のページ。
 
-本物の画面ではない (``selectors`` の下書きの形に合わせてある)。パイロットで本物と違えば、
-selectors と一緒にここも直す。
+形は 2026-09-28 のパイロットで確かめた本物の画面の入れ子に合わせてある
+(``threads-web-verified-2026-09-28-v1``。本物をもとにした合成の fixture は
+``tests/fixtures/threads_observer/``)。画面が変わったら selectors と一緒にここも直す。
 """
 
 from __future__ import annotations
@@ -11,13 +12,16 @@ from pathlib import Path
 
 from app.social.threads.observer.driver import check_url
 
-LIKE, REPLY, REPOST, SHARE = "いいね！", "返信", "再投稿", "シェア"
+LIKE, REPLY, REPOST, SHARE = "「いいね！」", "返信", "再投稿", "シェアする"
 
 
 def metric(label: str, value: str | None) -> str:
-    number = f"<span><span>{escape(value)}</span></span>" if value is not None else ""
-    return (f'<div role="button" tabindex="0"><div><svg aria-label="{label}" role="img">'
-            f"<title>{label}</title></svg></div>{number}</div>")  # fmt: skip
+    """本物の形: svg の ``title`` 属性 + 同じボタンの中の ``span[dir=auto]`` の数 (0 は空)。"""
+
+    number = f"<div><span>{escape(value)}</span></div>" if value is not None else ""
+    return (f'<div role="button" tabindex="0"><div><div><svg role="img" title="{label}">'
+            f'<title>{label}</title></svg><span dir="auto">{number}</span>'
+            "</div></div></div>")  # fmt: skip
 
 
 def card(
@@ -38,7 +42,7 @@ def card(
 ) -> str:
     lines = "".join(f'<span dir="auto"><span>{escape(line)}</span></span>'
                     for line in body.split("\n"))  # fmt: skip
-    time_html = f'<time datetime="{posted}">1日</time>' if posted else ""
+    time_html = f'<time datetime="{posted}" title="2026年9月27日">1日</time>' if posted else ""
     topic_html = (
         f'<a href="/search?q={escape(topic)}&amp;serp_type=tags"><span>{escape(topic)}</span></a>'
         if topic else ""
@@ -52,9 +56,10 @@ def card(
                  if link else "")  # fmt: skip
     return (
         '<div data-pressable-container="true"><div>'
-        f'<a href="/@{handle}"><img alt="{handle}さんのプロフィール写真" src="p.jpg"></a>'
+        f'<a href="/@{handle}"><img alt="{handle}のプロフィール写真" src="p.jpg"></a>'
         f'<a href="/@{handle}"><span dir="auto">{handle}</span></a>'
-        f'<a href="/@{handle}/post/{code}">{time_html}</a>{topic_html}</div>'
+        f'{topic_html}<span dir="auto"><a href="/@{handle}/post/{code}">{time_html}</a></span>'
+        "</div>"
         f"<div>{lines}</div>{media}{link_html}{inner}"
         f"<div>{metric(LIKE, likes)}{metric(REPLY, replies)}{metric(REPOST, reposts)}"
         f"{metric(SHARE, shares)}</div></div>"

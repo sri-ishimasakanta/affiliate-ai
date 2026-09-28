@@ -416,11 +416,11 @@ DECISIONS = (
         ),
         "resulting_state": (
             "実装済み。migration 2cfa0ccb2059 は本番に未適用 (宣言あり)。"
-            "selectors は下書き (本物の画面で未確認)"
+            "selectors は 2026-09-28 の読むだけのパイロットで For You の一部を確認済み"
         ),
         "follow_up": (
-            "手動の読むだけのパイロット: 人が Playwright と Chromium の導入を許可 → 人がログイン → "
-            "保存なしの小さな観察で selectors を確かめる"
+            "本番の migration の確認点: 人の許可のもとで backup → 2cfa0ccb2059 を適用 → "
+            "保存つきの小さな観察"
         ),
     },
     {

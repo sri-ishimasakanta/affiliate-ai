@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from app.social.threads.observer import selectors as sel
@@ -45,8 +48,9 @@ def test_a_post_card_is_read() -> None:
     assert post.topic == "生成AI"
     assert post.media_type == "image"
     assert post.has_link is True
-    assert (post.likes, post.replies, post.reposts, post.shares) == (12000, 12, 3, 1)
-    assert post.quotes is None  # 画面に別に出ない。推測しない。
+    assert (post.likes, post.replies) == (12000, 12)
+    # 再投稿・共有は画面の数の意味を確かめていないので読まない。引用は画面に別に出ない。
+    assert (post.reposts, post.shares, post.quotes) == (None, None, None)
     assert post.post_timestamp is not None
     assert post.features["cta_class"] == "question"
     # 名前・リンクの文字は本文に入らない。
@@ -131,8 +135,55 @@ def test_trending_topics() -> None:
     assert parse_trending_topics(drifted_page(), limit=5).status == PAGE_DOM_UNRECOGNIZED
 
 
-def test_selectors_are_marked_unverified_until_the_pilot() -> None:
-    assert sel.SELECTOR_VERIFIED is False
-    assert "draft" in sel.SELECTOR_VERSION
-    assert "views" not in sel.METRIC_LABELS.values()
-    assert "quotes" not in sel.METRIC_LABELS.values()
+def test_selectors_record_exactly_what_the_pilot_verified() -> None:
+    assert sel.SELECTOR_VERIFIED is True
+    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-28-v1"
+    assert set(sel.METRIC_LABELS.values()) == set(sel.VERIFIED_METRICS) == {"likes", "replies"}
+    for name in ("views", "quotes", "reposts", "shares"):
+        assert name not in sel.METRIC_LABELS.values()
+    assert {"reposts", "shares", "quotes"} <= set(sel.UNVERIFIED_SURFACES)
+    assert not set(sel.VERIFIED_SURFACES) & set(sel.UNVERIFIED_SURFACES)
+
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "threads_observer" / (
+    "for_you_verified_2026-09-28.html"
+)
+
+
+def test_the_exact_observed_card_shape() -> None:
+    """パイロットで見た本物の入れ子 (文字・名前・コードは合成) を読む。"""
+
+    result = parse_page(FIXTURE.read_text(encoding="utf-8"), limit=10)
+    assert result.status == PAGE_OK and result.rejected == 0
+    topic, blank, image = result.posts
+    assert topic.external_post_key == "threads:CODEAAA1"
+    assert topic.author_handle == "user_topic"
+    assert topic.permalink == f"{sel.BASE_URL}/@user_topic/post/CODEAAA1"
+    assert topic.post_timestamp.isoformat() == "2026-09-28T12:05:46+00:00"
+    assert topic.topic == "テストトピック"
+    assert (topic.likes, topic.replies) == (6, 1)
+    # 数が出ていない (0 は空で表示される) → None。0 と決めつけない。
+    assert (blank.likes, blank.replies) == (None, None)
+    assert blank.topic is None and blank.media_type == "none"
+    assert (image.media_type, image.likes, image.replies) == ("image", 1, 1)
+    for post in result.posts:
+        assert (post.reposts, post.shares, post.quotes) == (None, None, None)
+        # 見出しの相対時刻・ボタンの数・名前・トピックは本文に入らない。
+        lines = post.body_text.split("\n")
+        assert not any(re.fullmatch(r"\d+(分|時間|日)", line) for line in lines), lines
+        assert not any(line.isdigit() for line in lines), lines
+        assert post.author_handle not in post.body_text
+        assert "テストトピック" not in post.body_text
+
+
+def test_relative_time_and_counts_never_enter_the_body() -> None:
+    [post] = parse_page(page(card("z", "Z1", "本文の一行目\n二行目", likes="16", replies="1",
+                                  reposts="2")), limit=5).posts  # fmt: skip
+    assert post.body_text == "本文の一行目\n二行目"
+
+
+def test_an_unlabelled_or_unknown_icon_is_not_read_as_a_metric() -> None:
+    html = page(card("y", "Y1", "本文", likes="4").replace('title="「いいね！」"', 'title="x"')
+                .replace("<title>「いいね！」</title>", "<title>x</title>"))  # fmt: skip
+    [post] = parse_page(html, limit=5).posts
+    assert post.likes is None

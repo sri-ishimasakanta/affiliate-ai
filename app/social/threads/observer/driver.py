@@ -70,7 +70,15 @@ class PlaywrightPage:
 
     def goto(self, url: str) -> None:
         self._page.goto(check_url(url), wait_until="domcontentloaded")
-        self._page.wait_for_timeout(2500)
+        # 投稿は後から描かれる (パイロットで確認)。まとまりが出るまで待つ。出なくても止めない
+        # (ログインの画面・形の違いの判定は parser が行う)。
+        try:
+            self._page.wait_for_selector(
+                '[data-pressable-container="true"]', timeout=sel.RENDER_WAIT_MS
+            )
+        except Exception:  # noqa: BLE001 - 見つからないことも観察の結果
+            pass
+        self._page.wait_for_timeout(1500)
 
     def scroll(self) -> None:
         self._page.mouse.wheel(0, SCROLL_PIXELS)
@@ -81,7 +89,8 @@ class PlaywrightPage:
 
     def screenshot(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._page.screenshot(path=str(path), full_page=False)
+        # 監査のため、集めた投稿が画面と照らせるようにページ全体を撮る。
+        self._page.screenshot(path=str(path), full_page=True)
 
     def wait_for_human(self) -> None:  # pragma: no cover - 人がログインする間だけ
         """人が画面でログインし、ブラウザを閉じるまで待つ (入力はしない)。"""

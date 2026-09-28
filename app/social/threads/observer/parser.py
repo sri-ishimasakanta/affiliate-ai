@@ -84,7 +84,7 @@ def _metric_values(card: Node) -> dict[str, int | None]:
     values: dict[str, int | None] = {"likes": None, "replies": None, "reposts": None,
                                       "shares": None}  # fmt: skip
     for svg in card.find_all("svg"):
-        name = sel.METRIC_LABELS.get(svg.attrs.get("aria-label", ""))
+        name = sel.METRIC_LABELS.get(_icon_label(svg))
         if name is None or values.get(name) is not None:
             continue
         holder = next((a for a in svg.ancestors() if a.attrs.get("role") == "button"), None)
@@ -93,6 +93,17 @@ def _metric_values(card: Node) -> dict[str, int | None]:
         digits = [t.strip() for t in _texts(holder) if t.strip()]
         values[name] = next((parse_count(t) for t in digits if parse_count(t) is not None), None)
     return values
+
+
+def _icon_label(svg: Node) -> str:
+    """アイコンの名前: ``title`` 属性 → ``<title>`` → ``aria-label`` の順。"""
+
+    if svg.attrs.get("title"):
+        return svg.attrs["title"].strip()
+    title = next((c for c in svg.children if isinstance(c, Node) and c.tag == "title"), None)
+    if title is not None and title.text().strip():
+        return title.text().strip()
+    return svg.attrs.get("aria-label", "").strip()
 
 
 def _texts(node: Node) -> list[str]:
@@ -110,6 +121,10 @@ def _body(card: Node) -> str:
     for span in card.find_all("span", dir="auto"):
         if any(a.tag == "a" for a in span.ancestors()):
             continue  # 名前・リンクの文字は本文に入れない
+        if span.find("time") is not None:
+            continue  # 見出しの「44分」(時刻のリンクを包む span) は本文ではない
+        if any(a.attrs.get("role") == "button" for a in span.ancestors()):
+            continue  # いいね等のボタンの中の数は本文ではない
         if any(p.tag == "span" and p.attrs.get("dir") == "auto" for p in span.ancestors()):
             continue  # 入れ子は外側で数える
         text = span.text().strip()
