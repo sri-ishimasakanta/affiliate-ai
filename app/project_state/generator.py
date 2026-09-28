@@ -462,6 +462,7 @@ def _md_threads(threads: dict) -> list[str]:
         hook_policy = generation.get("conversation_hook_policy") or {}
         quality = generation.get("quality_policy") or {}
         audit = generation.get("audit") or {}
+        topic = threads.get("topic") or {}
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
             f" — {perf['rerun_reason']}"
@@ -516,6 +517,13 @@ def _md_threads(threads: dict) -> list[str]:
             f"{audit.get('records_with_call_history')}, legacy "
             f"{audit.get('legacy_records_without_call_history')}); production overlap block "
             f"observed {_fmt(audit.get('production_overlap_block_observed'))}",
+            f"- topic: {_fmt(topic.get('normal_topic_tag'))} for "
+            f"{topic.get('normal_content_kind')} posts (growth excluded "
+            f"{_fmt(topic.get('growth_post_excluded'))}; fail closed "
+            f"{_fmt(topic.get('fail_closed'))}); tagged containers accepted "
+            f"{topic.get('tagged_containers_accepted')} / rejected "
+            f"{topic.get('tagged_containers_rejected')}; production acceptance "
+            f"{topic.get('production_acceptance')}",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

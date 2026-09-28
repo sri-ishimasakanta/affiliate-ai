@@ -129,19 +129,19 @@ def test_the_t7_completion_criteria_hold(tmp_path) -> None:
     assert isinstance(live["drift"], list) and live["drift"]  # 検出が動いている
     # roadmap は機械で読める (根拠のファイルは本物のリポジトリで確かめる。fixture は一部だけ)
     real = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    assert real["problems"] == [] and real["next_phase"] == "N1"  # N0 の後
+    assert real["problems"] == [] and real["next_phase"] == "T6.3.3"  # T6.3.2 の後
     assert not [f for f in live["drift"] if f["blocking"] or f["classification"] == "unresolved"]
     order = [findings.action_sort_key(a) for a in live["next_actions"]]
     assert order == sorted(order)
     md = render_markdown(live)
-    for fact in ("25/25", "afc2f36bb3ca", "next: **N1** (not started)"):
+    for fact in ("25/25", "afc2f36bb3ca", "**T6.3.2** active"):
         assert fact in md
     offline_ctx, _, _ = _context(tmp_path / "offline", offline=True, factory=_refuse)
     offline = build_report(offline_ctx)
     assert offline["mode"] == "offline" and strict.validate(offline) == []
     assert hashlib.sha256(db_path.read_bytes()).hexdigest() == before
     assert "T7" in live["project"]["completed_phases"]
-    assert live["project"]["next_phase"] == "N1"
+    assert live["project"]["next_phase"] == "T6.3.3"
 
 
 def _refuse():
@@ -195,7 +195,7 @@ def test_operational_warnings_do_not_block_and_actions_follow_the_order(tmp_path
     assert [a for a in order if a in expected] == expected
     assert "t7-validate-project-state" not in order
     nxt = next(a for a in report["next_actions"] if a["id"] == "start-next-phase")
-    assert nxt["prerequisites"] == [] and "start N1" in nxt["action"]
+    assert nxt["prerequisites"] == [] and "start T6.3.3" in nxt["action"]
     assert "not started" in nxt["action"]
 
 
@@ -234,9 +234,9 @@ def test_compare_sees_the_t7_transition_and_the_resolved_note(tmp_path) -> None:
     ctx.now = NOW + timedelta(minutes=2)  # 時刻・heartbeat だけの違いは無視される
     new = build_report(ctx)
     diff = compare.compare(old, new)
-    assert diff["facts"]["current_phase"] == {"old": "T7B", "new": None}
-    assert diff["facts"]["next_phase"] == {"old": None, "new": "N1"}
-    assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "N0"}
+    assert diff["facts"]["current_phase"] == {"old": "T7B", "new": "T6.3.2"}
+    assert diff["facts"]["next_phase"] == {"old": None, "new": "T6.3.3"}
+    assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "T6.3.1"}
     assert "config-note-threads-autopublish" in diff["drift"]["removed"]
     assert "t7-validate-project-state" in diff["next_actions"]["removed"]
     assert not any("generated_at" in p or "heartbeat" in p for p in diff["other_changes"])

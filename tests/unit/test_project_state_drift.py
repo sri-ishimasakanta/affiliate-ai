@@ -128,9 +128,9 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
         "high",
     )
     assert facts["make_tracked_articles"]["value"] == [1, 10, 11]
-    assert facts["current_phase"]["value"] is None  # T7 の後、進めているフェーズは無い
-    assert facts["next_phase"]["value"] == "N1"
-    assert facts["last_completed_phase"]["value"] == "N0"
+    assert facts["current_phase"]["value"] == "T6.3.2"  # 本番の確認を待っているフェーズ
+    assert facts["next_phase"]["value"] == "T6.3.3"
+    assert facts["last_completed_phase"]["value"] == "T6.3.1"
 
 
 # == disagreements A–D ==============================================================
@@ -501,18 +501,19 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
 
 
 # == roadmap / decisions ============================================================
-def test_the_roadmap_marks_t7_and_n0_complete_and_n1_next() -> None:
+def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
     roadmap = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    assert roadmap["declared_current_phase"] is None and roadmap["active"] == []
-    assert {"T7A", "T7B", "T7", "N0"} <= set(roadmap["completed"])
-    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("N0", "N1")
+    assert roadmap["declared_current_phase"] == "T6.3.2" and roadmap["active"] == ["T6.3.2"]
+    assert {"T7A", "T7B", "T7", "N0", "T6.3.1", "T6.3.1a"} <= set(roadmap["completed"])
+    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("T6.3.1", "T6.3.3")
     assert roadmap["next_phase_prerequisites_unmet"] == []
     kinds = {p["id"]: p["evidence_kind"] for p in roadmap["phases"]}
     assert kinds["N0"] == "repository"  # docs/operations/note-channel.md
     for pid in ("N1", "N2", "N3", "C10"):
         assert kinds[pid] == "declared_only", pid
     status = {p["id"]: p["status"] for p in roadmap["phases"]}
-    assert status["N1"] == "planned"  # 次のフェーズ。始めたとは言わない
+    assert status["N1"] == "planned"  # まだ始めていない
+    assert status["T6.3.3"] == status["T6.4"] == status["T6.5"] == "planned"
     assert roadmap["problems"] == []
 
 

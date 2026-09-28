@@ -54,6 +54,12 @@ from app.social.threads.digest import (
 from app.social.threads.policy import ThreadsOperationsPolicy
 from app.social.threads.policy import get_operations_policy as get_threads_operations_policy
 from app.social.threads.proposal import canonical_identity
+from app.social.threads.topic import (
+    TopicPolicyError,
+    content_kind,
+    topic_label,
+    topic_tag_for,
+)
 
 
 @dataclass
@@ -242,6 +248,9 @@ class ThreadsApprovalDigestService:
                     "angle": candidate.angle,
                     "preview": candidate.preview,
                     "timing": self._timing_text(candidate),
+                    "topic": _topic_text(
+                        self._session.get(ThreadsPostProposal, candidate.proposal_id)
+                    ),
                     "review_url": issued.review_url,
                 }
             )
@@ -402,3 +411,12 @@ def _preview(text: str, limit: int) -> str:
 
 
 __all__ = ["DigestOutcome", "ThreadsApprovalDigestService"]
+
+
+def _topic_text(proposal) -> str:
+    """承認のメールに出すトピック (T6.3.2)。公開のときと同じ方針で決める。"""
+
+    try:
+        return topic_label(topic_tag_for(content_kind(proposal)))
+    except TopicPolicyError:
+        return "不明 (この種類は公開されない)"

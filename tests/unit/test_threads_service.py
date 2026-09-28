@@ -59,7 +59,8 @@ class _FakeClient:
             raise self._raises
         return self._profile
 
-    def create_text_container(self, text):
+    def create_text_container(self, text, *, topic_tag):  # T6.3.2: 必ず明示される
+        self.last_topic_tag = topic_tag
         self.calls.append("create_text_container")
         if self._raises:
             raise self._raises

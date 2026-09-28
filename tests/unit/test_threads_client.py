@@ -124,7 +124,7 @@ def test_creating_a_text_container_uses_the_documented_parameters() -> None:
 
     http = _FakeHttp(payload={"id": "container-1"})
 
-    container = _client(http).create_text_container("こんにちは")
+    container = _client(http).create_text_container("こんにちは", topic_tag=None)
 
     call = http.calls[0]
     assert call["method"] == "POST"
@@ -210,7 +210,7 @@ def test_a_response_without_an_id_is_refused() -> None:
 
     http = _FakeHttp(payload={})
     with pytest.raises(ThreadsResponseError, match="no id"):
-        _client(http).create_text_container("x")
+        _client(http).create_text_container("x", topic_tag=None)
 
 
 def test_an_oversized_response_is_refused() -> None:

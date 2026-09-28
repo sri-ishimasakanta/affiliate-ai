@@ -190,3 +190,48 @@ uv run python scripts/plan_threads_worker_schedule.py --profile observe
 4. `threads_operations_policy.json` の `automatic_publication.enabled` を `true` にする
    変更を、人がレビューしてコミットすること
 5. `publish` プロファイルに切り替えること
+
+## 固定トピック (T6.3.2)
+
+人の決定 (2026-09-28): **記事から作る通常の投稿は、いつもトピック "AI Threads" で公開する。**
+将来のアカウントを育てる投稿 (T6.3.3、毎日 1 本の予定) には付けない。
+
+- **公式の根拠** (2026-09-28 に確認): Threads API のリファレンス「Threads APIで公開する」の
+  `POST /{threads-user-id}/threads` に任意の文字列 `topic_tag` がある。ガイド「Threadsの投稿」
+  (更新日 2026/04/14) の「トピックタグ」: `topic_tag` を使うのが推奨 (本文の中のタグは互換のため
+  だけ)。1〜50 字。ピリオド (.) とアンパサンド (&) は使えない。1 投稿に 1 つ。
+  **"AI Threads" という値そのものが本番で受け入れられるかは、まだ確かめていない** (本番の
+  最初の通常の投稿が確かめる)。
+- **決め方は決定的**: `app/social/threads/topic.py` の `THREADS_NORMAL_TOPIC_TAG` (版管理された
+  定数。`.env` ではない)。投稿の種類 (`content_kind`) だけで決まる: `article` → "AI Threads"、
+  `account_growth` → なし。Luna・きっかけ・切り口・記事のカテゴリ・link_mode では変わらない。
+  未知の種類・方針に合わないトピックは公開しない。
+- **種類の見分け方 (migration なし)**: 今の提案はすべて記事から作る (`source_article_id` は必須)
+  ので、印の無い提案は `article`。T6.3.3 の投稿は `learning_guidance_json.content_kind =
+  "account_growth"` を **明示して** 作る (本文から推測しない)。
+- **トピックはメタデータ**: 本文には足さない (`#AIThreads` も "AI Threads" も書かない)。本文・
+  提案の hash・文字数 (500 字)・link_mode・UTM・公開の時刻・120 分の間隔・承認・再試行の安全は
+  変わらない。
+- **公開のときに付ける**: T6.3.2 より前に生成・承認された通常の提案にも、T6.3.2 の後に公開する
+  ときに付く。承認が結び付く identity (`proposal_hash` = content_seed・destination_url・
+  publish_text) は本文と URL だけを覆い、トピックは含まない。承認された本文も URL も変えないので、
+  承認の保証とは矛盾しない (トピックは人が決めた、提案ごとではない方針)。
+- **失敗しても閉じる (fail closed)**: トピック付きのコンテナ作成を API が 4xx の応答の誤りで断ったら、
+  **トピックなしで出し直さない**。公開の行は `failed` + `reconciliation_required` になり、
+  queue 全体が止まる (自動の再試行も、他の提案の公開もしない)。既存のアラート (自動公開の失敗・
+  照合待ち) で人に知らせる。認証・権限・回数制限・サーバーの誤り・タイムアウトは今まで通りの
+  扱い (再試行してもトピックは同じ方針で付く。トピックなしにはならない)。直すのは人: トピックの
+  値を直す (コミット) かどうかを決め、照合待ちを外してから次の公開を許す。
+- **記録**: 公開の試行 (`threads_publication_attempts.detail_json`) の `create_container` と
+  `publish_container` に `content_kind`・`topic_tag`・`topic_tag_sent` を残す (失敗なら HTTP の
+  status と API のコードも)。media id は `publish_container` に。token は残さない。
+- **承認の表示**: 承認のまとめ送りメール (text / html) に「トピック: AI Threads」(将来の
+  アカウントを育てる投稿は「なし」) を出す。携帯のレビューページ (WordPress の relay) は表示する
+  鍵を限っているので、そこに出すには WordPress 側の変更 (配備) が要る。**レビューページへの表示は
+  T6.4 (日本語の承認・報告メールの作り直し) に回した。**
+- **Project State**: `threads.topic` に方針 (固定の値・種類ごとのトピック・fail closed) と、
+  トピック付きの作成の数 (受け入れ / 断り) と `production_acceptance` (`pending_canary` →
+  受け入れの記録ができたら `observed`)。
+
+この後の予定: T6.3.3 (毎日 1 本のアカウントを育てる投稿、トピックなし)、T6.4 (日本語の承認・報告
+メール)、T6.5 (成績の分析)。

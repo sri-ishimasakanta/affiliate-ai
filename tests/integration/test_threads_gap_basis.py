@@ -342,7 +342,8 @@ class _TimelineThreads:
     def client(self):
         return self
 
-    def create_text_container(self, text):
+    def create_text_container(self, text, *, topic_tag):  # T6.3.2: 必ず明示される
+        self.last_topic_tag = topic_tag
         from app.social.threads.models import ThreadsContainer
 
         self._text = text

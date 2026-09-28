@@ -330,6 +330,40 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-quality-t631-complete",
+        "area": "threads/generation",
+        "decision": (
+            "T6.3.1 は完了。T6.3.1a の方針は本番で動いている。本番で重なりを止めた例が無いことは"
+            "止めない観測項目として残す"
+        ),
+        "rationale": (
+            "2026-09-28 の最初の自然な依頼 (提案 #22) で、link_mode の拘束・呼び出しごとの記録・"
+            "自然に起きた書き直しの記録・重なりの記録を本番の記録で確かめた"
+        ),
+        "evidence": ["docs/operations/threads-proposal-stock.md"],
+        "phrase": "### 本番での確認 (T6.3.1 完了、2026-09-28)",
+        "resulting_state": "T6.3.1 complete。重なりを本番で止めた例はまだ無い (作らない)",
+        "follow_up": "本番で自然に重なりを止めたら記録する",
+    },
+    {
+        "id": "threads-topic-tag-t632",
+        "area": "threads/publication",
+        "decision": (
+            "T6.3.2: 記事から作る通常の投稿は、公式の topic_tag でいつも \"AI Threads\" を付けて"
+            "公開する。アカウントを育てる投稿には付けない。トピックが断られたら出し直さない"
+        ),
+        "rationale": (
+            "人の決定。トピックは本文ではなくメタデータなので、本文・hash・500 字は変わらない。"
+            "トピックなしの通常の投稿を出さないために、断られたら閉じる"
+        ),
+        "evidence": ["docs/operations/threads-autopublish.md"],
+        "phrase": "## 固定トピック (T6.3.2)",
+        "resulting_state": (
+            "実装済み (migration なし)。\"AI Threads\" が本番で受け入れられるかは本番の確認点"
+        ),
+        "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

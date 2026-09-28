@@ -35,6 +35,7 @@ from app.social.threads.models import (
     text_within_limit,
     validate_metrics,
 )
+from app.social.threads.topic import THREADS_NORMAL_TOPIC_TAG
 
 #: 公開が満たすべき前提 (T3 がここへ承認済み提案を渡す)。
 PUBLISH_REQUIRES = (
@@ -199,11 +200,14 @@ class ThreadsService:
         *,
         execute: bool = False,
         approved_proposal_hash: str | None = None,
+        topic_tag: str | None = THREADS_NORMAL_TOPIC_TAG,
     ) -> PublishOutcome:
         """テキスト投稿を公開する。**既定は PLAN で、外部に何も書かない。**
 
         ``execute=True`` は「人が承認した不変の提案を適用する」経路からしか
         渡らない。承認そのものはここでは行わないし、ここで文章を作ることもない。
+        トピック (T6.3.2) は既定で通常の投稿のもの。付けないのは ``topic_tag=None`` を
+        明示したときだけ。
         """
 
         outcome = PublishOutcome(executed=False, outcome="planned", text_length=len(text or ""))
@@ -232,7 +236,7 @@ class ThreadsService:
             return outcome
 
         try:
-            container = self._client.create_text_container(text)
+            container = self._client.create_text_container(text, topic_tag=topic_tag)
             outcome.creation_id = container.creation_id
             # 公式が推奨する待ち時間を守る (急いで publish しない)。
             self._sleep(RECOMMENDED_PUBLISH_DELAY_SECONDS)

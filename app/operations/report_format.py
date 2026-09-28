@@ -327,6 +327,8 @@ def render_approval_digest_text(*, items: list[dict], expires_at_local: str) -> 
         ]
         if item.get("timing"):
             out.append(f"    時期   : {item['timing']}")
+        if item.get("topic"):
+            out.append(f"    トピック: {item['topic']}")
         out += [f"    確認   : {item['review_url']}", ""]
     out += [
         f"有効期限      : {expires_at_local}",
@@ -354,6 +356,11 @@ def render_approval_digest_html(*, items: list[dict], expires_at_local: str) -> 
             if item.get("timing")
             else ""
         )
+        topic = (
+            f'<div style="font-size:13px;color:#555">トピック: {e(item["topic"])}</div>'
+            if item.get("topic")
+            else ""
+        )
         rows.append(
             '<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0">'
             f'<div style="font-size:13px;color:#555">[{index}] 提案 '
@@ -362,6 +369,7 @@ def render_approval_digest_html(*, items: list[dict], expires_at_local: str) -> 
             '<div style="font-size:14px;color:#222;white-space:pre-wrap">'
             f"{e(item['preview'])}</div>"
             f"{timing}"
+            f"{topic}"
             f'<p style="margin:10px 0 0"><a href="{e(item["review_url"])}" '
             'style="display:inline-block;padding:10px 16px;background:#1a4d8f;color:#fff;'
             'text-decoration:none;border-radius:6px;font-size:15px">この提案を確認</a></p>'

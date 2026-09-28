@@ -115,12 +115,17 @@ class ThreadsClient:
         return self._get(f"/{self._user_id()}/threads_insights", params)
 
     # -- write (T1 では呼ばれない) --------------------------------------------
-    def create_text_container(self, text: str) -> ThreadsContainer:
-        """テキスト投稿のコンテナを作る。**まだ公開されない。**"""
+    def create_text_container(self, text: str, *, topic_tag: str | None) -> ThreadsContainer:
+        """テキスト投稿のコンテナを作る。**まだ公開されない。**
 
-        payload = self._post(
-            f"/{self._user_id()}/threads", {"media_type": MEDIA_TYPE_TEXT, "text": text}
-        )
+        ``topic_tag`` (T6.3.2) は必ず明示する。値があれば公式の ``topic_tag`` として送り、
+        ``None`` のときだけ送らない。本文には足さない。
+        """
+
+        data = {"media_type": MEDIA_TYPE_TEXT, "text": text}
+        if topic_tag is not None:
+            data["topic_tag"] = topic_tag
+        payload = self._post(f"/{self._user_id()}/threads", data)
         creation_id = payload.get("id")
         if not creation_id:
             raise ThreadsResponseError("the container response carried no id")

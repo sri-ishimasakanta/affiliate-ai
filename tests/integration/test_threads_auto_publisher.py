@@ -91,7 +91,8 @@ class _FakeThreads:
     def client(self):
         return self
 
-    def create_text_container(self, text):
+    def create_text_container(self, text, *, topic_tag):  # T6.3.2: 必ず明示される
+        self.last_topic_tag = topic_tag
         self.calls.append("create")
         self._last_text = text
         return ThreadsContainer(f"container-{len(self.calls)}")

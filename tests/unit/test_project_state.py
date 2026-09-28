@@ -97,6 +97,8 @@ create table threads_post_proposals (id integer primary key, status text,
   learning_guidance_json text, created_at text);
 create table threads_publications (id integer primary key, proposal_id int, status text,
   trigger text, remote_username text, remote_timestamp text, published_at text, permalink text);
+create table threads_publication_attempts (id integer primary key, threads_publication_id int,
+  step text, outcome text, detail_json text);
 create table threads_insight_snapshots (id integer primary key, observed_at text, outcome text);
 create table operations_locks (id integer primary key, lock_name text, owner_label text,
   acquired_at text, heartbeat_at text, released_at text, owner_token text);
@@ -564,8 +566,8 @@ def test_markdown_and_json_describe_the_same_core_state(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
     report = build_report(ctx)
     md = render_markdown(report)
-    assert report["project"]["current_phase"] is None
-    assert f"next: **{report['project']['next_phase']}** (not started)" in md
+    assert report["project"]["current_phase"] == "T6.3.2"  # T6.3.2 は本番の確認待ち
+    assert f"**{report['project']['current_phase']}** active" in md
     assert "featured images 25/25" in md
     assert f"{report['git']['ahead']} ahead" in md
     for child in report["taxonomy"]["children"]:

@@ -229,6 +229,51 @@ def generation_state(stock: dict | None, pending: list[dict]) -> dict:
     }
 
 
+def topic_policy(conn) -> dict:
+    """T6.3.2 の固定トピックの方針と、本番のコンテナ作成で実際に送った数 (読むだけ)。
+
+    本番で "AI Threads" が受け入れられたかは、トピック付きの作成が成功した記録でだけ示す。
+    """
+
+    from app.social.threads.topic import (
+        CONTENT_KIND_ACCOUNT_GROWTH,
+        CONTENT_KIND_ARTICLE,
+        THREADS_NORMAL_TOPIC_TAG,
+        TOPIC_BY_CONTENT_KIND,
+    )
+
+    counts: Counter = Counter()
+    for row in _rows(
+        conn,
+        "select outcome, detail_json from threads_publication_attempts "
+        "where step = 'create_container'",
+    ):
+        raw = row["detail_json"]
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                raw = None
+        if isinstance(raw, dict) and raw.get("topic_tag_sent"):
+            counts[row["outcome"]] += 1
+    accepted = counts.get("succeeded", 0)
+    return {
+        "enabled": True,
+        "normal_topic_tag": THREADS_NORMAL_TOPIC_TAG,
+        "by_content_kind": dict(TOPIC_BY_CONTENT_KIND),
+        "normal_content_kind": CONTENT_KIND_ARTICLE,
+        "growth_post_excluded": TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH] is None,
+        "selection": "deterministic by content kind (not Luna, hook, angle, category, link)",
+        "api_field": "topic_tag (POST /{threads-user-id}/threads)",
+        "fail_closed": True,
+        "alters_body_hash_or_character_count": False,
+        "tagged_container_attempts": sum(counts.values()),
+        "tagged_containers_accepted": accepted,
+        "tagged_containers_rejected": counts.get("failed", 0),
+        "production_acceptance": "observed" if accepted else "pending_canary",
+    }
+
+
 def conversation_state(conn) -> dict:
     """会話のきっかけ (T6.3) の方針と、提案のきっかけ別の数 (T6.3 より前は legacy)。"""
 
@@ -502,6 +547,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             **conversation_state(conn),
             "audit": generation_audit(root),
         },
+        "topic": topic_policy(conn),
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,

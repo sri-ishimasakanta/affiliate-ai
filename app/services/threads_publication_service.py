@@ -13,6 +13,11 @@
 - 途中で落ちた行は in-flight のまま残り、照合するまで次へ進めない。
 
 送るのは **承認された文字列そのもの**。ここで文章も URL も作り直さない。
+
+T6.3.2: 通常の投稿 (記事から作る投稿) には、公開のときに固定のトピック ("AI Threads") を
+公式の ``topic_tag`` で付ける (:mod:`app.social.threads.topic`)。本文・hash・文字数は
+変わらない。トピック付きのコンテナ作成を API が 4xx で断ったら **トピックなしで出し直さない**:
+失敗として残し、照合待ち (reconciliation_required) にして queue を止める (人が判断する)。
 """
 
 from __future__ import annotations
@@ -57,6 +62,7 @@ from app.social.threads.models import (
     TEXT_MAX_LENGTH,
 )
 from app.social.threads.service import ThreadsService
+from app.social.threads.topic import TopicPolicyError, content_kind, topic_tag_for
 
 #: 間隔の上書きを行える唯一の主体。自動の公開には使わせない。
 GAP_OVERRIDE_SOURCE_HUMAN_CLI = "human-cli"
@@ -205,6 +211,9 @@ class PublishPlan:
     trigger: str = PUB_TRIGGER_MANUAL
     gap: dict = field(default_factory=dict)
     gap_overridden_reason: str | None = None
+    #: T6.3.2: 投稿の種類と、コンテナ作成で送るトピック (None は送らない)。
+    content_kind: str | None = None
+    topic_tag: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -231,6 +240,8 @@ class PublishPlan:
             "trigger": self.trigger,
             "gap": dict(self.gap),
             "gap_overridden_reason": self.gap_overridden_reason,
+            "content_kind": self.content_kind,
+            "topic_tag": self.topic_tag,
             "eligible": self.ok,
         }
 
@@ -350,6 +361,12 @@ class ThreadsPublicationService:
         if stale:
             plan.blocked_reasons.extend(reasons)
         plan.blocked_reasons.extend(assessment.integrity_reasons)
+        try:
+            plan.content_kind = content_kind(proposal)
+            plan.topic_tag = topic_tag_for(plan.content_kind)
+        except TopicPolicyError as exc:
+            # 種類もトピックも決まらないなら出さない (トピックなしで出す逃げ道は作らない)。
+            plan.blocked_reasons.append(f"topic policy: {exc}")
         if not status.configured:
             plan.blocked_reasons.append(
                 "Threads is not enabled/configured; set THREADS_ENABLED, "
@@ -369,6 +386,12 @@ class ThreadsPublicationService:
                     f"a previous attempt is {existing.status!r}; reconcile it before retrying "
                     "(publish_threads_post.py --reconcile)"
                 )
+            elif existing.reconciliation_required:
+                plan.blocked_reasons.append(
+                    "a previous attempt requires reconciliation "
+                    f"({existing.reconciliation_note or existing.status_reason}); "
+                    "a human decides before any retry"
+                )
 
         plan.trigger = trigger
         self._check_other_publications(plan, proposal.id)
@@ -376,7 +399,9 @@ class ThreadsPublicationService:
 
         if plan.ok:
             plan.would_call = [
-                "POST /{user-id}/threads (media_type=TEXT) -- create the container",
+                "POST /{user-id}/threads (media_type=TEXT"
+                + (f", topic_tag={plan.topic_tag!r}" if plan.topic_tag else ", no topic_tag")
+                + ") -- create the container",
                 f"wait {RECOMMENDED_PUBLISH_DELAY_SECONDS}s (officially recommended)",
                 "POST /{user-id}/threads_publish (creation_id) -- publish",
                 "GET /{media-id}?fields=... -- read the published post back",
@@ -426,23 +451,48 @@ class ThreadsPublicationService:
         outcome.publication_id = row.id
         outcome.executed = True
 
-        # 1) コンテナを作る。
+        # 1) コンテナを作る。トピックは plan が方針から決めたもの (T6.3.2)。
+        topic = {
+            "content_kind": plan.content_kind,
+            "topic_tag": plan.topic_tag,
+            "topic_tag_sent": plan.topic_tag is not None,
+        }
         self._set(row, PUB_CREATING, reason="creating the media container")
         started = self._op_now()
         try:
-            container = self._threads.client.create_text_container(row.exact_published_text)
+            container = self._threads.client.create_text_container(
+                row.exact_published_text, topic_tag=plan.topic_tag
+            )
         except ThreadsError as exc:
-            self._attempt(row, STEP_CREATE, "failed", started, error=exc)
-            # コンテナ作成で落ちたなら、外には何も出ていない。再試行してよい。
+            self._attempt(
+                row, STEP_CREATE, "failed", started, error=exc,
+                detail={**topic, "status": exc.status, "api_code": exc.api_code},
+            )  # fmt: skip
+            # コンテナ作成で落ちたなら、外には何も出ていない。
             self._fail(row, exc, now=now)
+            if _topic_may_be_rejected(exc, plan.topic_tag):
+                # トピック付きの作成を API が断った (かもしれない)。トピックなしで出し直さない。
+                # 照合待ちにして queue 全体を止め、人が判断する (自動で再試行しない)。
+                row.reconciliation_required = True
+                row.reconciliation_note = (
+                    f"container creation with topic_tag={plan.topic_tag!r} was rejected "
+                    f"(HTTP {exc.status}); no untagged fallback. a human decides before any retry"
+                )
+                self._session.commit()
+                outcome.reconciliation_required = True
+                outcome.notes.append(
+                    "the container with the topic tag was rejected; nothing was published and "
+                    "no untagged post was attempted"
+                )
             outcome.outcome = "failed"
             outcome.error = exc.as_dict()
             return outcome
         row.threads_creation_id = container.creation_id
         outcome.creation_id = container.creation_id
         self._attempt(
-            row, STEP_CREATE, "succeeded", started, detail={"creation_id": container.creation_id}
-        )
+            row, STEP_CREATE, "succeeded", started,
+            detail={"creation_id": container.creation_id, **topic},
+        )  # fmt: skip
         self._set(row, PUB_CONTAINER_CREATED, reason="container created; waiting before publish")
 
         # 2) 公式が推奨する待ち時間を守る。
@@ -478,8 +528,9 @@ class ThreadsPublicationService:
         row.threads_media_id = publication.media_id
         outcome.media_id = publication.media_id
         self._attempt(
-            row, STEP_PUBLISH, "succeeded", started, detail={"media_id": publication.media_id}
-        )
+            row, STEP_PUBLISH, "succeeded", started,
+            detail={"media_id": publication.media_id, **topic},
+        )  # fmt: skip
         self._finish_published(row, now)
         outcome.outcome = "published"
 
@@ -857,6 +908,21 @@ class ThreadsPublicationService:
         if row is None:
             raise ThreadsPublicationError(f"threads post proposal {proposal_id} not found")
         return row
+
+
+def _topic_may_be_rejected(exc: ThreadsError, topic_tag: str | None) -> bool:
+    """トピックを送った作成が、要求の中身を理由に断られたか (4xx の応答の誤り)。
+
+    認証・権限・回数制限・サーバーの誤り・タイムアウトは別の分類で、既存の扱いのまま
+    (再試行してもトピックは同じ方針で付く。トピックなしにはならない)。
+    """
+
+    return (
+        topic_tag is not None
+        and exc.category == "threads_response"
+        and exc.status is not None
+        and 400 <= int(exc.status) < 500
+    )
 
 
 def _publication_summary(row: ThreadsPublication) -> dict:
