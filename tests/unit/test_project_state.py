@@ -178,7 +178,8 @@ def _db(tmp_path: Path, *, heartbeat_age=timedelta(seconds=60)) -> Path:
                "'resolved', '2026-09-24', '2026-09-25')")  # fmt: skip
     db.execute("insert into notification_deliveries values (1, 'daily_incident', 'sent', "
                "'2026-09-24', 'secret-recipient@example.test')")  # fmt: skip
-    db.execute("insert into alembic_version values ('c4d2e8f1a9b3')")
+    # 本番と同じ revision (T6.5B の観察の表は 2026-09-28 に本番へ適用済み)。
+    db.execute("insert into alembic_version values ('2cfa0ccb2059')")
     db.commit()
     db.close()
     return path

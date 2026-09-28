@@ -8,7 +8,7 @@ BizFluxLab 自身の投稿の成績と、Threads 全体で伸びている投稿�
 | 段階 | 名前 | 状態 |
 | --- | --- | --- |
 | T6.5A | Own Performance Feature Store (自分の投稿の特徴と記述の基準) | 実装済み (active) |
-| T6.5B | External Threads Observer Foundation (外の投稿を読むだけで観察する土台) | 実装済み・読むだけのパイロットで selectors を確認済み (2026-09-28)・**本番の migration の確認点待ち** (active) |
+| T6.5B | External Threads Observer Foundation (外の投稿を読むだけで観察する土台) | 実装済み・selectors 確認済み・本番の migration 適用済み・保存つきの 5 件のパイロット済み (2026-09-28)・**ほかの画面は dry-run の確認待ち** (active) |
 | T6.5C | Breakout Detector (伸びた候補の検出) | planned |
 | T6.5D | Pattern Miner (繰り返し出る形の抽出) | planned |
 | T6.5E | Velocity / Early Trend Detection (反応の速さ・早い兆し) | planned |
@@ -56,7 +56,7 @@ median」を示し、足りなければ「insufficient sample」。**原因は�
 
 ## T6.5B — 外の投稿の観察 (読むだけ)
 
-### 保存 (migration `2cfa0ccb2059`、**本番には未適用**)
+### 保存 (migration `2cfa0ccb2059`、2026-09-28 22:08 JST に本番へ適用済み)
 
 自分の提案・公開の表とは別の 4 つの表。
 
@@ -193,15 +193,53 @@ PLAYWRIGHT_BROWSERS_PATH=D:/Projects/affiliate-ai/data/playwright-browsers
 (`uv run playwright install chromium` をこの環境変数つきで実行しても同じ場所に入る。)
 コードは変えていない。
 
-## 次の確認点: 本番の migration と、保存つきの小さな観察
+## 本番の migration と保存つきのパイロット (T6.5B、2026-09-28)
 
-1. 人の許可のもとで、本番の DB を backup してから `2cfa0ccb2059` を適用する
-   (観察の 4 つの表を足すだけ。既存の表は変えない)。worker の再起動は要らない
-   (worker はこの表を使わない)。
-2. 保存つきで小さく試す: `observe_threads.py --for-you --limit-total 5 --headed --screenshots`
-   → `analyze_threads_trends.py` で 1 回分の観察が見えることを確かめる。
-3. 検索・トレンドなどほかの画面は、それぞれ小さく `--dry-run` で画面と照らしてから使う。
-4. 夜の定期の観察は、そのあとで別に決める。
+人の許可のもとで行った。worker は止めていない・再起動していない (worker はこの表を使わない)。
+
+- backup: `D:\Backups\affiliate-ai\affiliate_ai.before-2cfa0ccb2059.20260928-220811.db`
+  (8,237,056 bytes、SHA-256 `7192f9a18873411d9c1d0ccf234498737c82a3023b3d672e35a78411ca99d3c6`、
+  integrity ok、FK の違反なし、revision `c4d2e8f1a9b3`)。
+- `uv run alembic upgrade head` → `2cfa0ccb2059 (head)`。`alembic check` は差なし。integrity ok、
+  FK の違反なし。既存の 54 の表の行の数は前後で同じ (3,696 行)。既存の表・索引の定義は変わって
+  いない。足されたのは観察の 4 つの表と 3 つの索引だけ (はじめは 0 行)。
+- `PENDING_PRODUCTION_MIGRATIONS` から `2cfa0ccb2059` を消した (Project State: DB は head、観察の
+  表あり、未適用の migration なし)。
+- 保存つきの観察を 1 回だけ (For You、最大 5 件、画面の表示あり、画面の保存あり):
+  run #1 `succeeded`、5 件を認識・保存 (投稿 5・観測 5)・捨てた 0、スクロール 1 回、
+  `threads-web-verified-2026-09-28-v1` / `t6.5b-collector-2`。
+- 画面と照らした (5 件すべて): 投稿者・permalink (名前とキーが一致)・投稿時刻 (表示の
+  「○分 / ○時間」と一致)・トピック (5 件とも無し)・いいね・返信 (空の表示は `None`)・画像。
+  **指標の食い違いは無し。** 再投稿・共有・引用は `None`。表示回数の列は無い。
+- 特徴は決定的に作り直せる (5 件とも保存値と同じ)。観測の行は変わらない。
+- 外の分析: 投稿 5・観測 5・投稿者 5・基準を作れた投稿者 0 (伸びた候補なし。少ない数)。
+
+### パイロットで見つかった問題 (直すのは次の段階。今回は観察の振る舞いを変えていない)
+
+1. **本文に画面の部品が混ざる**: 続きの投稿の印「1/2」(`\xa01/2`) が本文の末尾に入った
+   (1 件)。「meta.ai」の青い札が本文の先頭に入った (2 件)。前の dry-run の 1 件でも「1/2」が
+   入っていた (そのときは行の数だけを照らしていて見落とした)。指標・投稿者・時刻・トピックには
+   影響なし。本文の長さ・数字の数などの特徴には影響する (例: 「1/2」で数字の数が 2)。
+   保存した本文は「最初に見た本文を残す」ので、後の観測では直らない。
+2. **For You の 5 番目の投稿が保存されなかった**: スクロール後の画面では changna… と
+   hi.yumama… の間に別の投稿 (「1/2」の印つき) があるが、保存されず、捨てた数にも入って
+   いない。原因は未確認 (描画の時機か、続きの投稿の入れ子の形か)。集めた 5 件の値は正しいが、
+   「画面の上から 5 件」とは限らない。
+3. 外の分析の文字の出力に「少ない数 (insufficient evidence)」の明示が無い (本数は出ている)。
+
+## 次の確認点: ほかの画面の dry-run (保存しない)
+
+それぞれ **dry-run だけ・5 件以下・画面と照らす**。確かめた画面ごとに selectors の確認の状態を
+記録してから、保存に使う。先に上の問題 1・2 を直し、For You で dry-run をやり直す。
+
+- A. 検索: `observe_threads.py --search "<語>" --limit-total 5 --headed --screenshots --dry-run
+  --show-posts`。
+- B. トレンドのトピック: まずトピックの一覧の画面だけを確かめる。そのあと 1 つのトピックから
+  5 件以下。
+- C. カスタムフィード: `--custom-feed <id> --limit-total 5 ... --dry-run`。
+- D. 知っているアカウント: `--account <名前> --limit-total 5 ... --dry-run`。
+
+夜の定期の観察・自動の提案は、まだ作らない。
 
 ## してはいけないこと
 

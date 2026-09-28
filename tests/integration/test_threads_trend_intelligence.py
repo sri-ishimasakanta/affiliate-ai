@@ -499,7 +499,7 @@ def test_project_state_reports_the_observer_facts(session: Session) -> None:
     from app.project_state.db_state import observer_state
     from app.project_state.local_state import PENDING_PRODUCTION_MIGRATIONS
 
-    assert "2cfa0ccb2059" in PENDING_PRODUCTION_MIGRATIONS  # 本番は未適用 (宣言あり)
+    assert "2cfa0ccb2059" not in PENDING_PRODUCTION_MIGRATIONS  # 2026-09-28 に本番へ適用済み
     fake = FakePage({sel.for_you_url(): page(card("p", "P1", "本文"))})
     record_run(session, collect(fake, CollectionPlan(for_you=True), clock=_clock(T0)))
     state = observer_state(session.connection())

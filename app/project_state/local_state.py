@@ -185,13 +185,10 @@ def describe_url(url: str) -> str:
 #: ここにある revision だけが「本番で未適用」として区別される。コードはこの migration の前の DB
 #: でも安全に動く (保存が必要な処理だけが、何も書かずに止まる)。適用したら消す。
 #: 記録: ``c4d2e8f1a9b3`` (T6.3.3) は 2026-09-28 10:40 JST に本番へ適用した (人の許可あり)。
-PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {
-    "2cfa0ccb2059": (
-        "T6.5B external observer tables (threads_observer_runs / threads_external_posts / "
-        "threads_external_observations / threads_trending_topics); not applied to production "
-        "until the manual read-only pilot is approved"
-    ),
-}
+#: 記録: ``2cfa0ccb2059`` (T6.5B の観察の表) は 2026-09-28 22:08 JST に本番へ適用した
+#: (人の許可あり)。backup は D:/Backups/affiliate-ai/ の
+#: ``affiliate_ai.before-2cfa0ccb2059.20260928-220811.db``。
+PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {}
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 
 
