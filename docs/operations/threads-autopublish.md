@@ -236,3 +236,17 @@ uv run python scripts/plan_threads_worker_schedule.py --profile observe
 この後の予定: T6.3.3 (毎日 1 本のアカウントを育てる投稿、トピックなし。実装済み・本番では未使用:
 `docs/operations/threads-growth-posts.md`)、T6.4 (日本語の承認・日次・週次の報告メール)、T6.5
 (成績の分析)。
+
+### 本番での確認 (T6.3.2 完了、2026-09-28)
+
+`9a9b5f9` を読んだ worker (pid 2572、2026-09-28 10:55 JST に自然に復帰) の最初の通常の投稿で確かめた。
+
+| 項目 | 内容 |
+|---|---|
+| 投稿 | 提案 #21 (記事 19、`content_kind=article`、link_mode article) → 公開 18 (2026-09-28 11:01:48 JST、media `18104784740352868`) |
+| コンテナ作成 | 成功。記録: `content_kind=article`・`topic_tag="AI Threads"`・`topic_tag_sent=true` |
+| 本文 | 承認された文字列そのもの (387 字、hash 同じ、読み戻しで一致)。本文に "AI Threads" も `#` も無い |
+| API の受け入れ | 観測した (Project State: tagged containers accepted 1 / rejected 0、`production_acceptance=observed`) |
+| 人の目の確認 | 人が Threads のアプリで、この投稿に "AI Threads" が表示されることを確かめた |
+
+**T6.3.2 は完了。** 通常の投稿のトピックは "AI Threads"、Growth Post (`account_growth`) はトピックなし。

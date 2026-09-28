@@ -364,6 +364,22 @@ DECISIONS = (
         "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
     },
     {
+        "id": "threads-topic-tag-t632-complete",
+        "area": "threads/publication",
+        "decision": (
+            "T6.3.2 は完了。本番の API が topic_tag \"AI Threads\" を受け入れ、人が Threads の"
+            "アプリで表示を確かめた"
+        ),
+        "rationale": (
+            "2026-09-28 の最初の通常の投稿 (提案 #21 → 公開 18) で、トピック付きの作成が成功し、"
+            "本文は承認されたまま。人の目の確認を得た"
+        ),
+        "evidence": ["docs/operations/threads-autopublish.md"],
+        "phrase": "### 本番での確認 (T6.3.2 完了、2026-09-28)",
+        "resulting_state": "T6.3.2 complete。記事の投稿は AI Threads、Growth Post はトピックなし",
+        "follow_up": "T6.3.3 の本番での有効化 (人の許可のもと)",
+    },
+    {
         "id": "threads-growth-posts-t633",
         "area": "threads/generation",
         "decision": (

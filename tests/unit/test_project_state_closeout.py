@@ -236,7 +236,7 @@ def test_compare_sees_the_t7_transition_and_the_resolved_note(tmp_path) -> None:
     diff = compare.compare(old, new)
     assert diff["facts"]["current_phase"] == {"old": "T7B", "new": "T6.3.3"}
     assert diff["facts"]["next_phase"] == {"old": None, "new": "T6.4"}
-    assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "T6.3.1"}
+    assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "T6.3.2"}
     assert "config-note-threads-autopublish" in diff["drift"]["removed"]
     assert "t7-validate-project-state" in diff["next_actions"]["removed"]
     assert not any("generated_at" in p or "heartbeat" in p for p in diff["other_changes"])
