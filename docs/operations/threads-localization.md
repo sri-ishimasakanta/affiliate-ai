@@ -55,3 +55,31 @@
    配備すると、携帯のページに 投稿種別・状態・目標・会話フック・トピックの欄が出る。これは WordPress
    への書き込みなので、人の許可のもとで別に行う (配備前は、既存の欄だけが日本語になる)。
 3. 週次のメールは次の週次の実行から日本語になる (スケジュールは同じ)。
+
+## 本番への展開の記録 (2026-09-28、人の許可あり)
+
+**worker (手順 1): 済み。**
+
+| 項目 | 内容 |
+|---|---|
+| 停止 | 15:07:09〜15:07:15 JST。pid 21540 の親子 (14592 → 11560 → 20768 → 21540) だけ。タスクの定義は同じ |
+| 復帰 | 15:10 の起動は `already_running` (ロックがまだ新しい)。15:25:02 に自然に復帰 (pid 16164、ロックを回収、health ready) |
+| capabilities | collect_insights・sync_approvals・send_approval_digests・maintain_proposal_stock・maintain_growth_posts、can_publish=True |
+| 起動の直後 | 記事の枠は `gap_not_elapsed` (次は 17:03:01)・Growth は `growth_daily_limit`・Growth の保守は 0 回。記事の在庫の保守がいつも通り提案 #27 を作った (在庫が 2 だった) |
+| 日本語の表示 | 本番のコードで #27 の snapshot とまとめ送りを描いた (読むだけ): 件名「【Threads承認】投稿案1件の確認をお願いします」、投稿種別・状態・元記事・切り口・会話フック・リンク・トピック・文字数・注意。#27 の警告 (`quality: the requested hook is choice…`) は「会話フックを確認してください / 「選択」型ですが、選ぶ候補がありません…」 |
+| そのほか | 週次の Threads の節・今日のまとめ・失敗のアラートの文・フォロワー数の理由の表は本番のデータで描けた。Project State `--strict` ok |
+| 注意 | 前の worker (pid 21540、13:55 起動) は、14:55 の最初のまとめ送りで T6.4 の表示の一部 (件名など) を遅延の import で読んでいた (誤りは出ていない)。この再起動で揃った |
+
+**中継 (手順 2、WordPress): 人のアップロード待ち。** このリポジトリの手順は、人が XServer に
+ファイルを上げる方法 (配備の道具や資格情報はリポジトリに無い)。本番の今の `lib-core.php` は
+T6.1 の版 (`08d5ed12…`) で、表示されるページの script が一致する (読むだけで確認)。
+
+- 戻す用の写し: `D:\Backupsffiliate-aielay-pre-t6.4\lib-core.php` (`08d5ed12…`)
+- 上げるファイル: `D:\Backupsffiliate-aielay-t6.4-upload\lib-core.php` (`3f0799dc…`、PHP の構文 ok)
+- 置き場所: `wp-content/mu-plugins/bizfluxlab-approval-relay/lib-core.php` (この 1 つだけ。
+  `bizfluxlab-approval-relay.php` は変わらない。`tests/` は上げない)
+- 上げた後の確認 (読むだけ): 任意の session id の `/bfl-approval/<32桁>` を取り、script が
+  `3f0799dc…` の版の描画と一致すること・安全のヘッダが同じこと・worker の次の同期が通ること。
+  携帯では #27 (または次の) 承認のリンクを開いて、投稿種別・状態・元記事・会話フック・トピック・
+  警告の欄を見る (承認・却下は人がいつも通り判断する)。
+
