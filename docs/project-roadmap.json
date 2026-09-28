@@ -55,7 +55,7 @@
      "note": "implemented (9a9b5f9) and tested with a fake transport; the production worker has not loaded it yet; acceptance of the literal topic and the Threads app visual confirmation are pending the canary"},
     {"id": "T6.3.3", "title": "Daily Account Growth Post (supplemental, 1/JST day, no topic, no link, human-approved)", "status": "active",
      "evidence": {"files": ["docs/operations/threads-growth-posts.md"], "commits": []},
-     "note": "implemented and tested with a fake provider; migration c4d2e8f1a9b3 not applied in production; not activated (worker flag --maintain-growth-posts absent); activation waits for the T6.3.2 visual confirmation"},
+     "note": "implemented and tested with a fake provider; migration c4d2e8f1a9b3 applied in production on 2026-09-28 (human-approved); not activated (worker flag --maintain-growth-posts absent); activation waits for the T6.3.2 visual confirmation"},
     {"id": "T6.4", "title": "Japanese approval, daily and weekly report emails (incl. the topic and post type on the review page)", "status": "planned",
      "evidence": {"files": ["docs/operations/threads-autopublish.md"], "commits": []},
      "note": "not started"},

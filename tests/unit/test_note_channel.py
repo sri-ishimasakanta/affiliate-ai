@@ -62,7 +62,7 @@ def _repo(tmp_path: Path, *, commissions=0, drop_decisions=()) -> Path:
             "stock_maintenance_enabled": _fact(False, "runtime_config"),
             "make_tracked_articles": _fact([1, 10, 11]),
             "last_completed_phase": _fact("N0", "committed_manifest"),
-            "db_revision": _fact(["afc2f36bb3ca"]),
+            "db_revision": _fact(["c4d2e8f1a9b3"]),
             "db_at_code_head": _fact(True),
         },
         "monetization": {"commission_facts": {"count": commissions}},

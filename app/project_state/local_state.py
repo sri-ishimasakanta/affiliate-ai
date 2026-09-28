@@ -184,12 +184,8 @@ def describe_url(url: str) -> str:
 #: 実装済みで、本番への適用を人の確認点で待っている migration (リポジトリが宣言する)。
 #: ここにある revision だけが「本番で未適用」として区別される。コードはこの migration の前の DB
 #: でも安全に動く (保存が必要な処理だけが、何も書かずに止まる)。適用したら消す。
-PENDING_PRODUCTION_MIGRATIONS = {
-    "c4d2e8f1a9b3": (
-        "T6.3.3: source_article_id may be NULL for account_growth posts; growth posts are "
-        "not saved until it is applied (production activation checkpoint)"
-    ),
-}
+#: 記録: ``c4d2e8f1a9b3`` (T6.3.3) は 2026-09-28 10:40 JST に本番へ適用した (人の許可あり)。
+PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {}
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 
 

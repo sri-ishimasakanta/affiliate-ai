@@ -677,12 +677,23 @@ def test_the_migration_round_trips_and_refuses_to_drop_growth_rows(tmp_path, mon
 # --- Project State --------------------------------------------------------------------------
 
 
-def test_project_state_distinguishes_the_pending_production_migration(tmp_path) -> None:
+def test_project_state_distinguishes_the_pending_production_migration(
+    tmp_path, monkeypatch
+) -> None:
+    import sqlite3
+
     from app.project_state import local_state, strict
     from app.project_state.generator import build_report
     from tests.unit.test_project_state import _context
 
-    ctx, _, _ = _context(tmp_path)  # 複製の DB は本番と同じ afc2f36bb3ca
+    # 本番は 2026-09-28 に適用済み。適用前の状態 (宣言あり・DB は afc2f36bb3ca) を作って確かめる。
+    monkeypatch.setattr(local_state, "PENDING_PRODUCTION_MIGRATIONS",
+                        {"c4d2e8f1a9b3": "T6.3.3 growth posts"})  # fmt: skip
+    ctx, _, db_path = _context(tmp_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("update alembic_version set version_num = 'afc2f36bb3ca'")
+    conn.commit()
+    conn.close()
     report = build_report(ctx)
     db = report["database"]
     assert db["db_at_code_head"] is False and db["pending_migrations"] == ["c4d2e8f1a9b3"]

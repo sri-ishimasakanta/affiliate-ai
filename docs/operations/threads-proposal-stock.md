@@ -130,7 +130,8 @@ WordPress の記事には触れない。
 
 <!-- state-corrected: 2026-09-26 T7B: this line said the production DB was still at 33d93394f342; the live DB is at afc2f36bb3ca (head) -->
 
-**済み (2026-09-25、T6 の本番の確認)**: 本番 DB は `afc2f36bb3ca` (head) にある。以下は
+**済み (2026-09-25、T6 の本番の確認)**: 本番 DB は `afc2f36bb3ca` (当時の head) にした
+(2026-09-28 に T6.3.3 の `c4d2e8f1a9b3` を適用。今の head。`docs/operations/threads-growth-posts.md`)。以下は
 そのとき人の許可を得て行った手順の記録。当時の本番 DB は `33d93394f342` で、T6 は
 migration 前でも安全に PLAN できるが、提案の保存と生成の依頼はしなかった。**以下は人の明示の許可を得てから行う。**
 

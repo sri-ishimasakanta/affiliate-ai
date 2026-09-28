@@ -134,7 +134,7 @@ def test_the_t7_completion_criteria_hold(tmp_path) -> None:
     order = [findings.action_sort_key(a) for a in live["next_actions"]]
     assert order == sorted(order)
     md = render_markdown(live)
-    for fact in ("25/25", "afc2f36bb3ca", "**T6.3.3** active"):
+    for fact in ("25/25", "c4d2e8f1a9b3", "**T6.3.3** active"):
         assert fact in md
     offline_ctx, _, _ = _context(tmp_path / "offline", offline=True, factory=_refuse)
     offline = build_report(offline_ctx)

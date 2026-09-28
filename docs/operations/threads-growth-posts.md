@@ -3,8 +3,9 @@
 アカウントそのものを紹介し、フォローを呼びかける投稿 (Growth Post) を **毎日 1 本まで** 用意する。
 記事から作る通常の投稿に **足す** もので、通常の本数・在庫・計画・公開の規則は変えない。
 
-**状態: 実装済み・本番では未使用。** 本番で動かすには、migration の適用と worker のフラグ
-(`--maintain-growth-posts`) の追加が要る (下の「本番への展開」。どちらも人の許可が要る)。
+**状態: 実装済み・本番では未使用。** migration `c4d2e8f1a9b3` は **2026-09-28 10:40 JST に本番へ
+適用済み** (人の許可あり。下の記録)。本番で動かすには、さらに worker のフラグ
+(`--maintain-growth-posts`) の追加が要る (下の「本番への展開」。人の許可が要る)。
 
 ## 人の決定 (2026-09-28)
 
@@ -48,7 +49,7 @@
   コードで守る。戻す (downgrade) ときに記事の無い行が 1 つでもあれば戻さない。
 - **migration の前の DB でもコードは安全**: Growth Post の保存だけが「migration 待ち」で止まる
   (何も書かない・何も呼ばない)。Project State はこれを「本番で未適用 (宣言済み)」として区別する
-  (`PENDING_PRODUCTION_MIGRATIONS`。適用したら消す)。
+  (`PENDING_PRODUCTION_MIGRATIONS`。本番に適用したので今は空)。
 
 ## 1 日 1 本の守り方 (`ThreadsGrowthService`)
 
@@ -143,6 +144,16 @@ published_today=... created=... model_calls=... target=100 target_reached=... re
 9. 次の 07:00 以降の保守で 1 本だけ用意される → 通知の時間帯 (08:00〜) のまとめ送り →
    携帯で承認・却下 → 既存の queue が間隔と公開窓の中で公開 (トピックなし・リンクなし) →
    人がアプリで見て、フォロー返しを手で行う。
+
+## 本番の migration の記録 (2026-09-28、人の許可あり)
+
+| 項目 | 内容 |
+|---|---|
+| worker の停止 | 10:39:32〜10:39:38 JST (pid 19820 と親子のプロセスだけ。タスクの定義は同じ) |
+| 退避 | `D:\Backups\affiliate-ai\affiliate_ai.before-c4d2e8f1a9b3.20260928-014003.db` (UTC の時刻、8,126,464 bytes、SHA-256 `ca34cdd5337b77bcba0c463426758cf4f5dfa474f735d2bb19da16eb3b1b9ce8`、integrity ok・foreign key 問題なし・`afc2f36bb3ca`) |
+| 適用 | `uv run alembic upgrade head` → `c4d2e8f1a9b3 (head)`、`alembic check` clean |
+| 確認 | integrity ok、foreign key 問題なし、54 の表のうち `alembic_version` 以外の 53 の表の行数と中身の hash が同じ、索引と制約が同じ、`source_article_id` が NULL の行は 0 (Growth Post は 0) |
+| Growth Post | 有効にしていない (ランチャーに `--maintain-growth-posts` なし) |
 
 ## 今後
 
