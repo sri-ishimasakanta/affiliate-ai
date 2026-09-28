@@ -44,6 +44,8 @@ SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH = "approval_notification_flush"
 SUBSYSTEM_APPROVAL_SYNC = "approval_sync"
 #: 投稿案の在庫の保守 (T6)。低頻度。提案を用意するだけで、承認も公開もしない。
 SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE = "proposal_stock_maintenance"
+#: 毎日 1 本の Growth Post を用意する (T6.3.3)。提案を用意するだけで、承認も公開もしない。
+SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE = "account_growth_maintenance"
 #: 同じ時刻に期限が来たときの実行順。決定を取り込み、queue を観測してから公開を評価する。
 SUBSYSTEM_ORDER = (
     SUBSYSTEM_HEALTH,
@@ -53,6 +55,7 @@ SUBSYSTEM_ORDER = (
     SUBSYSTEM_INSIGHTS_REFRESH,
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
     SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE,
+    SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
 )
 
 MODE_PLAN = "plan"
@@ -376,6 +379,7 @@ __all__ = [
     "SUBSYSTEM_INSIGHTS_REFRESH",
     "SUBSYSTEM_ORDER",
     "SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE",
+    "SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE",
     "SUBSYSTEM_PUBLICATION_EVALUATION",
     "SUBSYSTEM_QUEUE_OBSERVATION",
     "AutomaticPublicationUnavailable",

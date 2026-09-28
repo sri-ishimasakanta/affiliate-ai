@@ -325,6 +325,10 @@ def render_approval_digest_text(*, items: list[dict], expires_at_local: str) -> 
             f"    記事   : {item['article_title']}",
             f"    内容   : {item['preview']}",
         ]
+        if item.get("kind"):
+            out.append(f"    投稿種別: {item['kind']}")
+        if item.get("goal"):
+            out.append(f"    目標   : {item['goal']}")
         if item.get("timing"):
             out.append(f"    時期   : {item['timing']}")
         if item.get("topic"):
@@ -361,6 +365,10 @@ def render_approval_digest_html(*, items: list[dict], expires_at_local: str) -> 
             if item.get("topic")
             else ""
         )
+        if item.get("kind"):
+            topic += f'<div style="font-size:13px;color:#555">投稿種別: {e(item["kind"])}</div>'
+        if item.get("goal"):
+            topic += f'<div style="font-size:13px;color:#555">目標: {e(item["goal"])}</div>'
         rows.append(
             '<div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0">'
             f'<div style="font-size:13px;color:#555">[{index}] 提案 '

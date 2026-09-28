@@ -115,10 +115,15 @@ def evaluate(state: Mapping) -> list[dict]:
         _inv(
             "db-at-code-head",
             "hard",
-            "the application database is at the Alembic head",
+            "the application database is at the Alembic head (or behind only by migrations "
+            "declared as pending production)",
             expected=True,
-            observed=db.get("db_at_code_head"),
-            check=lambda v: v is True,
+            observed=(
+                db.get("db_at_code_head")
+                if db.get("db_at_code_head") or not db.get("pending_declared_for_production")
+                else "pending production: " + ", ".join(db.get("pending_migrations") or [])
+            ),
+            check=lambda v: v is True or (isinstance(v, str) and v.startswith("pending")),
             severity="critical",
             source="alembic_version (read-only) + alembic.ini",
         ),

@@ -181,6 +181,18 @@ def describe_url(url: str) -> str:
     return f"{scheme} ({host.split(':', 1)[0]})"
 
 
+#: 実装済みで、本番への適用を人の確認点で待っている migration (リポジトリが宣言する)。
+#: ここにある revision だけが「本番で未適用」として区別される。コードはこの migration の前の DB
+#: でも安全に動く (保存が必要な処理だけが、何も書かずに止まる)。適用したら消す。
+PENDING_PRODUCTION_MIGRATIONS = {
+    "c4d2e8f1a9b3": (
+        "T6.3.3: source_article_id may be NULL for account_growth posts; growth posts are "
+        "not saved until it is applied (production activation checkpoint)"
+    ),
+}
+ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
+
+
 def collect_database(root: Path, *, database_url: str, now: datetime, engine_factory=None) -> dict:
     from alembic.config import Config
     from alembic.runtime.migration import MigrationContext
@@ -210,7 +222,8 @@ def collect_database(root: Path, *, database_url: str, now: datetime, engine_fac
             current = list(MigrationContext.configure(connection).get_current_heads())
     except Exception as exc:  # 読めないときは「読めなかった」とだけ言う
         return {**out, "provenance": unavailable("local_db", type(exc).__name__)}
-    pending = [] if set(current) == set(heads) else sorted(set(heads) - set(current))
+    pending = [] if set(current) == set(heads) else _pending_chain(script, current, heads)
+    declared = bool(pending) and all(r in PENDING_PRODUCTION_MIGRATIONS for r in pending)
     return {
         **out,
         "provenance": provenance(
@@ -223,4 +236,55 @@ def collect_database(root: Path, *, database_url: str, now: datetime, engine_fac
         "db_revisions": current,
         "db_at_code_head": set(current) == set(heads),
         "pending_migrations": pending,
+        #: 未適用の migration がすべて「本番の確認点で待っている」と宣言されたものか。
+        "pending_declared_for_production": declared,
+        "pending_production_migrations": [
+            {"revision": r, "note": PENDING_PRODUCTION_MIGRATIONS[r]}
+            for r in pending
+            if r in PENDING_PRODUCTION_MIGRATIONS
+        ],
     }
+
+
+def _pending_chain(script, current: list[str], heads: list[str]) -> list[str]:
+    """今の revision から head までの、まだ適用していない revision (新しい順)。"""
+
+    try:
+        base = current[0] if len(current) == 1 else None
+        chain = [
+            rev.revision
+            for rev in script.iterate_revisions(heads[0] if len(heads) == 1 else "heads", base)
+            if rev.revision not in current
+        ]
+    except Exception:  # noqa: BLE001 - 分からなければ head との差だけを出す
+        chain = sorted(set(heads) - set(current))
+    return chain
+
+
+def reconcile_alembic_check(quality: dict, database: dict) -> dict:
+    """``alembic check`` が「DB が head でない」だけで落ち、未適用が宣言済みなら、失敗にしない。
+
+    その場合は ``ok=None`` (本番 DB では確かめられない) と理由を残す。モデルと head の一致は
+    migration を当てた複製で確かめる (実装のときの手順)。
+    """
+
+    check = quality.get("alembic_check") or {}
+    if (
+        check.get("ok") is False
+        and ALEMBIC_NOT_UP_TO_DATE in str(check.get("summary") or "")
+        and database.get("pending_declared_for_production")
+    ):
+        pending = ", ".join(database.get("pending_migrations") or [])
+        quality = {
+            **quality,
+            "alembic_check": {
+                **check,
+                "ok": None,
+                "summary": (
+                    f"not comparable: the database is behind the declared pending production "
+                    f"migration(s) {pending}"
+                ),
+                "pending_production": True,
+            },
+        }
+    return quality

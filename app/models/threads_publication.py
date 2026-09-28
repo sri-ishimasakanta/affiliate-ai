@@ -94,8 +94,10 @@ class ThreadsPublication(Base):
     )
     #: 承認された提案の identity。ここが一致しない内容は出さない。
     proposal_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    source_article_id: Mapped[int] = mapped_column(
-        ForeignKey("articles.id", ondelete="RESTRICT"), nullable=False
+    #: T6.3.3: アカウントを育てる投稿 (content_kind=account_growth) だけ NULL (記事から作らない)。
+    #: 記事から作る投稿は必ず持つ (コードで守る。印の無い NULL は公開しない)。
+    source_article_id: Mapped[int | None] = mapped_column(
+        ForeignKey("articles.id", ondelete="RESTRICT"), nullable=True
     )
     angle: Mapped[str] = mapped_column(String(32), nullable=False)
 

@@ -180,11 +180,17 @@ class ThreadsProposalStockService:
     # -- facts -------------------------------------------------------------------
     def facts(self, *, now: datetime) -> StockFacts:
         now = ensure_aware(now)
+        # T6.3.3: 記事から作る提案・公開だけ。Growth Post (記事なし) は足し分なので、記事の在庫・
+        # 計画 (切り口・リンクの割合・記事の間隔) に数えない。
         proposals = self._session.scalars(
-            select(ThreadsPostProposal).order_by(ThreadsPostProposal.id)
+            select(ThreadsPostProposal)
+            .where(ThreadsPostProposal.source_article_id.is_not(None))
+            .order_by(ThreadsPostProposal.id)
         ).all()
         publications = self._session.scalars(
-            select(ThreadsPublication).order_by(ThreadsPublication.id)
+            select(ThreadsPublication)
+            .where(ThreadsPublication.source_article_id.is_not(None))
+            .order_by(ThreadsPublication.id)
         ).all()
         published_ids = {p.proposal_id for p in publications if p.status == PUB_PUBLISHED}
         queue = ThreadsQueueService(
@@ -589,7 +595,11 @@ class ThreadsProposalStockService:
 
         rows = self._session.scalars(
             select(ThreadsPostProposal)
-            .where(ThreadsPostProposal.status.in_((TP_AWAITING_APPROVAL, TP_APPROVED)))
+            .where(
+                ThreadsPostProposal.status.in_((TP_AWAITING_APPROVAL, TP_APPROVED)),
+                # T6.3.3: 記事の投稿どうしだけで比べる (Growth Post は別に比べる)。
+                ThreadsPostProposal.source_article_id.is_not(None),
+            )
             .order_by(ThreadsPostProposal.created_at.desc(), ThreadsPostProposal.id.desc())
             .limit(RECENT_WINDOW)
         ).all()

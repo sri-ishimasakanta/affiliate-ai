@@ -96,6 +96,8 @@ class ThreadsLearningService:
             .where(
                 ThreadsPublication.status == PUB_PUBLISHED,
                 ThreadsPublication.threads_media_id.is_not(None),
+                # T6.3.3: 記事の投稿の学習に Growth Post (記事なし) を混ぜない。
+                ThreadsPublication.source_article_id.is_not(None),
             )
             .order_by(ThreadsPublication.id)
         ).all()

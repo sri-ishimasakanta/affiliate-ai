@@ -57,6 +57,13 @@ REASON_HELD = "held"
 REASON_NOT_BEFORE = "not_before"
 #: T4.2: expires_at を過ぎた。**消さない。** 理由を残して資格だけを失う。
 REASON_EXPIRED = "expired"
+#: T6.3.3: 今日 (JST) はもう Growth Post を公開した (1 日 1 本まで。取り戻さない)。
+REASON_GROWTH_DAILY_LIMIT = "growth_daily_limit"
+#: 投稿の種類 (T6.3.3)。queue は種類で順番を変えない (承認の順のまま)。
+KIND_ARTICLE = "article"
+KIND_ACCOUNT_GROWTH = "account_growth"
+#: Growth Post は JST の 1 日に多くても 1 本。
+GROWTH_POSTS_PER_JST_DAY = 1
 CANDIDATE_REASONS = (
     REASON_ELIGIBLE,
     REASON_NOT_APPROVED,
@@ -67,6 +74,7 @@ CANDIDATE_REASONS = (
     REASON_HELD,
     REASON_NOT_BEFORE,
     REASON_EXPIRED,
+    REASON_GROWTH_DAILY_LIMIT,
 )
 
 # -- global blockers (queue 全体を止める) ---------------------------------------
@@ -107,7 +115,7 @@ class CandidateFacts:
     proposal_id: int
     status: str
     angle: str
-    source_article_id: int
+    source_article_id: int | None
     link_mode: str
     approved_at: datetime | None
     stale_reasons: tuple[str, ...] = ()
@@ -118,6 +126,8 @@ class CandidateFacts:
     not_before: datetime | None = None
     expires_at: datetime | None = None
     preferred_at: datetime | None = None
+    #: T6.3.3: ``article`` か ``account_growth``。
+    content_kind: str = KIND_ARTICLE
 
 
 @dataclass(frozen=True)
@@ -128,7 +138,10 @@ class QueueFacts:
     last_published_at: datetime | None = None
     last_published_angle: str | None = None
     last_published_article_id: int | None = None
+    #: 今日 (JST) 公開した **記事の** 投稿の数 (3〜5 本の目安はこれだけで数える)。
     published_today: int = 0
+    #: T6.3.3: 今日 (JST) 公開した Growth Post の数 (目安には数えない)。
+    growth_published_today: int = 0
     uncertain_publication_ids: tuple[int, ...] = ()
     mature_post_count: int = 0
     minimum_mature_posts: int = 3
@@ -139,7 +152,7 @@ class CandidateVerdict:
     proposal_id: int
     reason: str
     angle: str
-    source_article_id: int
+    source_article_id: int | None
     approved_at: datetime | None
     details: tuple[str, ...] = ()
     #: 弱い信号。**候補から外す理由にはならない。** 並び順にだけ効く。
@@ -266,6 +279,15 @@ def _verdict(
     if not_before is not None and now < not_before:
         return CandidateVerdict(
             reason=REASON_NOT_BEFORE, details=(f"not before {not_before.isoformat()}",), **base
+        )
+    if (
+        facts.content_kind == KIND_ACCOUNT_GROWTH
+        and queue.growth_published_today >= GROWTH_POSTS_PER_JST_DAY
+    ):
+        return CandidateVerdict(
+            reason=REASON_GROWTH_DAILY_LIMIT,
+            details=(f"{queue.growth_published_today} growth post(s) already published today",),
+            **base,
         )
 
     approved_at = _aware(facts.approved_at)

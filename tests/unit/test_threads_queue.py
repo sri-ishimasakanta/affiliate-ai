@@ -153,6 +153,8 @@ def test_reason_vocabulary_is_small_and_fixed() -> None:
         "held",
         "not_before",
         "expired",
+        # T6.3.3: Growth Post は JST の 1 日に 1 本まで。
+        "growth_daily_limit",
     }
     assert len(GLOBAL_BLOCKERS) == 7
 

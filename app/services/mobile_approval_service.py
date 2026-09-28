@@ -227,7 +227,12 @@ class _ThreadsPostSubject:
         row = self._session.get(ThreadsPostProposal, subject_id)
         if row is None:
             raise MobileApprovalError(f"threads post proposal {subject_id} not found")
-        article = self._session.get(Article, row.source_article_id)
+        # T6.3.3: Growth Post には記事が無い (NULL で引かない)。
+        article = (
+            self._session.get(Article, row.source_article_id)
+            if row.source_article_id is not None
+            else None
+        )
         return row, article, None
 
     def snapshot(self, subject, article, target) -> dict:

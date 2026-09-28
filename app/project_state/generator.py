@@ -160,6 +160,7 @@ def build_report(ctx: StateContext) -> dict:
     database = local_state.collect_database(
         root, database_url=ctx.database_url, now=now, engine_factory=engine_factory
     )
+    quality = local_state.reconcile_alembic_check(quality, database)
     articles = _articles(ctx)
     live, error = _read_live(ctx)
     wordpress = wordpress_state.summarize_wordpress(live, articles=articles, now=now, error=error)
@@ -463,6 +464,17 @@ def _md_threads(threads: dict) -> list[str]:
         quality = generation.get("quality_policy") or {}
         audit = generation.get("audit") or {}
         topic = threads.get("topic") or {}
+        growth = threads.get("growth") or {}
+        gpol = growth.get("policy") or {}
+        growth_live = "maintain_growth_posts" in (start.get("capabilities") or [])
+        growth_line = (
+            f"{gpol.get('per_jst_day')}/JST day from {gpol.get('eligible_from_jst')} "
+            f"(supplemental; no catch-up; target {gpol.get('follower_target')} followers; human "
+            f"approval; no topic; no link); worker enabled {_fmt(growth_live)}; schema ready "
+            f"{_fmt(growth.get('schema_ready'))}; proposals {growth.get('proposals')}, published "
+            f"{growth.get('published')}; target reached "
+            f"{_fmt(growth.get('follower_target_reached'))}"
+        )
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
             f" — {perf['rerun_reason']}"
@@ -524,6 +536,7 @@ def _md_threads(threads: dict) -> list[str]:
             f"{topic.get('tagged_containers_accepted')} / rejected "
             f"{topic.get('tagged_containers_rejected')}; production acceptance "
             f"{topic.get('production_acceptance')}",
+            f"- growth posts: {growth_line}",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

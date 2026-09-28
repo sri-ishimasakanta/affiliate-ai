@@ -38,6 +38,7 @@ from app.operations.report_format import (
 from app.services.threads_approval_digest_service import _topic_text
 from app.services.threads_publication_service import ThreadsPublicationService
 from app.social.threads.client import ThreadsClient
+from app.social.threads.growth import profile_hash
 from app.social.threads.models import TEXT_MAX_LENGTH
 from app.social.threads.service import ThreadsService
 from app.social.threads.topic import (
@@ -140,8 +141,15 @@ def article(session) -> Article:
 def _proposal(session, article, *, text=_TEXT, link_mode="none", guidance=None, seed="a",
               policy_version="t2.1", angle="insight") -> ThreadsPostProposal:  # fmt: skip
     row = ThreadsPostProposal(
-        source_article_id=article.id,
-        source_article_body_hash=compute_text_hash(article.body),
+        # T6.3.3: Growth Post は記事を持たない (印と NULL の両方が要る)。
+        source_article_id=(
+            None if (guidance or {}).get("content_kind") == "account_growth" else article.id
+        ),
+        source_article_body_hash=(
+            profile_hash()
+            if (guidance or {}).get("content_kind") == "account_growth"
+            else compute_text_hash(article.body)
+        ),
         angle=angle,
         link_mode=link_mode,
         content_text=text,
@@ -211,6 +219,7 @@ def test_angle_link_mode_and_hook_never_change_the_topic(
 ) -> None:
     guidance = {"generation_brief": {"conversation_hook": hook}} if hook else None
     row = type("P", (), {"learning_guidance_json": guidance, "angle": angle,
+                         "source_article_id": 21,
                          "link_mode": link_mode})()  # fmt: skip
     assert topic_tag_for(content_kind(row)) == "AI Threads"
 

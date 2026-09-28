@@ -52,6 +52,7 @@ from app.social.threads.queue import MAX_PUBLICATIONS_PER_CYCLE
 from app.social.threads.schedule import daily_activity, publication_timing, window_is_open
 from app.social.threads.worker import (
     MODE_PLAN,
+    SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
     SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_HEALTH,
@@ -156,6 +157,9 @@ class ThreadsWorkerService:
         alert_notifiers=None,
         maintain_proposal_stock: bool = False,
         stock_provider=None,
+        maintain_growth_posts: bool = False,
+        growth_client=None,
+        growth_directory=None,
     ) -> None:
         self._factory = session_factory
         self._settings = settings
@@ -191,6 +195,10 @@ class ThreadsWorkerService:
         self._maintain_stock = maintain_proposal_stock
         self._stock_provider = stock_provider
         self._last_stock_run: datetime | None = None
+        #: T6.3.3: 毎日 1 本の Growth Post を用意するか。**既定は用意しない** (人が有効にする)。
+        self._maintain_growth = maintain_growth_posts
+        self._growth_client = growth_client
+        self._growth_directory = growth_directory
 
     @property
     def capabilities(self) -> dict:
@@ -199,6 +207,7 @@ class ThreadsWorkerService:
             "send_approval_digests": self._send_digests,
             "sync_approvals": self._sync_approvals,
             "maintain_proposal_stock": self._maintain_stock,
+            "maintain_growth_posts": self._maintain_growth,
             "auto_publish_flag": self._auto_publish,
             "auto_publish_policy": self._policy.automatic_publication_enabled,
             # 公開しうるのは、フラグとポリシーの両方がそろったときだけ。
@@ -241,6 +250,14 @@ class ThreadsWorkerService:
                 None if self._maintain_stock else "start with --maintain-proposal-stock"
             ),
         )
+        schedule.register(
+            SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
+            first_run_at=now if self._maintain_growth else None,
+            enabled=self._maintain_growth,
+            disabled_reason=(
+                None if self._maintain_growth else "start with --maintain-growth-posts"
+            ),
+        )
         flush = self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH)
         enabled = bool(flush.get("enabled", False))
         schedule.register(
@@ -260,6 +277,7 @@ class ThreadsWorkerService:
             SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: self._approval_notification_flush,
             SUBSYSTEM_APPROVAL_SYNC: self._approval_sync,
             SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE: self._proposal_stock_maintenance,
+            SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE: self._account_growth_maintenance,
         }
 
     @property
@@ -342,6 +360,57 @@ class ThreadsWorkerService:
         if self._last_stock_run is None:
             return now
         return max(now, self._last_stock_run + minimum)
+
+    def _account_growth_maintenance(self, now: datetime) -> SubsystemResult:
+        """今日の Growth Post を 1 本だけ用意する (T6.3.3)。**承認・却下・公開はしない。**
+
+        期限が来ていなければ何も呼ばない (OpenAI にも Threads にも)。1 時間ごとに状態を見るだけ。
+        フォロワー数を読む (読むだけ) のは ``--collect-insights`` のときだけで、生成の直前に 1 回。
+        """
+
+        from app.services.threads_growth_service import DEFAULT_DIRECTORY, ThreadsGrowthService
+        from app.services.threads_openai_provider import build_responses_client
+        from app.social.threads.growth import next_eligible_at
+
+        client = (
+            self._growth_client
+            if self._growth_client is not None
+            else build_responses_client(self._settings)
+        )
+        with self._factory() as session:
+            outcome = ThreadsGrowthService(
+                session,
+                timezone=self._tz,
+                client=client,
+                threads_service=self._threads,
+                directory=self._growth_directory or DEFAULT_DIRECTORY,
+                collect_followers=self._collect_insights,
+            ).maintain(now=now, execute=True)
+        interval = self._interval(SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE, 60)
+        created = outcome.get("created")
+        return SubsystemResult(
+            next_run_at=max(min(now + interval, next_eligible_at(now, self._tz)),
+                            now + _MIN_RESCHEDULE),  # fmt: skip
+            summary={
+                "date_jst": outcome.get("date_jst"),
+                "due": outcome.get("due"),
+                "active_proposal": outcome.get("active_proposal"),
+                "published_today": len(outcome.get("published_today") or []),
+                "created": created,
+                "model_calls": outcome.get("model_calls"),
+                "reason": outcome.get("reason"),
+                "follower_target": outcome.get("follower_target"),
+                "follower_target_reached": outcome.get("follower_target_reached"),
+                "followers_observed": (outcome.get("follower_observation") or {}).get(
+                    "followers_count"
+                ),
+            },
+            wake=(
+                {SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: now, SUBSYSTEM_QUEUE_OBSERVATION: now}
+                if created
+                else {}
+            ),
+        )
 
     def _proposal_stock_maintenance(self, now: datetime) -> SubsystemResult:
         """投稿案の在庫を 1 回保守する (T6)。**承認・却下・公開はしない。**
@@ -745,6 +814,7 @@ class ThreadsWorkerService:
             basis = queue.latest_gap_basis()
             counts = queue.counts()
             today = queue.published_today(now)
+            growth_today = queue.growth_published_today(now)
             latest_snapshot = None
             if latest is not None:
                 latest_snapshot = session.scalars(
@@ -846,7 +916,13 @@ class ThreadsWorkerService:
                 "minutes": self._policy.soft_min_gap_minutes,
                 **timing.as_dict(self._tz),
             },
+            # 3〜5 本の目安は記事の投稿だけで数える。Growth Post は足し分 (T6.3.3)。
             "daily_activity": daily_activity(today, self._policy),
+            "posts_today": {
+                "article_posts_today": today,
+                "growth_posts_today": growth_today,
+                "total_posts_today": today + growth_today,
+            },
             "proposals": counts,
             "queue": evaluation.as_dict(self._tz),
             "hard_blockers": list(evaluation.blockers),

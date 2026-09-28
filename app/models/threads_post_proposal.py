@@ -75,8 +75,10 @@ class ThreadsPostProposal(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    source_article_id: Mapped[int] = mapped_column(
-        ForeignKey("articles.id", ondelete="RESTRICT"), nullable=False
+    #: T6.3.3: アカウントを育てる投稿 (content_kind=account_growth) だけ NULL (記事から作らない)。
+    #: 記事から作る投稿は必ず持つ (コードで守る。印の無い NULL は公開しない)。
+    source_article_id: Mapped[int | None] = mapped_column(
+        ForeignKey("articles.id", ondelete="RESTRICT"), nullable=True
     )
     #: 生成時点の記事本文 hash。変わっていれば提案は陳腐化する。
     source_article_body_hash: Mapped[str] = mapped_column(String(64), nullable=False)

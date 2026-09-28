@@ -233,5 +233,6 @@ uv run python scripts/plan_threads_worker_schedule.py --profile observe
   トピック付きの作成の数 (受け入れ / 断り) と `production_acceptance` (`pending_canary` →
   受け入れの記録ができたら `observed`)。
 
-この後の予定: T6.3.3 (毎日 1 本のアカウントを育てる投稿、トピックなし)、T6.4 (日本語の承認・報告
-メール)、T6.5 (成績の分析)。
+この後の予定: T6.3.3 (毎日 1 本のアカウントを育てる投稿、トピックなし。実装済み・本番では未使用:
+`docs/operations/threads-growth-posts.md`)、T6.4 (日本語の承認・日次・週次の報告メール)、T6.5
+(成績の分析)。

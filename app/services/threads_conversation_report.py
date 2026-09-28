@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import ThreadsInsightSnapshot, ThreadsPostProposal, ThreadsPublication
 from app.social.threads.conversation import engagement_rates, hook_from_provenance
 from app.social.threads.quality import prose_length
+from app.social.threads.topic import is_account_growth
 
 
 def publication_rows(session: Session) -> list[dict]:
@@ -41,13 +42,18 @@ def publication_rows(session: Session) -> list[dict]:
         brief = (getattr(proposal, "learning_guidance_json", None) or {}).get(
             "generation_brief"
         ) or {}
+        growth = proposal is not None and is_account_growth(proposal)
         rows.append(
             {
                 "publication_id": pub.id,
                 "proposal_id": pub.proposal_id,
                 "status": pub.status,
-                "conversation_hook": hook_from_provenance(
-                    getattr(proposal, "learning_guidance_json", None)
+                # T6.3.3: Growth Post はきっかけの集計に混ぜない (別の行として数える)。
+                "content_kind": "account_growth" if growth else "article",
+                "conversation_hook": (
+                    "account_growth"
+                    if growth
+                    else hook_from_provenance(getattr(proposal, "learning_guidance_json", None))
                 ),
                 "angle": getattr(proposal, "angle", None) or pub.angle,
                 "link_mode": getattr(proposal, "link_mode", None),

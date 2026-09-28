@@ -59,6 +59,7 @@ from app.social.threads.proposal import (
     ThreadsProposalDraft,
     build_proposal,
 )
+from app.social.threads.topic import is_account_growth
 from app.social.threads.validators import (
     find_duplicates,
     normalized_identity,
@@ -401,6 +402,15 @@ class ThreadsProposalService:
         """記事が変わって、この提案の前提が崩れていないか。"""
 
         reasons: list[str] = []
+        if is_account_growth(proposal):
+            # T6.3.3: 記事の無い Growth Post。前提はアカウントの紹介だけ。
+            from app.social.threads.growth import profile_hash
+
+            if proposal.source_article_body_hash != profile_hash():
+                reasons.append("the account profile changed after the growth post was created")
+            return bool(reasons), reasons
+        if proposal.source_article_id is None:
+            return True, ["a proposal without a source article must be an account_growth post"]
         article = self._session.get(Article, proposal.source_article_id)
         if article is None:
             reasons.append("the source article no longer exists")

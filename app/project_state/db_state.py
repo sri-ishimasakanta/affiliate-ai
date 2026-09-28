@@ -23,6 +23,7 @@ from app.social.threads.queue import MAX_PUBLICATIONS_PER_CYCLE
 THREADS_POLICY = Path("app/config/threads_operations_policy.json")
 WORKER_LAUNCHER = Path("scripts/run_threads_worker_task.cmd")
 STOCK_STATUS = Path("data/threads-generation/status.json")
+GROWTH_DIRECTORY = Path("data/threads-growth")
 PERFORMANCE_REPORT = Path("reports/threads_performance_diagnostic_latest.json")
 STOCK_DOC = Path("docs/operations/threads-proposal-stock.md")
 RELAY_README = Path("wordpress/mu-plugins/bizfluxlab-approval-relay.README.md")
@@ -46,6 +47,11 @@ def readonly_engine(database_url: str):
 
 def _rows(conn, sql: str, **params) -> list[dict]:
     return [dict(r._mapping) for r in conn.execute(text(sql), params)]
+
+
+def _has_column(conn, table: str, column: str) -> bool:
+    rows = _rows(conn, f"select name from pragma_table_info('{table}')")
+    return any(r["name"] == column for r in rows)
 
 
 def _iso(value) -> str | None:
@@ -274,19 +280,106 @@ def topic_policy(conn) -> dict:
     }
 
 
+def growth_state(conn, root: Path) -> dict:
+    """T6.3.3 の Growth Post の方針と、提案・公開・フォロワーの観測 (読むだけ)。"""
+
+    from app.social.threads.growth import (
+        FOLLOWER_OBSERVATION_MAX_AGE,
+        GROWTH_ELIGIBLE_FROM,
+        GROWTH_FOLLOWER_TARGET,
+        GROWTH_POLICY_VERSION,
+        GROWTH_POST_TARGET_PER_JST_DAY,
+        GROWTH_POSTS_ENABLED,
+        FollowerObservation,
+        target_reached,
+    )
+
+    columns = _rows(
+        conn, "select name, \"notnull\" from pragma_table_info('threads_post_proposals')"
+    )
+    nullable = any(c["name"] == "source_article_id" and not c["notnull"] for c in columns)
+    proposals = (
+        _rows(conn, "select id, status, learning_guidance_json from threads_post_proposals "
+                    "where source_article_id is null")  # fmt: skip
+        if nullable
+        else []
+    )
+    by_status = Counter(p["status"] for p in proposals)
+    latest = None
+    for row in sorted(proposals, key=lambda r: r["id"], reverse=True)[:1]:
+        raw = row["learning_guidance_json"]
+        meta = (json.loads(raw) if isinstance(raw, str) else raw or {}).get("growth") or {}
+        latest = {"id": row["id"], "status": row["status"], "date_jst": meta.get("date_jst"),
+                  "angle": meta.get("angle")}  # fmt: skip
+    published = (
+        _rows(conn, "select count(*) as n from threads_publications "
+                    "where source_article_id is null and status = 'published'")[0]["n"]  # fmt: skip
+        if nullable
+        else 0
+    )
+
+    def _json(name):
+        path = root / GROWTH_DIRECTORY / name
+        try:
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        except ValueError:
+            return None
+
+    observation = FollowerObservation.from_dict(_json("followers.json"))
+    last = _json("status.json") or {}
+    return {
+        "policy": {
+            "version": GROWTH_POLICY_VERSION,
+            "enabled_by_policy": GROWTH_POSTS_ENABLED,
+            "per_jst_day": GROWTH_POST_TARGET_PER_JST_DAY,
+            "eligible_from_jst": GROWTH_ELIGIBLE_FROM.strftime("%H:%M"),
+            "supplemental_to_article_cadence": True,
+            "no_catch_up": True,
+            "follower_target": GROWTH_FOLLOWER_TARGET,
+            "manual_follow_back_by_user": True,
+            "human_approval": True,
+            "topic_tag": None,
+            "link_mode": "none",
+            "target_reached_pauses_for_human": True,
+            "follower_observation_max_age_hours": FOLLOWER_OBSERVATION_MAX_AGE.total_seconds()
+            / 3600,
+        },
+        "schema_ready": nullable,
+        "proposals": len(proposals),
+        "proposals_by_status": dict(sorted(by_status.items())),
+        "latest_proposal": latest,
+        "published": published,
+        "follower_observation": observation.as_dict() if observation else None,
+        "follower_target_reached": target_reached(observation, GROWTH_FOLLOWER_TARGET),
+        "last_maintenance": {k: last.get(k) for k in ("date_jst", "due", "reason", "created",
+                                                      "written_at")} if last else None,  # fmt: skip
+    }
+
+
 def conversation_state(conn) -> dict:
     """会話のきっかけ (T6.3) の方針と、提案のきっかけ別の数 (T6.3 より前は legacy)。"""
 
     from app.social.threads.conversation import BRIEF_VERSION, HOOKS, hook_from_provenance
 
     counts: Counter = Counter()
-    for row in _rows(conn, "select learning_guidance_json from threads_post_proposals"):
+    source = (
+        "source_article_id"
+        if _has_column(conn, "threads_post_proposals", "source_article_id")
+        else "1 as source_article_id"
+    )
+    for row in _rows(
+        conn, f"select {source}, learning_guidance_json from threads_post_proposals"
+    ):
         raw = row["learning_guidance_json"]
         if isinstance(raw, str):
             try:
                 raw = json.loads(raw)
             except ValueError:
                 raw = None
+        if row["source_article_id"] is None:
+            # T6.3.3: Growth Post はきっかけの集計に混ぜない (別の行)。
+            counts["account_growth"] += 1
+            continue
         counts[hook_from_provenance(raw if isinstance(raw, dict) else None)] += 1
     return {
         "conversation_style": "supported",
@@ -548,6 +641,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "audit": generation_audit(root),
         },
         "topic": topic_policy(conn),
+        "growth": growth_state(conn, root),
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,

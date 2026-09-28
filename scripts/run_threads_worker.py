@@ -85,6 +85,11 @@ def main(
         action="store_true",
         help="投稿案の在庫を低頻度で保守する (T6。awaiting_approval を用意するだけ)",
     )
+    parser.add_argument(
+        "--maintain-growth-posts",
+        action="store_true",
+        help="毎日 1 本の Growth Post を用意する (T6.3.3。awaiting_approval を用意するだけ)",
+    )
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
     args = parser.parse_args(argv)
 
@@ -96,6 +101,7 @@ def main(
         sync_approvals=args.sync_approvals,
         auto_publish=args.auto_publish,
         maintain_proposal_stock=args.maintain_proposal_stock,
+        maintain_growth_posts=args.maintain_growth_posts,
         **(overrides or {}),
     )
     now = datetime.now(UTC)
@@ -105,6 +111,7 @@ def main(
         or args.sync_approvals
         or args.auto_publish
         or args.maintain_proposal_stock
+        or args.maintain_growth_posts
     )
 
     if not args.resident:
@@ -203,7 +210,8 @@ def _print_status(status: dict, *, mode: str) -> None:
         f"capabilities          = collect_insights={caps['collect_insights']} "
         f"send_approval_digests={caps['send_approval_digests']} "
         f"sync_approvals={caps['sync_approvals']} "
-        f"maintain_proposal_stock={caps['maintain_proposal_stock']}"
+        f"maintain_proposal_stock={caps['maintain_proposal_stock']} "
+        f"maintain_growth_posts={caps['maintain_growth_posts']}"
     )
     print(
         f"automatic publication = flag={caps['auto_publish_flag']} "

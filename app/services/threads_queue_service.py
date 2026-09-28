@@ -38,9 +38,17 @@ from app.social.threads.policy import (
 from app.social.threads.policy import (
     get_operations_policy as get_threads_operations_policy,
 )
-from app.social.threads.queue import CandidateFacts, QueueEvaluation, QueueFacts, evaluate_queue
+from app.social.threads.queue import (
+    KIND_ACCOUNT_GROWTH,
+    KIND_ARTICLE,
+    CandidateFacts,
+    QueueEvaluation,
+    QueueFacts,
+    evaluate_queue,
+)
 from app.social.threads.schedule import local_day_bounds
 from app.social.threads.service import ThreadsConnectionStatus, ThreadsService
+from app.social.threads.topic import is_account_growth
 
 
 class ThreadsQueueService:
@@ -90,6 +98,7 @@ class ThreadsQueueService:
             last_published_angle=last.angle if last else None,
             last_published_article_id=last.source_article_id if last else None,
             published_today=self.published_today(now),
+            growth_published_today=self.growth_published_today(now),
             uncertain_publication_ids=tuple(self.uncertain_publication_ids()),
             mature_post_count=self.mature_post_count(now),
             minimum_mature_posts=self._measurement.minimum_mature_posts,
@@ -162,11 +171,26 @@ class ThreadsQueueService:
         )
 
     def published_today(self, now: datetime) -> int:
-        """運用タイムゾーンでの「今日」に公開した本数。"""
+        """運用タイムゾーンでの「今日」に公開した **記事の投稿の** 本数 (3〜5 本の目安)。
 
+        T6.3.3: Growth Post は足し分なので数えない (``growth_published_today``)。
+        """
+
+        return self._published_on_day(now, growth=False)
+
+    def growth_published_today(self, now: datetime) -> int:
+        """運用タイムゾーンでの「今日」に公開した Growth Post の本数 (T6.3.3)。"""
+
+        return self._published_on_day(now, growth=True)
+
+    def _published_on_day(self, now: datetime, *, growth: bool) -> int:
         start, end = local_day_bounds(now, self._tz)
+        column = ThreadsPublication.source_article_id
         rows = self._session.scalars(
-            select(ThreadsPublication).where(ThreadsPublication.status == PUB_PUBLISHED)
+            select(ThreadsPublication).where(
+                ThreadsPublication.status == PUB_PUBLISHED,
+                column.is_(None) if growth else column.is_not(None),
+            )
         ).all()
         bases = [self._publications.gap_basis(row) for row in rows]
         return sum(1 for basis in bases if basis is not None and start <= basis.at < end)
@@ -222,6 +246,9 @@ class ThreadsQueueService:
                     not_before=_aware_or_none(proposal.not_before),
                     expires_at=_aware_or_none(proposal.expires_at),
                     preferred_at=_aware_or_none(proposal.preferred_at),
+                    content_kind=(
+                        KIND_ACCOUNT_GROWTH if is_account_growth(proposal) else KIND_ARTICLE
+                    ),
                 )
             )
         return out

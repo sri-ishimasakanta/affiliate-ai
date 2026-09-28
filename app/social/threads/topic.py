@@ -42,19 +42,44 @@ class TopicPolicyError(ValueError):
     """種類またはトピックが方針に合わない。公開しない (fail closed)。"""
 
 
-def content_kind(proposal) -> str:
-    """提案の種類。明示された種類を読み、無ければ記事から作る通常の投稿。
-
-    今の提案はすべて記事から作る (``source_article_id`` は必須)。アカウントを育てる投稿は
-    T6.3.3 で ``content_kind="account_growth"`` を明示して作る。本文からは推測しない。
-    """
+def explicit_content_kind(proposal) -> str | None:
+    """提案に明示された種類 (無ければ ``None``)。本文からは推測しない。"""
 
     guidance = getattr(proposal, "learning_guidance_json", None)
-    explicit = guidance.get(CONTENT_KIND_KEY) if isinstance(guidance, Mapping) else None
-    kind = explicit if explicit is not None else CONTENT_KIND_ARTICLE
-    if kind not in TOPIC_BY_CONTENT_KIND:
-        raise TopicPolicyError(f"unknown Threads content kind {kind!r}")
-    return kind
+    return guidance.get(CONTENT_KIND_KEY) if isinstance(guidance, Mapping) else None
+
+
+def content_kind(proposal) -> str:
+    """提案の種類。**記事の有無と明示の印** だけで決める (T6.3.3)。
+
+    - 印なし + 記事あり → ``article`` (T6.3.3 より前の提案はすべてこれ)
+    - ``account_growth`` + 記事なし → ``account_growth`` (印は必須)
+    - 印なし + 記事なし・``account_growth`` + 記事あり・``article`` + 記事なし・未知の印
+      → 例外 (公開しない)
+    """
+
+    explicit = explicit_content_kind(proposal)
+    source = getattr(proposal, "source_article_id", None)
+    if explicit is not None and explicit not in TOPIC_BY_CONTENT_KIND:
+        raise TopicPolicyError(f"unknown Threads content kind {explicit!r}")
+    if explicit == CONTENT_KIND_ACCOUNT_GROWTH:
+        if source is not None:
+            raise TopicPolicyError("an account_growth post must not have a source article")
+        return CONTENT_KIND_ACCOUNT_GROWTH
+    if source is None:
+        raise TopicPolicyError(
+            "a proposal without a source article must declare content_kind=account_growth"
+        )
+    return CONTENT_KIND_ARTICLE
+
+
+def is_account_growth(proposal) -> bool:
+    """アカウントを育てる投稿か (例外を出さない判定。印と記事なしの両方が要る)。"""
+
+    return (
+        explicit_content_kind(proposal) == CONTENT_KIND_ACCOUNT_GROWTH
+        and getattr(proposal, "source_article_id", None) is None
+    )
 
 
 def topic_tag_for(kind: str) -> str | None:
@@ -93,6 +118,8 @@ __all__ = [
     "TOPIC_BY_CONTENT_KIND",
     "TopicPolicyError",
     "content_kind",
+    "explicit_content_kind",
+    "is_account_growth",
     "topic_label",
     "topic_tag_for",
     "validate_topic_tag",

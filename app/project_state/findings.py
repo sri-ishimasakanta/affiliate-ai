@@ -77,6 +77,22 @@ def build_warnings(state: Mapping) -> list[dict]:
                 action_required="review and commit or discard",
             )
         )
+    db = state.get("database") or {}
+    for item in db.get("pending_production_migrations") or []:
+        out.append(
+            warning(
+                f"db-production-migration-pending-{item['revision']}",
+                "medium",
+                "database",
+                f"production migration {item['revision']} is implemented but not applied: "
+                f"{item['note']}",
+                evidence="alembic_version (read-only) + PENDING_PRODUCTION_MIGRATIONS",
+                action_required=(
+                    "a human applies it at the production checkpoint (backup, "
+                    "`alembic upgrade head`, integrity checks); T7 never migrates"
+                ),
+            )
+        )
     quality = state.get("quality") or {}
     for name in ("ruff", "alembic_check", "git_diff_check", "pytest"):
         check = quality.get(name) or {}

@@ -576,23 +576,31 @@ def _call_totals(history: list[dict]) -> dict:
     }
 
 
-def build_openai_provider(settings, directory: Path) -> OpenAIGenerationProvider:
-    """設定から作る。鍵が無ければ misconfigured (manual の依頼として残す。呼ばない)。"""
+def build_responses_client(settings) -> OpenAIResponsesClient | None:
+    """設定から OpenAI の client を作る。鍵が無ければ ``None`` (呼ばない)。"""
 
-    model = getattr(settings, "threads_generation_model", None) or DEFAULT_MODEL
     key = getattr(settings, "openai_api_key", None)
     if not key:
-        return OpenAIGenerationProvider(
-            directory, client=None, model=model, misconfigured_reason="OPENAI_API_KEY is not set"
-        )
-    client = OpenAIResponsesClient(
+        return None
+    return OpenAIResponsesClient(
         api_key=key,
-        model=model,
+        model=getattr(settings, "threads_generation_model", None) or DEFAULT_MODEL,
         reasoning_effort=getattr(settings, "threads_generation_reasoning_effort", None)
         or DEFAULT_REASONING_EFFORT,
         base_url=getattr(settings, "openai_api_base_url", None) or DEFAULT_BASE_URL,
         timeout=float(getattr(settings, "threads_generation_timeout_seconds", 60) or 60),
     )
+
+
+def build_openai_provider(settings, directory: Path) -> OpenAIGenerationProvider:
+    """設定から作る。鍵が無ければ misconfigured (manual の依頼として残す。呼ばない)。"""
+
+    model = getattr(settings, "threads_generation_model", None) or DEFAULT_MODEL
+    client = build_responses_client(settings)
+    if client is None:
+        return OpenAIGenerationProvider(
+            directory, client=None, model=model, misconfigured_reason="OPENAI_API_KEY is not set"
+        )
     return OpenAIGenerationProvider(directory, client=client, model=model)
 
 
@@ -606,6 +614,7 @@ __all__ = [
     "OpenAIResponsesClient",
     "PROVIDER_OPENAI",
     "build_openai_provider",
+    "build_responses_client",
     "proposal_schema",
     "sanitize_usage",
 ]

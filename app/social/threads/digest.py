@@ -102,7 +102,7 @@ class DigestCandidate:
     """在庫にある 1 件の提案について、DB から集めた事実だけ。"""
 
     proposal_id: int
-    source_article_id: int
+    source_article_id: int | None
     article_title: str
     angle: str
     #: 依頼の価値が生まれた時刻 = 提案が在庫に入った時刻。
@@ -117,6 +117,9 @@ class DigestCandidate:
     integrity_reasons: tuple[str, ...] = ()
     #: いま有効な承認依頼 (pending のセッション) があるか。
     has_active_request: bool = False
+    #: T6.3.3: Growth Post か。記事の在庫の目安に数えず、在庫が多くても依頼を先延ばしにしない
+    #: (その日のうちに期限が来るため)。1 通の上限 (max_items) は同じ。
+    growth: bool = False
 
 
 @dataclass(frozen=True)
@@ -341,18 +344,30 @@ def plan_digest(
     )
 
     deferred: list[DigestItem] = []
-    limit = min(policy.digest_max_items, stock.room)
-    if ready and limit <= 0:
-        deferred = [DigestItem(c, DEFER_APPROVED_STOCK_SUFFICIENT) for c in ready]
-        chosen: list[DigestCandidate] = []
+    # T6.3.3: Growth Post は記事の在庫の目安と無関係 (足し分・その日限り)。先に枠を取る。
+    growth_ready = [c for c in ready if c.growth][: policy.digest_max_items]
+    growth_rest = [c for c in ready if c.growth and c not in growth_ready]
+    article_ready = [c for c in ready if not c.growth]
+    limit = min(policy.digest_max_items - len(growth_ready), stock.room)
+    if article_ready and limit <= 0:
+        deferred = [
+            DigestItem(
+                c,
+                DEFER_APPROVED_STOCK_SUFFICIENT if stock.room <= 0 else DEFER_OVER_DIGEST_LIMIT,
+            )
+            for c in article_ready
+        ]
+        chosen: list[DigestCandidate] = list(growth_ready)
     else:
-        chosen, rest = _select(ready, limit)
+        picked, rest = _select(article_ready, max(0, limit))
+        chosen = list(growth_ready) + picked
         reason = (
             DEFER_OVER_DIGEST_LIMIT
-            if limit == policy.digest_max_items
+            if limit == policy.digest_max_items - len(growth_ready)
             else DEFER_APPROVED_STOCK_SUFFICIENT
         )
         deferred = [DigestItem(c, reason) for c in rest]
+    deferred += [DigestItem(c, DEFER_OVER_DIGEST_LIMIT) for c in growth_rest]
     selected = tuple(DigestItem(c, "selected") for c in chosen)
 
     # -- いつ送るか ---------------------------------------------------------------

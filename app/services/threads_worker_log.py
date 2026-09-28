@@ -217,6 +217,25 @@ class WorkerLogFormatter:
         return fields, level
 
     @staticmethod
+    def _describe_account_growth_maintenance(summary: dict):
+        fields = {
+            "date": summary.get("date_jst"),
+            "due": summary.get("due"),
+            "active_proposal": summary.get("active_proposal"),
+            "published_today": summary.get("published_today"),
+            "created": summary.get("created"),
+            "model_calls": summary.get("model_calls"),
+            "target": summary.get("follower_target"),
+            "target_reached": summary.get("follower_target_reached"),
+        }
+        if summary.get("followers_observed") is not None:
+            fields["followers"] = summary.get("followers_observed")
+        if summary.get("reason"):
+            fields["reason"] = summary["reason"]
+        failed = bool(summary.get("model_calls")) and not summary.get("created")
+        return fields, ("WARN" if failed else "INFO")
+
+    @staticmethod
     def _describe_proposal_stock_maintenance(summary: dict):
         fields = {
             "needs_generation": summary.get("needs_generation"),

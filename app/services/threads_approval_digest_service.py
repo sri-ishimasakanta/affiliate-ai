@@ -57,9 +57,12 @@ from app.social.threads.proposal import canonical_identity
 from app.social.threads.topic import (
     TopicPolicyError,
     content_kind,
+    is_account_growth,
     topic_label,
     topic_tag_for,
 )
+
+GROWTH_POST_LABEL = "Growth Post"
 
 
 @dataclass
@@ -251,6 +254,7 @@ class ThreadsApprovalDigestService:
                     "topic": _topic_text(
                         self._session.get(ThreadsPostProposal, candidate.proposal_id)
                     ),
+                    **_kind_lines(self._session.get(ThreadsPostProposal, candidate.proposal_id)),
                     "review_url": issued.review_url,
                 }
             )
@@ -312,14 +316,21 @@ class ThreadsApprovalDigestService:
         ).all()
         out: list[DigestCandidate] = []
         for proposal in rows:
-            article = self._session.get(Article, proposal.source_article_id)
+            growth = is_account_growth(proposal)
+            article = (
+                self._session.get(Article, proposal.source_article_id)
+                if proposal.source_article_id is not None
+                else None
+            )
             _stale, stale_reasons = self._proposals.evaluate_staleness(proposal)
             assessment = self._publications.assess(proposal, article=article)
             out.append(
                 DigestCandidate(
                     proposal_id=proposal.id,
                     source_article_id=proposal.source_article_id,
-                    article_title=getattr(article, "title", "") or "",
+                    article_title=(
+                        GROWTH_POST_LABEL if growth else getattr(article, "title", "") or ""
+                    ),
                     angle=proposal.angle,
                     ready_at=ensure_aware(proposal.created_at),
                     identity=canonical_identity(proposal.content_text),
@@ -330,6 +341,7 @@ class ThreadsApprovalDigestService:
                     stale_reasons=tuple(stale_reasons),
                     integrity_reasons=assessment.integrity_reasons,
                     has_active_request=proposal.id in active,
+                    growth=growth,
                 )
             )
         return out
@@ -384,9 +396,14 @@ class ThreadsApprovalDigestService:
         return {canonical_identity(text) for text in (*rows, *published) if text}
 
     def _approved_unpublished(self) -> int:
+        """承認済みで未公開の **記事の** 提案の数 (在庫の目安。Growth Post は数えない)。"""
+
         published = set(self._session.scalars(select(ThreadsPublication.proposal_id)).all())
         rows = self._session.scalars(
-            select(ThreadsPostProposal.id).where(ThreadsPostProposal.status == TP_APPROVED)
+            select(ThreadsPostProposal.id).where(
+                ThreadsPostProposal.status == TP_APPROVED,
+                ThreadsPostProposal.source_article_id.is_not(None),
+            )
         ).all()
         return sum(1 for pid in rows if pid not in published)
 
@@ -411,6 +428,18 @@ def _preview(text: str, limit: int) -> str:
 
 
 __all__ = ["DigestOutcome", "ThreadsApprovalDigestService"]
+
+
+def _kind_lines(proposal) -> dict:
+    """承認のメールに出す投稿の種類と、Growth Post なら目標 (T6.3.3)。"""
+
+    if proposal is not None and is_account_growth(proposal):
+        from app.social.threads.growth import GROWTH_FOLLOWER_TARGET
+
+        meta = (proposal.learning_guidance_json or {}).get("growth") or {}
+        target = meta.get("follower_target", GROWTH_FOLLOWER_TARGET)
+        return {"kind": GROWTH_POST_LABEL, "goal": f"フォロワー{target}人"}
+    return {"kind": "記事の投稿"}
 
 
 def _topic_text(proposal) -> str:

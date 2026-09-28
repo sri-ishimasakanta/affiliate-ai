@@ -83,6 +83,18 @@ def _threads_post_snapshot(proposal, article) -> dict:
     ものを見せて、別の文章を公開することがあってはならない。
     """
 
+    from app.social.threads.topic import is_account_growth
+
+    if is_account_growth(proposal):
+        # T6.3.3: 記事の題の欄に種類と目標を出す (レビューページは表示する鍵を限っているので、
+        # 新しい鍵は使わない。日本語の画面の作り直しは T6.4)。
+        from app.social.threads.growth import GROWTH_FOLLOWER_TARGET
+
+        meta = (proposal.learning_guidance_json or {}).get("growth") or {}
+        target = meta.get("follower_target", GROWTH_FOLLOWER_TARGET)
+        title = f"投稿種別: Growth Post / 目標: フォロワー{target}人"
+    else:
+        title = getattr(article, "title", None)
     return {
         "subject_type": SUBJECT_THREADS_POST,
         "subject_id": proposal.id,
@@ -93,7 +105,7 @@ def _threads_post_snapshot(proposal, article) -> dict:
         "status": proposal.status,
         "angle": proposal.angle,
         "article_id": proposal.source_article_id,
-        "article_title": getattr(article, "title", None),
+        "article_title": title,
         "article_url": getattr(article, "published_url", None),
         "source_article_body_hash": proposal.source_article_body_hash,
         "source_article_body_hash_short": proposal.source_article_body_hash[:16],

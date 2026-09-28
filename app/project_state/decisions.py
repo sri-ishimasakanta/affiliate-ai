@@ -364,6 +364,26 @@ DECISIONS = (
         "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
     },
     {
+        "id": "threads-growth-posts-t633",
+        "area": "threads/generation",
+        "decision": (
+            "T6.3.3: 記事の投稿に足して、JST の 1 日に 1 本まで Growth Post を用意する "
+            "(取り戻さない・フォロワー 100 人が目標・人の承認・トピックなし・リンクなし)。"
+            "目標に届いたら止まり、次の目標は人が決める"
+        ),
+        "rationale": (
+            "人の決定。フォロー返しは人が手で行う。記事の本数・在庫・計画・公開の規則は変えない。"
+            "記事を持たない投稿のために source_article_id を NULL にできるようにした (migration)"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "# Threads の Growth Post (T6.3.3)",
+        "resulting_state": (
+            "実装済み。本番では未使用 (migration c4d2e8f1a9b3 は未適用、worker のフラグなし)。"
+            "T6.3.2 の本番の確認の後に、人が有効にする"
+        ),
+        "follow_up": "本番への展開: migration の適用 → T6.3.2 の確認 → フラグを足して再起動",
+    },
+    {
         "id": "note-channel-build-diary",
         "area": "note",
         "decision": (

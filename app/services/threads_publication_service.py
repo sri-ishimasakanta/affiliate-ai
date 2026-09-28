@@ -62,7 +62,15 @@ from app.social.threads.models import (
     TEXT_MAX_LENGTH,
 )
 from app.social.threads.service import ThreadsService
-from app.social.threads.topic import TopicPolicyError, content_kind, topic_tag_for
+from app.social.threads.topic import (
+    TopicPolicyError,
+    content_kind,
+    is_account_growth,
+    topic_tag_for,
+)
+
+#: 承認の画面や計画に出す、Growth Post の見出し (記事の題の代わり。T6.3.3)。
+GROWTH_POST_LABEL = "Growth Post"
 
 #: 間隔の上書きを行える唯一の主体。自動の公開には使わせない。
 GAP_OVERRIDE_SOURCE_HUMAN_CLI = "human-cli"
@@ -326,7 +334,7 @@ class ThreadsPublicationService:
         if trigger == PUB_TRIGGER_AUTOMATIC and gap_override is not None:
             raise ThreadsPublicationError("automatic publication can never override the gap")
         proposal = self._require_proposal(proposal_id)
-        article = self._session.get(Article, proposal.source_article_id)
+        article = _source_article(self._session, proposal)
         status = self._threads.describe()
         assessment = self.assess(proposal, article=article)
         stale, reasons = assessment.stale, list(assessment.stale_reasons)
@@ -334,7 +342,11 @@ class ThreadsPublicationService:
         plan = PublishPlan(
             proposal_id=proposal.id,
             source_article_id=proposal.source_article_id,
-            source_article_title=getattr(article, "title", "") or "",
+            source_article_title=(
+                GROWTH_POST_LABEL
+                if is_account_growth(proposal)
+                else getattr(article, "title", "") or ""
+            ),
             angle=proposal.angle,
             publish_text=proposal.content_text,
             character_count=proposal.character_count,
@@ -725,9 +737,14 @@ class ThreadsPublicationService:
         """提案の中身だけを判定する。**外部にも DB の書き込みにも触れない。**"""
 
         if article is None:
-            article = self._session.get(Article, proposal.source_article_id)
+            article = _source_article(self._session, proposal)
         _stale, stale_reasons = self._staleness(proposal, article)
         integrity: list[str] = []
+        if is_account_growth(proposal) and (
+            proposal.link_mode != "none" or proposal.destination_url
+        ):
+            # T6.3.3: Growth Post はリンクを持たない。
+            integrity.append("a growth post must have link_mode none and no destination URL")
         if proposal.character_count != len(proposal.content_text):
             integrity.append("the stored character count does not match the text")
         if not (0 < len(proposal.content_text) <= TEXT_MAX_LENGTH):
@@ -848,6 +865,13 @@ class ThreadsPublicationService:
 
     def _staleness(self, proposal: ThreadsPostProposal, article) -> tuple[bool, list[str]]:
         reasons: list[str] = []
+        if is_account_growth(proposal):
+            # 記事は無い。前提はアカウントの紹介 (事実の境界) だけ。期限は queue が見る。
+            from app.social.threads.growth import profile_hash
+
+            if proposal.source_article_body_hash != profile_hash():
+                reasons.append("the account profile changed after the growth post was created")
+            return bool(reasons), reasons
         if article is None:
             return True, ["the source article no longer exists"]
         if compute_text_hash(article.body or "") != proposal.source_article_body_hash:
@@ -908,6 +932,13 @@ class ThreadsPublicationService:
         if row is None:
             raise ThreadsPublicationError(f"threads post proposal {proposal_id} not found")
         return row
+
+
+def _source_article(session: Session, proposal) -> Article | None:
+    """提案の元の記事 (Growth Post には無い。NULL で引かない)。"""
+
+    source = getattr(proposal, "source_article_id", None)
+    return session.get(Article, source) if source is not None else None
 
 
 def _topic_may_be_rejected(exc: ThreadsError, topic_tag: str | None) -> bool:
