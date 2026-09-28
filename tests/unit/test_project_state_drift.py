@@ -128,8 +128,8 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
         "high",
     )
     assert facts["make_tracked_articles"]["value"] == [1, 10, 11]
-    assert facts["current_phase"]["value"] == "T6.3.3b"  # 本番の確認を待っているフェーズ
-    assert facts["next_phase"]["value"] == "T6.5"
+    assert facts["current_phase"]["value"] == "T6.5B"  # 手動の読むだけのパイロット待ち
+    assert facts["next_phase"]["value"] == "T6.5C"
     assert facts["last_completed_phase"]["value"] == "T6.4"
 
 
@@ -503,12 +503,13 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
 # == roadmap / decisions ============================================================
 def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
     roadmap = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    assert roadmap["declared_current_phase"] == "T6.3.3b"
-    assert roadmap["active"] == ["T6.3.3b"]  # Growth のトピックの本番の確認待ち
+    assert roadmap["declared_current_phase"] == "T6.5B"
+    # T6.3.3b は Growth のトピックの本番の確認待ち、T6.5A-B は手動のパイロット待ち。
+    assert roadmap["active"] == ["T6.3.3b", "T6.5A", "T6.5B"]
     assert {"T7A", "T7B", "T7", "N0", "T6.3.1", "T6.3.1a", "T6.3.2", "T6.3.3", "T6.4"} <= set(
         roadmap["completed"]
     )
-    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("T6.4", "T6.5")
+    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("T6.4", "T6.5C")
     assert roadmap["next_phase_prerequisites_unmet"] == []
     kinds = {p["id"]: p["evidence_kind"] for p in roadmap["phases"]}
     assert kinds["N0"] == "repository"  # docs/operations/note-channel.md
@@ -516,7 +517,10 @@ def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
         assert kinds[pid] == "declared_only", pid
     status = {p["id"]: p["status"] for p in roadmap["phases"]}
     assert status["N1"] == "planned"  # まだ始めていない
-    assert status["T6.5"] == "planned"
+    assert "T6.5" not in status  # T6.5A〜H に分けた
+    for pid in ("T6.5C", "T6.5D", "T6.5E", "T6.5F", "T6.5G", "T6.5H"):
+        assert status[pid] == "planned", pid
+        assert kinds[pid] == "repository", pid  # threads-trend-intelligence.md
     assert roadmap["problems"] == []
 
 

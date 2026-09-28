@@ -28,3 +28,9 @@ data/
 
 # Runtime diagnostic reports (live production data)
 reports/
+
+# T6.5B read-only Threads observer: browser profile (cookies / session) and screenshots.
+# Never commit these.
+data/threads-observer/
+artifacts/threads-observer/
+**/browser-profile/

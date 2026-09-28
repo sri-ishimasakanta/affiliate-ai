@@ -163,6 +163,11 @@ def test_all_tables_registered() -> None:
         "threads_insight_snapshots",
         "threads_approval_digests",
         "threads_queue_control_events",
+        # T6.5B: 外の観察 (自分の提案・公開の表とは別)。
+        "threads_observer_runs",
+        "threads_external_posts",
+        "threads_external_observations",
+        "threads_trending_topics",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

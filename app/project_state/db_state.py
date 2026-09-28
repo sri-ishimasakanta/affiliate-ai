@@ -295,6 +295,48 @@ def topic_policy(conn) -> dict:
     }
 
 
+OBSERVER_TABLES = ("threads_observer_runs", "threads_external_posts",
+                   "threads_external_observations", "threads_trending_topics")  # fmt: skip
+
+
+def observer_state(conn) -> dict:
+    """T6.5B の外の観察 (読むだけ)。表が無い DB (migration 2cfa0ccb2059 の前) では数えない。"""
+
+    from app.social.threads.observer import selectors as sel
+
+    names = {r["name"] for r in _rows(conn, "select name from sqlite_master where type='table'")}
+    present = all(t in names for t in OBSERVER_TABLES)
+    base = {
+        "schema_ready": present,
+        "read_only": True,
+        "social_actions": False,
+        "scheduled": False,
+        "fed_back_to_generation": False,
+        "collector_version": sel.COLLECTOR_VERSION,
+        "selector_version": sel.SELECTOR_VERSION,
+        "selector_verified": sel.SELECTOR_VERIFIED,
+        "limits": dict(sel.LIMITS),
+    }
+    if not present:
+        return base
+    runs = _rows(conn, "select status, count(*) as n from threads_observer_runs group by status")
+    last = _rows(conn, "select started_at, status from threads_observer_runs "
+                       "order by started_at desc, id desc limit 1")  # fmt: skip
+    counts = _rows(
+        conn,
+        "select (select count(*) from threads_external_posts) as posts, "
+        "(select count(*) from threads_external_observations) as observations, "
+        "(select count(*) from threads_trending_topics) as trending_topics",
+    )[0]
+    return {
+        **base,
+        "runs_by_status": {r["status"]: r["n"] for r in runs},
+        "last_run": {"started_at": str(last[0]["started_at"]), "status": last[0]["status"]}
+        if last else None,
+        **counts,
+    }  # fmt: skip
+
+
 def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
     """T6.3.3 の Growth Post の方針と、提案・公開・フォロワーの観測 (読むだけ)。"""
 
@@ -687,6 +729,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
         },
         "topic": topic_policy(conn),
         "growth": growth_state(conn, root, now=now),
+        "observer": observer_state(conn),
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,

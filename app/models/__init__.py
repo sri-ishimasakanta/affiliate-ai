@@ -219,6 +219,12 @@ from app.models.threads_insight_snapshot import (
     SNAPSHOT_OUTCOMES,
     ThreadsInsightSnapshot,
 )
+from app.models.threads_observer import (
+    ThreadsExternalObservation,
+    ThreadsExternalPost,
+    ThreadsObserverRun,
+    ThreadsTrendingTopic,
+)
 from app.models.threads_post_proposal import (
     TP_APPROVED,
     TP_AWAITING_APPROVAL,
@@ -286,6 +292,10 @@ __all__ = [
     "SNAPSHOT_OBSERVED",
     "SNAPSHOT_OUTCOMES",
     "ThreadsInsightSnapshot",
+    "ThreadsExternalObservation",
+    "ThreadsExternalPost",
+    "ThreadsObserverRun",
+    "ThreadsTrendingTopic",
     "DIGEST_FAILED",
     "DIGEST_OUTCOMES",
     "DIGEST_SENT",

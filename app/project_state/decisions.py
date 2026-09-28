@@ -398,6 +398,32 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-trend-intelligence-t65ab",
+        "area": "threads/analytics",
+        "decision": (
+            "T6.5A-B: 自分の投稿の特徴と、外の Threads の読むだけの観察の土台を作る。"
+            "Playwright を第一の候補にし、読むだけ・小さなパイロットから・社会的な操作なし・"
+            "自動の最適化なし"
+        ),
+        "rationale": (
+            "伸びている形を知るには観察が要るが、アカウントの操作や少ない数からの自動調整は"
+            "危ない。観察の表は自分の提案・公開の表と分け、生成には何も戻さない"
+        ),
+        "evidence": ["docs/operations/threads-trend-intelligence.md"],
+        "phrase": (
+            "**読むだけ。** いいね・返信・フォロー・再投稿・引用・DM・投稿・"
+            "アカウントの変更はしない"
+        ),
+        "resulting_state": (
+            "実装済み。migration 2cfa0ccb2059 は本番に未適用 (宣言あり)。"
+            "selectors は下書き (本物の画面で未確認)"
+        ),
+        "follow_up": (
+            "手動の読むだけのパイロット: 人が Playwright と Chromium の導入を許可 → 人がログイン → "
+            "保存なしの小さな観察で selectors を確かめる"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (

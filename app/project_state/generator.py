@@ -466,6 +466,7 @@ def _md_threads(threads: dict) -> list[str]:
         topic = threads.get("topic") or {}
         growth = threads.get("growth") or {}
         gpol = growth.get("policy") or {}
+        observer = threads.get("observer") or {}
         growth_live = "maintain_growth_posts" in (start.get("capabilities") or [])
         growth_flag = bool(worker.get("growth_maintenance_enabled"))
         growth_line = (
@@ -542,6 +543,12 @@ def _md_threads(threads: dict) -> list[str]:
             f"{topic.get('tagged_containers_rejected')}; production acceptance "
             f"{topic.get('production_acceptance')}",
             f"- growth posts: {growth_line}",
+            "- trend observer (T6.5B, read-only; no social actions; not scheduled; not fed "
+            f"back to generation): schema ready {_fmt(observer.get('schema_ready'))}; selector "
+            f"{observer.get('selector_version')} (verified "
+            f"{_fmt(observer.get('selector_verified'))}); runs "
+            f"{_fmt(observer.get('runs_by_status'))}; external posts "
+            f"{_fmt(observer.get('posts'))}, observations {_fmt(observer.get('observations'))}",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "
