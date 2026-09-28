@@ -75,9 +75,7 @@
 T6.1 の版 (`08d5ed12…`) で、表示されるページの script が一致する (読むだけで確認)。
 
 - 戻す用の写し: `D:\Backups\affiliate-ai\relay-pre-t6.4\lib-core.php` (`08d5ed12…`)
-elay-pre-t6.4\lib-core.php` (`08d5ed12…`)
 - 上げるファイル: `D:\Backups\affiliate-ai\relay-t6.4-upload\lib-core.php` (`3f0799dc…`、PHP の構文 ok)
-elay-t6.4-upload\lib-core.php` (`3f0799dc…`、PHP の構文 ok)
 - 置き場所: `wp-content/mu-plugins/bizfluxlab-approval-relay/lib-core.php` (この 1 つだけ。
   `bizfluxlab-approval-relay.php` は変わらない。`tests/` は上げない)
 - 上げた後の確認 (読むだけ): 任意の session id の `/bfl-approval/<32桁>` を取り、script が
