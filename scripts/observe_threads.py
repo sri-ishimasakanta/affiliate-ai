@@ -194,6 +194,11 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
     summary["stored"] = not args.dry_run
     accounting = result.accounting_summary()
     summary["candidate_accounting"] = {k: v for k, v in accounting.items() if k != "sources"}
+    summary["surfaces"] = [
+        {"source_type": s["source_type"], "surface_selector_version": s["surface_selector_version"],
+         "surface_verified": s["surface_verified"]}
+        for s in accounting["sources"]
+    ]  # fmt: skip
     if args.diagnose:
         summary["candidates"] = [
             {"source": src["source_type"], "seq": e["seq"], "frame": e["frame"],

@@ -319,13 +319,38 @@ PLAYWRIGHT_BROWSERS_PATH=D:/Projects/affiliate-ai/data/playwright-browsers
 投稿者・permalink・時刻・トピック・いいね・返信 (空は `None`) が画面と一致。再投稿の見出し
 つきの投稿も正しく読めた。**DB への書き込みは 0。**
 
+## 検索の画面の確認 (T6.5B、2026-09-28、dry-run だけ)
+
+`observe_threads.py --search "生成AI" --limit-total 5 --headed --screenshots --dry-run
+--show-posts --diagnose` (保存なし)。開いたのは `https://www.threads.com/search?q=生成AI&serp_type=default`
+(「上位検索結果」のタブ)。
+
+- 結果: `succeeded`、候補 8 = 受け入れ 5 + 上限で外した 3、勘定が合う。画面に写った投稿 8 件と
+  候補 8 件が同じ順で一致 (まとまりの外の投稿なし・入れ子なし・形の崩れなし)。
+- **投稿のまとまりの形は For You と同じ** (時刻のリンクの位置・指標のボタンの形・時刻 / 指標の
+  アイコン / ボタンの数の印が一致)。検索のための読み方の変更は不要だった。
+- 検索の画面の部品: 検索窓と「上位検索結果 / 最近 / プロフィール」のタブは、投稿のまとまりの
+  **外**。本文に入らない。検索語 (「生成AI」) は本文の中の普通の文字 (強調の印は無い) で、
+  そのまま残る。トピックの札 (例「› 生成AIパスポート」) は本文に入らない。
+- 画面と照らしたもの (受け入れた 5 件): 候補の順・投稿者・permalink・時刻 (表示の「○分 /
+  ○時間」と一致)・本文 (行の数まで)・分析用の本文 (5 件とも `text_clean`)・トピック・いいね・
+  返信 (空は `None`)。
+- 出てこなかったもの: 「meta.ai」の札、引用した投稿、投稿でない結果 (アカウントなど。既定の
+  タブでは無かった)。**確かめていない。**
+- 画面ごとの確認の状態は、全体の版とは別に記録する (`selectors.SURFACE_VERIFICATION`):
+  `search` = `threads-search-verified-2026-09-28-v1`。実行の候補の勘定にも、出どころごとの
+  `surface_selector_version` / `surface_verified` を残す。全体の `SELECTOR_VERSION` は
+  `threads-web-verified-2026-09-28-v2` のまま。
+- 残る限り: 確かめたのは 1 つの検索語・既定のタブ・スクロールなしの 1 画面だけ。「最近」
+  「プロフィール」のタブ、スクロールした後の結果、ほかの検索語、投稿でない結果の混ざる画面は
+  未確認。再投稿・共有・引用の数は読まない (変わらず)。
+
 ## 次の確認点: ほかの画面の dry-run (保存しない)
 
 それぞれ **dry-run だけ・5 件以下・画面と照らす** (`--show-posts --diagnose`)。確かめた画面ごとに
 selectors の確認の状態を記録してから、保存に使う。
 
-- A. 検索: `observe_threads.py --search "<語>" --limit-total 5 --headed --screenshots --dry-run
-  --show-posts --diagnose`。
+- A. 検索: 確認済み (上の「検索の画面の確認」)。保存つきで使うのは、人の許可のあと。
 - B. トレンドのトピック: まずトピックの一覧の画面だけを確かめる。そのあと 1 つのトピックから
   5 件以下。
 - C. カスタムフィード: `--custom-feed <id> --limit-total 5 ... --dry-run`。

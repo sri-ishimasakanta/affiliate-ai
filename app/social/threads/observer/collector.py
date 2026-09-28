@@ -200,9 +200,12 @@ class _Ledger:
         valid = all(e["outcome"] in OUTCOMES and e["reason"] in OUTCOME_BY_REASON
                     for e in self.entries.values())  # fmt: skip
         equality = len(self.entries) == sum(by_outcome.values())
+        surface = sel.surface_verification(self.source_type)
         return {
             "source_type": self.source_type,
             "source_query": self.query,
+            "surface_selector_version": surface["version"],
+            "surface_verified": surface["verified"],
             "candidate_cards": len(self.entries),
             "by_outcome": dict(sorted(by_outcome.items())),
             "by_reason": dict(sorted(by_reason.items())),

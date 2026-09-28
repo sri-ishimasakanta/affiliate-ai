@@ -32,9 +32,41 @@ VERIFIED_SURFACES = (
 #: いない (分析の層の決まった規則で除く: ``observer.normalize``)。
 UNVERIFIED_SURFACES = (
     "reposts", "shares", "quotes", "media_video", "has_link", "quoted_post_scoping",
-    "meta_ai_label_dom", "search_page", "trending_page", "topic_page", "custom_feed_page",
-    "account_page",
+    "meta_ai_label_dom", "trending_page", "topic_page", "custom_feed_page", "account_page",
 )  # fmt: skip
+
+#: 画面 (出どころ) ごとの確かめた状態。**全体の版とは別に記録する。** ここに無い出どころは
+#: 未確認 (``surface_verification`` が ``verified=False`` を返す)。
+SURFACE_VERIFICATION = {
+    "for_you": {
+        "version": "threads-web-verified-2026-09-28-v2",
+        "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
+                            "analysis_body", "topic", "likes", "replies", "media_image",
+                            "candidate_accounting"),
+        "evidence": "For You dry-runs 2026-09-28 (T6.5B.1), screenshots cross-checked",
+    },
+    #: 検索 (「上位検索結果」の画面、既定の ``serp_type=default``)。投稿のまとまりの形は
+    #: For You と同じ (時刻のリンクの位置・指標のボタンの形・印が一致)。タブ・検索窓は
+    #: まとまりの外。検索語は本文の中の普通の文字 (強調の印は無い)。
+    "search": {
+        "version": "threads-search-verified-2026-09-28-v1",
+        "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
+                            "analysis_body", "topic", "likes", "replies", "candidate_accounting",
+                            "search_tabs_outside_cards", "query_text_not_highlighted"),
+        "evidence": "Search dry-run 2026-09-28 (query 生成AI, 上位検索結果), screenshots and "
+                    "a structure probe cross-checked",
+    },
+}  # fmt: skip
+
+
+def surface_verification(source_type: str) -> dict:
+    """出どころの確かめた状態 (``version`` / ``verified`` / ``verified_fields``)。"""
+
+    entry = SURFACE_VERIFICATION.get(source_type)
+    if entry is None:
+        return {"version": None, "verified": False, "verified_fields": ()}
+    return {"version": entry["version"], "verified": True,
+            "verified_fields": entry["verified_fields"]}  # fmt: skip
 
 BASE_URL = "https://www.threads.com"
 ALLOWED_HOSTS = ("www.threads.com", "threads.com", "www.threads.net", "threads.net")
@@ -106,6 +138,7 @@ def account_url(handle: str) -> str:
 
 __all__ = [
     "ALLOWED_HOSTS", "COLLECTOR_VERSION", "LIMITS", "METRIC_LABELS", "RENDER_WAIT_MS",
+    "SURFACE_VERIFICATION", "surface_verification",
     "SELECTOR_VERIFIED", "UNVERIFIED_METRIC_LABELS", "UNVERIFIED_SURFACES", "VERIFIED_METRICS",
     "VERIFIED_SURFACES",
     "SELECTOR_VERSION", "account_url", "custom_feed_url", "for_you_url", "search_url",
