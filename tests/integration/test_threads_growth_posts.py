@@ -213,7 +213,8 @@ def test_account_growth_requires_a_null_source_article() -> None:
     growth = {"content_kind": "account_growth"}
     ok = type("P", (), {"learning_guidance_json": growth, "source_article_id": None})()
     bad = type("P", (), {"learning_guidance_json": growth, "source_article_id": 21})()
-    assert content_kind(ok) == "account_growth" and topic_tag_for("account_growth") is None
+    assert content_kind(ok) == "account_growth"
+    assert topic_tag_for("account_growth") == "インサイト祭り"
     with pytest.raises(TopicPolicyError, match="must not have a source article"):
         content_kind(bad)
 
@@ -259,7 +260,8 @@ def test_case_a_one_growth_post_is_prepared_for_the_day(session, tmp_path) -> No
     assert row.source_article_id is None and row.link_mode == "none"
     assert row.destination_url is None and row.content_text == BODY_A
     assert row.angle == "account_growth"
-    assert content_kind(row) == "account_growth" and topic_tag_for(content_kind(row)) is None
+    assert content_kind(row) == "account_growth"
+    assert topic_tag_for(content_kind(row)) == "インサイト祭り"  # T6.3.3b (公開のときに付ける)
     meta = row.learning_guidance_json["growth"]
     assert meta["date_jst"] == "2026-09-28" and meta["follower_target"] == 100
     assert meta["follower_observation"] is None and meta["uses_follower_count"] is False
@@ -524,7 +526,7 @@ def test_angles_rotate_deterministically_without_adjacent_repeats() -> None:
 # --- approval / publication -------------------------------------------------------------------
 
 
-def test_a_growth_post_needs_human_approval_and_publishes_without_topic(
+def test_a_growth_post_needs_human_approval_and_publishes_with_the_growth_topic(
     session, tmp_path
 ) -> None:
     out = _growth(session, tmp_path).maintain(now=MORNING, execute=True)
@@ -538,9 +540,9 @@ def test_a_growth_post_needs_human_approval_and_publishes_without_topic(
     session.commit()
     plan = service.plan(proposal_id=row.id, now=MORNING + timedelta(hours=1))
     assert plan.ok, plan.blocked_reasons
-    assert plan.content_kind == "account_growth" and plan.topic_tag is None
+    assert plan.content_kind == "account_growth" and plan.topic_tag == "インサイト祭り"
     assert plan.source_article_title == "Growth Post" and plan.destination_url is None
-    assert "no topic_tag" in plan.would_call[0]
+    assert "topic_tag='インサイト祭り'" in plan.would_call[0]
 
 
 def test_the_approval_snapshot_and_email_show_the_growth_post(session, tmp_path) -> None:
@@ -553,14 +555,14 @@ def test_the_approval_snapshot_and_email_show_the_growth_post(session, tmp_path)
     snap = build_snapshot(subject_type="threads_post", subject=row, article=None)
     assert snap["article_title"] == "投稿種別: Growth Post / 目標: フォロワー100人"
     assert snap["publish_text"] == row.content_text and snap["link_mode"] == "なし"
-    assert snap["link_mode_raw"] == "none" and snap["topic_label"] == "なし"
+    assert snap["link_mode_raw"] == "none" and snap["topic_label"] == "インサイト祭り"
     assert snap["post_kind_label"] == "Growth Post" and snap["goal_label"] == "フォロワー100人"
     item = {"proposal_id": row.id, "article_title": "Growth Post", "angle": row.angle,
             "preview": "…", "timing": None, "topic": _topic_text(row), **_kind_lines(row),
             "review_url": "https://x/r"}  # fmt: skip
     text = render_approval_digest_text(items=[item], expires_at_local="-")
     assert "投稿種別: Growth Post" in text and "目標: フォロワー100人" in text
-    assert "トピック: なし" in text
+    assert "トピック: インサイト祭り" in text
 
 
 def test_the_digest_does_not_defer_a_growth_post_for_article_stock() -> None:

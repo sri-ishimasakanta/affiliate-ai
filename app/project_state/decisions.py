@@ -364,6 +364,26 @@ DECISIONS = (
         "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
     },
     {
+        "id": "threads-growth-topic-t633b",
+        "area": "threads/publication",
+        "decision": (
+            "T6.3.3b: 次の Growth Post から topic_tag \"インサイト祭り\" を付ける。"
+            "記事は \"AI Threads\" のまま。前へ進むだけ (#25 は変えない)。"
+            "断られたら Growth の枠だけを止める"
+        ),
+        "rationale": (
+            "人の決定。トピックは本文ではなくメタデータなので、本文・hash・文字数は変わらない"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "## Growth Post のトピック (T6.3.3b)",
+        "resulting_state": (
+            "実装済み。本番の Growth のトピックの受け入れは本番の確認点 (pending_canary)"
+        ),
+        "follow_up": (
+            "本番の確認: worker の再起動の後の、次の自然な Growth Post で受け入れを確かめる"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (

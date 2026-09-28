@@ -219,13 +219,15 @@ def test_case_a_growth_publishes_with_the_article_and_the_gap_is_unchanged(
     assert g.growth_trigger == "article_companion"
     assert g.paired_article_publication_id == a.publication_id
     creates = api.creates()
-    assert creates[0]["topic_tag"] == "AI Threads" and "topic_tag" not in creates[1]
+    # T6.3.3b: 記事は AI Threads、Growth は インサイト祭り。
+    assert creates[0]["topic_tag"] == "AI Threads" and creates[1]["topic_tag"] == "インサイト祭り"
     assert creates[1]["text"] == GROWTH_TEXT and "http" not in creates[1]["text"]
     step = _attempts(session, g.publication_id)[0]
     assert step.detail_json["lane"] == "account_growth"
     assert step.detail_json["growth_trigger"] == "article_companion"
     assert step.detail_json["paired_article_publication_id"] == a.publication_id
-    assert step.detail_json["topic_tag"] is None
+    assert step.detail_json["topic_tag"] == "インサイト祭り"
+    assert step.detail_json["topic_tag_sent"] is True
     assert step.detail_json["article_gap_applies"] is False
     # 記事の次の枠は、記事の公開 (13:00) から 120 分のまま。Growth は起点にならない。
     queue = _queue(session, api)

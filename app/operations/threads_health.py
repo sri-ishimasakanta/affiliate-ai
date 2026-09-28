@@ -239,7 +239,7 @@ def build_autopublish_failure_draft(error: dict | None, *, growth: bool = False,
     reason = str(error.get("reason") or "")
     status = error.get("status")
     topic_rejected = (
-        not growth and category == "threads_response" and isinstance(status, int)
+        category == "threads_response" and isinstance(status, int)
         and 400 <= status < 500 and "topic" in reason.lower()
     )  # fmt: skip
     explanation = explain_publication_failure(

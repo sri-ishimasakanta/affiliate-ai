@@ -204,7 +204,8 @@ uv run python scripts/plan_threads_worker_schedule.py --profile observe
   最初の通常の投稿が確かめる)。
 - **決め方は決定的**: `app/social/threads/topic.py` の `THREADS_NORMAL_TOPIC_TAG` (版管理された
   定数。`.env` ではない)。投稿の種類 (`content_kind`) だけで決まる: `article` → "AI Threads"、
-  `account_growth` → なし。Luna・きっかけ・切り口・記事のカテゴリ・link_mode では変わらない。
+  `account_growth` → なし (T6.3.3b で "インサイト祭り" に変更、`threads-growth-posts.md`)。
+  Luna・きっかけ・切り口・記事のカテゴリ・link_mode では変わらない。
   未知の種類・方針に合わないトピックは公開しない。
 - **種類の見分け方 (migration なし)**: 今の提案はすべて記事から作る (`source_article_id` は必須)
   ので、印の無い提案は `article`。T6.3.3 の投稿は `learning_guidance_json.content_kind =

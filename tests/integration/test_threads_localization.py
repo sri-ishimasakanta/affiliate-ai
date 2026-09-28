@@ -224,7 +224,7 @@ def test_case_b_growth_review_snapshot(session) -> None:
     row = _growth_proposal(session)
     snap = build_snapshot(subject_type="threads_post", subject=row, article=None)
     assert snap["post_kind_label"] == "Growth Post" and snap["goal_label"] == "フォロワー100人"
-    assert snap["topic_label"] == "なし" and snap["link_mode"] == "なし"
+    assert snap["topic_label"] == "インサイト祭り" and snap["link_mode"] == "なし"
     assert snap["source_article_label"] == "なし（Growth Post）"
     assert snap["angle"] == "アカウント紹介" and snap["publish_text"] == GROWTH_TEXT
 
@@ -244,7 +244,7 @@ def test_the_approval_digest_is_japanese(session, article) -> None:
                      "切り口: よくある間違い（common_mistake）", "会話フック: 経験（experience）",
                      "リンク: なし", "トピック: AI Threads", "文字数: ", "本文:", "注意:",
                      "⚠ 長い文があります", "投稿種別: Growth Post", "目標: フォロワー100人",
-                     "トピック: なし", "元記事: なし（Growth Post）",
+                     "トピック: インサイト祭り", "元記事: なし（Growth Post）",
                      "切り口: アカウント紹介"):  # fmt: skip
         assert fragment in text, fragment
     assert ARTICLE_TEXT in text.replace("      ", "") and "exceed 60" not in text

@@ -471,7 +471,8 @@ def _md_threads(threads: dict) -> list[str]:
         growth_line = (
             f"{gpol.get('per_jst_day')}/JST day from {gpol.get('eligible_from_jst')} "
             f"(supplemental; no catch-up; target {gpol.get('follower_target')} followers; human "
-            f"approval; no topic; no link); launcher flag {_fmt(growth_flag)}; worker enabled "
+            f"approval; topic {_fmt(gpol.get('topic_tag'))}; no link); launcher flag "
+            f"{_fmt(growth_flag)}; worker enabled "
             f"{_fmt(growth_live)}; schema ready "
             f"{_fmt(growth.get('schema_ready'))}; proposals {growth.get('proposals')}, published "
             f"{growth.get('published')}; target reached "
@@ -533,8 +534,9 @@ def _md_threads(threads: dict) -> list[str]:
             f"{audit.get('legacy_records_without_call_history')}); production overlap block "
             f"observed {_fmt(audit.get('production_overlap_block_observed'))}",
             f"- topic: {_fmt(topic.get('normal_topic_tag'))} for "
-            f"{topic.get('normal_content_kind')} posts (growth excluded "
-            f"{_fmt(topic.get('growth_post_excluded'))}; fail closed "
+            f"{topic.get('normal_content_kind')} posts, {_fmt(topic.get('growth_topic_tag'))} "
+            f"for growth posts (growth acceptance "
+            f"{topic.get('growth_topic_production_acceptance')}; fail closed "
             f"{_fmt(topic.get('fail_closed'))}); tagged containers accepted "
             f"{topic.get('tagged_containers_accepted')} / rejected "
             f"{topic.get('tagged_containers_rejected')}; production acceptance "

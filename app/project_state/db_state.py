@@ -251,6 +251,8 @@ def topic_policy(conn) -> dict:
     )
 
     counts: Counter = Counter()
+    growth_counts: Counter = Counter()
+    growth_tag = TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH]
     for row in _rows(
         conn,
         "select outcome, detail_json from threads_publication_attempts "
@@ -262,15 +264,23 @@ def topic_policy(conn) -> dict:
                 raw = json.loads(raw)
             except ValueError:
                 raw = None
-        if isinstance(raw, dict) and raw.get("topic_tag_sent"):
+        if not (isinstance(raw, dict) and raw.get("topic_tag_sent")):
+            continue
+        if raw.get("content_kind") == CONTENT_KIND_ACCOUNT_GROWTH:
+            # T6.3.3b: Growth のトピックの受け入れは別に数える (今の値で送ったものだけ)。
+            if raw.get("topic_tag") == growth_tag:
+                growth_counts[row["outcome"]] += 1
+        else:
             counts[row["outcome"]] += 1
     accepted = counts.get("succeeded", 0)
+    growth_accepted = growth_counts.get("succeeded", 0)
     return {
         "enabled": True,
         "normal_topic_tag": THREADS_NORMAL_TOPIC_TAG,
         "by_content_kind": dict(TOPIC_BY_CONTENT_KIND),
         "normal_content_kind": CONTENT_KIND_ARTICLE,
-        "growth_post_excluded": TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH] is None,
+        # T6.3.3b: Growth Post にも固定のトピック (インサイト祭り)。
+        "growth_topic_tag": TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH],
         "selection": "deterministic by content kind (not Luna, hook, angle, category, link)",
         "api_field": "topic_tag (POST /{threads-user-id}/threads)",
         "fail_closed": True,
@@ -279,6 +289,9 @@ def topic_policy(conn) -> dict:
         "tagged_containers_accepted": accepted,
         "tagged_containers_rejected": counts.get("failed", 0),
         "production_acceptance": "observed" if accepted else "pending_canary",
+        "growth_tagged_containers_accepted": growth_accepted,
+        "growth_tagged_containers_rejected": growth_counts.get("failed", 0),
+        "growth_topic_production_acceptance": "observed" if growth_accepted else "pending_canary",
     }
 
 
@@ -295,6 +308,7 @@ def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
         FollowerObservation,
         target_reached,
     )
+    from app.social.threads.topic import CONTENT_KIND_ACCOUNT_GROWTH, TOPIC_BY_CONTENT_KIND
 
     columns = _rows(
         conn, "select name, \"notnull\" from pragma_table_info('threads_post_proposals')"
@@ -361,7 +375,7 @@ def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
             "follower_target": GROWTH_FOLLOWER_TARGET,
             "manual_follow_back_by_user": True,
             "human_approval": True,
-            "topic_tag": None,
+            "topic_tag": TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH],
             "link_mode": "none",
             "target_reached_pauses_for_human": True,
             # T6.3.3a: 足し分の公開の枠 (記事の 120 分の間隔と 1 回 1 本の枠を使わない)。

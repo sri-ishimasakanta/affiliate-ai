@@ -193,7 +193,8 @@ def _no_secret(session, *objects) -> None:
 def test_the_fixed_topic_is_ai_threads_and_is_valid() -> None:
     assert THREADS_NORMAL_TOPIC_TAG == "AI Threads"
     assert topic_tag_for(CONTENT_KIND_ARTICLE) == "AI Threads"
-    assert topic_tag_for(CONTENT_KIND_ACCOUNT_GROWTH) is None
+    assert topic_tag_for(CONTENT_KIND_ACCOUNT_GROWTH) == "インサイト祭り"  # T6.3.3b
+    assert validate_topic_tag("インサイト祭り") == "インサイト祭り"
     assert set(CONTENT_KINDS) == {CONTENT_KIND_ARTICLE, CONTENT_KIND_ACCOUNT_GROWTH}
     assert validate_topic_tag("AI Threads") == "AI Threads"
 
@@ -266,17 +267,20 @@ def test_case_a_normal_post_sends_the_topic_and_records_it(session, article) -> 
     assert all(r["form"].get("access_token") == "***" for r in meta.sanitized() if r["form"])
 
 
-def test_case_b_account_growth_sends_no_topic(session, article) -> None:
+def test_case_b_account_growth_sends_the_growth_topic(session, article) -> None:
     proposal = _proposal(session, article, guidance={
         "content_kind": "account_growth", "growth": {"date_jst": "2026-09-28"}})  # fmt: skip
     meta = FakeMeta()
     out = _publisher(session, meta).publish(proposal_id=proposal.id, execute=True, now=_NOW)
     assert out.outcome == "published"
     (create,) = meta.creates()
-    assert "topic_tag" not in create  # 送らない (空の値も送らない)
+    assert create["topic_tag"] == "インサイト祭り"  # T6.3.3b: Growth のトピック
+    assert create["text"] == _TEXT and "#" not in create["text"]
+    assert "インサイト祭り" not in create["text"]  # トピックは本文に足さない
     step = _attempts(session, out.publication_id)[0]
     assert step.detail_json["content_kind"] == "account_growth"
-    assert step.detail_json["topic_tag"] is None and step.detail_json["topic_tag_sent"] is False
+    assert step.detail_json["topic_tag"] == "インサイト祭り"
+    assert step.detail_json["topic_tag_sent"] is True
 
 
 def test_case_c_topic_rejection_never_falls_back_to_an_untagged_post(session, article) -> None:
@@ -389,7 +393,7 @@ def test_an_unknown_content_kind_is_never_published(session, article) -> None:
 def test_the_digest_email_shows_the_topic(session, article) -> None:
     normal = _proposal(session, article)
     growth = _proposal(session, article, seed="c", guidance={"content_kind": "account_growth"})
-    assert _topic_text(normal) == "AI Threads" and _topic_text(growth) == "なし"
+    assert _topic_text(normal) == "AI Threads" and _topic_text(growth) == "インサイト祭り"
     item = {"proposal_id": 1, "article_title": "記事", "angle": "insight", "preview": "本文",
             "timing": None, "topic": _topic_text(normal), "review_url": "https://x/r"}  # fmt: skip
     assert "トピック: AI Threads" in render_approval_digest_text(items=[item], expires_at_local="-")
@@ -407,7 +411,9 @@ def test_project_state_reports_pending_until_a_tagged_container_is_accepted(
     from app.project_state.db_state import topic_policy
 
     state = topic_policy(session.connection())
-    assert state["normal_topic_tag"] == "AI Threads" and state["growth_post_excluded"] is True
+    assert state["normal_topic_tag"] == "AI Threads"
+    assert state["growth_topic_tag"] == "インサイト祭り"
+    assert state["growth_topic_production_acceptance"] == "pending_canary"
     assert state["fail_closed"] is True and state["alters_body_hash_or_character_count"] is False
     assert state["production_acceptance"] == "pending_canary"
     rejected = _proposal(session, article, seed="k")

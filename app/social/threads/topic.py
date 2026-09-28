@@ -1,7 +1,9 @@
 """Threads のトピック (T6.3.2)。投稿の種類だけで決まる、決定的な方針。
 
 - 記事から作る通常の投稿 (``article``): いつも ``THREADS_NORMAL_TOPIC_TAG`` ("AI Threads")
-- 将来のアカウントを育てる投稿 (``account_growth``、T6.3.3): トピックなし
+- アカウントを育てる投稿 (``account_growth``、T6.3.3): T6.3.3b からいつも
+  ``THREADS_GROWTH_TOPIC_TAG`` ("インサイト祭り")。公開のときに付ける (前へ進むだけ: 公開済みの
+  投稿は変えない)
 
 トピックは Threads API の ``topic_tag`` (コンテナ作成の引数) で渡す **メタデータ** であり、
 本文には足さない。本文・提案の hash・500 字の数え方は変わらない。Luna・きっかけ・切り口・
@@ -17,6 +19,8 @@ from collections.abc import Mapping
 
 #: 通常の投稿 (記事から作る投稿) に必ず付けるトピック。人が決めた固定の値 (秘密ではない)。
 THREADS_NORMAL_TOPIC_TAG = "AI Threads"
+#: T6.3.3b: Growth Post に必ず付けるトピック (人が決めた固定の値)。
+THREADS_GROWTH_TOPIC_TAG = "インサイト祭り"
 
 CONTENT_KIND_ARTICLE = "article"
 CONTENT_KIND_ACCOUNT_GROWTH = "account_growth"
@@ -24,7 +28,7 @@ CONTENT_KIND_ACCOUNT_GROWTH = "account_growth"
 #: 投稿の種類 → トピック。種類をここに足さない限り、公開は止まる (未知の種類は通さない)。
 TOPIC_BY_CONTENT_KIND: Mapping[str, str | None] = {
     CONTENT_KIND_ARTICLE: THREADS_NORMAL_TOPIC_TAG,
-    CONTENT_KIND_ACCOUNT_GROWTH: None,
+    CONTENT_KIND_ACCOUNT_GROWTH: THREADS_GROWTH_TOPIC_TAG,
 }
 CONTENT_KINDS = tuple(TOPIC_BY_CONTENT_KIND)
 
@@ -114,6 +118,7 @@ __all__ = [
     "CONTENT_KIND_ARTICLE",
     "CONTENT_KIND_KEY",
     "NO_TOPIC_LABEL",
+    "THREADS_GROWTH_TOPIC_TAG",
     "THREADS_NORMAL_TOPIC_TAG",
     "TOPIC_BY_CONTENT_KIND",
     "TopicPolicyError",

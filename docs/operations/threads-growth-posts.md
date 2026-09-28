@@ -16,7 +16,8 @@
    つながりのお願い / こちらからもフォローを返すこと。
 4. 最初の目標は **フォロワー 100 人**。
 5. 実際のフォロー返しは **人が手で行う** (このシステムはフォローしない。文章を作るだけ)。
-6. トピック "AI Threads" は付けない (`topic_tag` を送らない)。
+6. トピック "AI Threads" は付けない。(T6.3.3b で変更: 次の Growth Post から、トピック
+   "インサイト祭り" を付ける。下の記録)
 7. 記事の URL は付けない (`link_mode=none`)。
 8. 公開の前に **人の承認** が要る (通常の投稿と同じ)。
 9. 1 日を逃しても、次の日にまとめて出さない (取り戻さない)。
@@ -31,7 +32,7 @@
 | 目標 | `GROWTH_FOLLOWER_TARGET = 100` (人が決めた。自動で変えない) |
 | 長さ | 本文 120〜280 字くらい (80〜320 字を外れたら書き直し)。Threads の上限 500 字は同じ。T6.3.1 の 280〜360 字は使わない |
 | 絵文字 | 3 個まで |
-| トピック | なし (T6.3.2 の方針で `account_growth` → `None`) |
+| トピック | "インサイト祭り" (T6.3.3b から。`THREADS_GROWTH_TOPIC_TAG`、公開のときに付ける)。それより前に出た #25 はトピックなしのまま |
 | リンク | なし (`link_mode=none`、URL・`{link}`・UTM・/go/ を書かない) |
 
 値は版管理された定数 (秘密ではない)。`.env` には置かない。
@@ -226,3 +227,30 @@ queue を止める作りだった。人の決定: **Growth Post は記事の本�
 
 **人の目の確認 (2026-09-28)**: 人が Threads のアプリで公開 20 を確かめた (承認した本文・
 "AI Threads" のトピックなし・リンクなし・ふつうの単独の投稿)。**T6.3.3 は完了。**
+
+## Growth Post のトピック (T6.3.3b)
+
+人の決定 (2026-09-28): **次の Growth Post から、トピック "インサイト祭り" を付ける。**
+記事の投稿は "AI Threads" のまま。note のトピック ("note") は note を始めるときに決める (今は作らない)。
+
+- 決め方: `app/social/threads/topic.py` の `THREADS_GROWTH_TOPIC_TAG = "インサイト祭り"`
+  (版管理された定数。`.env` ではない)。`account_growth` → "インサイト祭り"、`article` →
+  "AI Threads"、未知の種類 → 公開しない。Luna はトピックを選ばない。
+- **前へ進むだけ**: 公開済みの #25 (公開 20、トピックなし) と、その行・本文・hash・試行の記録・
+  snapshot は変えない。承認済みで未公開の Growth Post があれば、公開のときに付く。
+- トピックはメタデータ: 本文に `#インサイト祭り` も「インサイト祭り」も足さない。本文・hash・
+  文字数・link_mode (none)・URL (なし)・目標 (100 人)・Growth の prompt は同じ。
+- 公開の要求: Growth のコンテナ作成に `topic_tag=インサイト祭り`。記事は `topic_tag=AI Threads`。
+  ほかの違いは無い。記録 (`create_container` の試行) に `content_kind`・`topic_tag`・
+  `topic_tag_sent`、失敗なら HTTP の status と API のコード、成功なら media id。
+- **失敗しても閉じる**: "インサイト祭り" を API が 4xx で断ったら、トピックなしで出し直さない・
+  別のトピックに変えない。公開の行は `failed` + `reconciliation_required` になり、アラート
+  (「Threads 側で Topic が受け付けられませんでした / Growth Post だけを止め、通常投稿は続けます」)。
+  **止まるのは Growth の枠だけ** (T6.3.3a のとおり)。記事の投稿は続く。一時的な失敗の再試行は
+  同じトピックで送る。
+- 足し分の枠 (記事の 120 分の間隔を使わない・1 日 1 本・取り戻さない・承認が要る) は変えない。
+- 承認の表示: 「投稿種別: Growth Post / 目標: フォロワー100人 / リンク: なし / トピック:
+  インサイト祭り」。T6.4 の中継はすでに `topic_label` を表示するので、**WordPress の配備は要らない**。
+- Project State: `threads.topic.growth_topic_tag = インサイト祭り`、
+  `growth_topic_production_acceptance = pending_canary` (今のトピックで送った Growth の作成が
+  受け入れられたら `observed`)。本番の確認点: worker の再起動の後の、次の自然な Growth Post。
