@@ -205,3 +205,21 @@ queue を止める作りだった。人の決定: **Growth Post は記事の本�
   `growth_trigger` か `growth_blockers`・`growth_publication`。worker の状態に `growth_lane`。
 - 取り戻さない・人の承認・トピックなし・リンクなしは同じ。**T6.3.3 は、本番でこの枠を確かめる
   までは完了にしない。**
+
+### 本番での確認 (T6.3.3a の API の確認、2026-09-28)
+
+`d81a577` を読んだ worker (pid 21540、13:27 に人の許可のもとで止め、13:55:02 に自然に復帰。
+ロックを回収) の最初の公開の評価で、承認済みの Growth Post #25 が足し分の枠で出た。
+
+| 項目 | 内容 |
+|---|---|
+| 公開 | 提案 #25 → 公開 20 (2026-09-28 13:55:39 JST、media `18089278694679631`、https://www.threads.com/@bizfluxlab/post/Dd0X-I1mmy5) |
+| きっかけ | `normal_heartbeat` (組の記事なし)。記事の枠は同じ評価で `gap_not_elapsed` のまま |
+| 記録 | `lane=account_growth`・`growth_date_jst=2026-09-28`・`article_gap_applies=false`・`topic_tag_sent=false`・リンクなし |
+| 本文 | 承認された 187 字そのまま (hash 同じ、読み戻しで一致)。URL・`#`・"AI Threads" なし |
+| 記事の間隔 | 前後で同じ: 起点は公開 19 (13:02:25)・次は #23・15:02:25 から。Growth は起点にならない |
+| 1 日 1 本 | 次の評価 (13:56:05) は `growth_daily_limit`。Growth の保守は「今日の分がある」で呼ばない |
+| 今日の本数 | 記事 4・Growth 1・合計 5 (3〜5 本の目安は記事の 4 本だけ) |
+| 人の目の確認 | **まだ** (Threads のアプリで本文・トピックなし・リンクなし・ふつうの投稿として見えるか) |
+
+**T6.3.3 は本番の API の確認まで済み。人の目の確認の後に完了にする。**

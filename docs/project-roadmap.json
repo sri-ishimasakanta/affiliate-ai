@@ -55,7 +55,7 @@
      "note": "complete; the production API accepted topic_tag=\"AI Threads\" (publication 18, proposal #21, 2026-09-28 11:01 JST) and the user visually confirmed the topic in the Threads app; account_growth posts get no topic"},
     {"id": "T6.3.3", "title": "Daily Account Growth Post (supplemental, 1/JST day, no topic, no link, human-approved)", "status": "active",
      "evidence": {"files": ["docs/operations/threads-growth-posts.md"], "commits": []},
-     "note": "implemented and tested with a fake provider; migration c4d2e8f1a9b3 applied in production on 2026-09-28 (human-approved); activated 2026-09-28 11:40 JST; first growth post #25 approved; T6.3.3a supplemental publication lane (no article gap / cycle cap, failure isolated) implemented, production cutover pending"},
+     "note": "implemented and tested with a fake provider; migration c4d2e8f1a9b3 applied in production on 2026-09-28 (human-approved); activated 2026-09-28 11:40 JST; first growth post #25 approved; T6.3.3a supplemental publication lane live (d81a577); production API canary verified 2026-09-28 (proposal #25 -> publication 20, article gap unchanged); human visual confirmation pending"},
     {"id": "T6.4", "title": "Japanese approval, daily and weekly report emails (incl. the topic and post type on the review page)", "status": "planned",
      "evidence": {"files": ["docs/operations/threads-autopublish.md"], "commits": []},
      "note": "not started"},
