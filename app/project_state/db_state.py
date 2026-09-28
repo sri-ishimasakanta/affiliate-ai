@@ -282,7 +282,7 @@ def topic_policy(conn) -> dict:
     }
 
 
-def growth_state(conn, root: Path) -> dict:
+def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
     """T6.3.3 の Growth Post の方針と、提案・公開・フォロワーの観測 (読むだけ)。"""
 
     from app.social.threads.growth import (
@@ -328,6 +328,27 @@ def growth_state(conn, root: Path) -> dict:
             return None
 
     observation = FollowerObservation.from_dict(_json("followers.json"))
+    posts_today = None
+    if now is not None and _has_column(conn, "threads_publications", "source_article_id"):
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Tokyo")
+        day = now.astimezone(tz).date()
+        counts = Counter()
+        sql = (
+            "select source_article_id, published_at from threads_publications "
+            "where status = 'published' and published_at is not null"
+        )
+        for row in _rows(conn, sql):
+            moment = _parse(row["published_at"])
+            if moment is not None and moment.astimezone(tz).date() == day:
+                counts["growth" if row["source_article_id"] is None else "article"] += 1
+        posts_today = {
+            "date_jst": day.isoformat(),
+            "article_posts_today": counts["article"],
+            "growth_posts_today": counts["growth"],
+            "total_posts_today": counts["article"] + counts["growth"],
+        }
     last = _json("status.json") or {}
     return {
         "policy": {
@@ -353,6 +374,8 @@ def growth_state(conn, root: Path) -> dict:
         "published": published,
         "follower_observation": observation.as_dict() if observation else None,
         "follower_target_reached": target_reached(observation, GROWTH_FOLLOWER_TARGET),
+        #: 3〜5 本の目安は記事の投稿だけ。Growth Post は足し分として別に数える (JST の今日)。
+        "posts_today": posts_today,
         "last_maintenance": {k: last.get(k) for k in ("date_jst", "due", "reason", "created",
                                                       "written_at")} if last else None,  # fmt: skip
     }
@@ -643,7 +666,7 @@ def collect_threads(root: Path, conn, *, now: datetime) -> dict:
             "audit": generation_audit(root),
         },
         "topic": topic_policy(conn),
-        "growth": growth_state(conn, root),
+        "growth": growth_state(conn, root, now=now),
         "stock": {
             "pending_generation_requests": pending_generation_requests(root),
             "source": str(STOCK_STATUS).replace("\\", "/") if stock else None,

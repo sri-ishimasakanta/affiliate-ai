@@ -3,9 +3,10 @@
 アカウントそのものを紹介し、フォローを呼びかける投稿 (Growth Post) を **毎日 1 本まで** 用意する。
 記事から作る通常の投稿に **足す** もので、通常の本数・在庫・計画・公開の規則は変えない。
 
-**状態: 実装済み・本番では未使用。** migration `c4d2e8f1a9b3` は **2026-09-28 10:40 JST に本番へ
-適用済み** (人の許可あり。下の記録)。本番で動かすには、さらに worker のフラグ
-(`--maintain-growth-posts`) の追加が要る (下の「本番への展開」。人の許可が要る)。
+**状態: 本番で有効 (2026-09-28 11:40 JST から、人の許可あり)。** migration `c4d2e8f1a9b3` は
+2026-09-28 10:40 JST に適用済み。ランチャーの publish に `--maintain-growth-posts` を足し
+(`965afbd`)、制御された再起動で worker (pid 19820) が読んだ。最初の Growth Post は提案 #25
+(2026-09-28、`account_identity`、awaiting_approval。人の承認待ち)。
 
 ## 人の決定 (2026-09-28)
 
@@ -154,6 +155,20 @@ published_today=... created=... model_calls=... target=100 target_reached=... re
 | 適用 | `uv run alembic upgrade head` → `c4d2e8f1a9b3 (head)`、`alembic check` clean |
 | 確認 | integrity ok、foreign key 問題なし、54 の表のうち `alembic_version` 以外の 53 の表の行数と中身の hash が同じ、索引と制約が同じ、`source_article_id` が NULL の行は 0 (Growth Post は 0) |
 | Growth Post | 有効にしていない (ランチャーに `--maintain-growth-posts` なし) |
+
+## 本番での有効化の記録 (2026-09-28、人の許可あり)
+
+| 項目 | 内容 |
+|---|---|
+| T6.3.2 | 完了 (API の受け入れと人の目の確認)。Growth Post の前提を満たした |
+| ランチャー | publish の flags に `--maintain-growth-posts` (`965afbd`)。タスクの定義・間隔は同じ |
+| 起動の記録 | 起動の行の capabilities に `maintain_growth_posts` が出ていなかった (固定の一覧) のを直した (`b6e839f`) |
+| 再起動 | 11:19:41〜11:19:47 JST に pid 2572 の親子だけを止め、11:40:02 に自然に復帰 (pid 19820、ロックを回収) |
+| 最初の保守 | 11:40:35 `event=account_growth_maintenance due=True created=25 model_calls=1`。呼び出し 1 回・書き直し 0 回・939 tokens |
+| フォロワー数 | 観測の記録なし (`followers.json` が無い)。目標だけの文面。読めなかった理由は記録に残らない (後で直す) |
+| 提案 #25 | `account_growth`・記事なし・link none・トピックなし・187 字・絵文字 1・`awaiting_approval` (人の承認待ち。07:00〜24:00 JST だけ公開の資格) |
+| 1 日 1 本 | 同じ日の 2 回目の判断は「今日の Growth Post がある (提案 25)」で呼ばない |
+| 記事への影響 | 記事の在庫 (usable 3) に数えない。記事の保守・トピック・目安は同じ |
 
 ## 今後
 

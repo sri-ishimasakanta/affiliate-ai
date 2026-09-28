@@ -475,7 +475,8 @@ def _md_threads(threads: dict) -> list[str]:
             f"{_fmt(growth_live)}; schema ready "
             f"{_fmt(growth.get('schema_ready'))}; proposals {growth.get('proposals')}, published "
             f"{growth.get('published')}; target reached "
-            f"{_fmt(growth.get('follower_target_reached'))}"
+            f"{_fmt(growth.get('follower_target_reached'))}; today "
+            f"{_fmt(growth.get('posts_today'))}"
         )
         stock = "ON" if worker.get("stock_maintenance_enabled") else "OFF"
         rerun = (
