@@ -64,6 +64,7 @@ class WorkerLogFormatter:
                 "sync_approvals",
                 "send_approval_digests",
                 "maintain_proposal_stock",
+                "maintain_growth_posts",  # T6.3.3
             )
             if capabilities.get(name)
         )

@@ -220,3 +220,15 @@ def test_proposal_stock_maintenance_is_logged_with_its_outcome() -> None:
         _event("proposal_stock_maintenance", {"created": 0, "failures": ["malformed output"]})
     )
     assert "WARN" in failed
+
+
+def test_the_startup_line_names_the_growth_capability() -> None:
+    """T6.3.3: Project State は起動の行の capabilities で、Growth Post が有効かを読む。"""
+
+    caps = {"collect_insights": True, "maintain_proposal_stock": True,
+            "maintain_growth_posts": True, "publish": True}  # fmt: skip
+    line = _formatter().startup(now=_NOW, policy_version="t6.0", capabilities=caps)
+    assert "capabilities=collect_insights,maintain_proposal_stock,maintain_growth_posts" in line
+    off = _formatter().startup(now=_NOW, policy_version="t6.0",
+                               capabilities={**caps, "maintain_growth_posts": False})  # fmt: skip
+    assert "maintain_growth_posts" not in off
