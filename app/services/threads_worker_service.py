@@ -505,6 +505,7 @@ class ThreadsWorkerService:
             }
             next_at = evaluation.next_evaluation_at
             publications = 0
+            growth_publications = 0
             if self._auto_publish:
                 publisher = self._auto_publisher(session)
                 result = publisher.publish_one(now=now)
@@ -521,10 +522,29 @@ class ThreadsWorkerService:
                 if result.next_evaluation_at is not None:
                     next_at = result.next_evaluation_at
                 summary["alerts_recorded"] = self._alert_on_autopublish(session, result, now)
+                # T6.3.3a: Growth Post の足し分の枠。記事の結果を問わず、記事の間隔を使わずに見る。
+                growth = publisher.publish_growth_one(
+                    now=now,
+                    companion_publication_id=result.publication_id if result.published else None,
+                )
+                summary["growth"] = growth.as_dict()
+                self._counters["threads_writes"] += growth.threads_writes
+                self._counters["network_calls"] += growth.network_calls
+                if growth.published:
+                    self._counters["publications"] += 1
+                if growth.attempted:
+                    # 記事の 1 回 1 本の枠には数えない (足し分の枠で別に数える)。
+                    growth_publications = 1
+                    summary["alerts_recorded"] += self._alert_on_autopublish(
+                        session, growth, now
+                    )
+                if growth.next_evaluation_at is not None:
+                    next_at = min(next_at, growth.next_evaluation_at)
         return SubsystemResult(
             next_run_at=max(next_at, now + _MIN_RESCHEDULE),
             summary=summary,
             publications=publications,
+            growth_publications=growth_publications,
         )
 
     def _alert_on_autopublish(self, session, result, now: datetime) -> int:
@@ -810,6 +830,9 @@ class ThreadsWorkerService:
             # ブロッカーは「このコマンドが公開しうるか」で評価する。ポリシーとフラグが
             # そろっているのに automatic_publication_disabled を出さない。
             evaluation = queue.evaluate(now=now, publication_enabled=self.capabilities["publish"])
+            growth_lane = queue.evaluate_growth(
+                now=now, publication_enabled=self.capabilities["publish"]
+            )
             latest = queue.latest_publication()
             basis = queue.latest_gap_basis()
             counts = queue.counts()
@@ -925,6 +948,8 @@ class ThreadsWorkerService:
             },
             "proposals": counts,
             "queue": evaluation.as_dict(self._tz),
+            # T6.3.3a: Growth Post の足し分の枠 (記事の間隔を使わない)。
+            "growth_lane": growth_lane.as_dict(self._tz),
             "hard_blockers": list(evaluation.blockers),
             "problems": list(evaluation.problems),
             "subsystems": [self._subsystem_view(s) for s in schedule.states()] if schedule else [],

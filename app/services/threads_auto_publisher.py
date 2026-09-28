@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -33,6 +33,9 @@ from app.models import PUB_TRIGGER_AUTOMATIC
 from app.services.threads_publication_service import ThreadsPublicationService
 from app.services.threads_queue_service import ThreadsQueueService
 from app.social.threads.policy import ThreadsMeasurementPolicy, ThreadsOperationsPolicy
+
+#: T6.3.3a: 承認からこの長さの中の Growth の公開は ``post_approval_heartbeat`` と記録する。
+_POST_APPROVAL_WINDOW = timedelta(minutes=15)
 
 GATE_POLICY = "policy_enabled"
 GATE_FLAG = "worker_flag"
@@ -63,6 +66,11 @@ class AutoPublishOutcome:
     #: 公開を試みた **後** の状態で評価し直したときのブロッカー (次の評価の話)。
     next_blockers: list[str] | None = None
     notes: list[str] = field(default_factory=list)
+    #: T6.3.3a: どの枠か (``article`` / ``account_growth``) と、Growth の枠の事実。
+    lane: str = "article"
+    growth_trigger: str | None = None
+    growth_date_jst: str | None = None
+    paired_article_publication_id: int | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -84,6 +92,10 @@ class AutoPublishOutcome:
             "error": self.error,
             "next_blockers": list(self.next_blockers) if self.next_blockers is not None else None,
             "notes": list(self.notes),
+            "lane": self.lane,
+            "growth_trigger": self.growth_trigger,
+            "growth_date_jst": self.growth_date_jst,
+            "paired_article_publication_id": self.paired_article_publication_id,
         }
 
 
@@ -172,6 +184,99 @@ class ThreadsAutoPublisher:
             )
         outcome.notes.append("dry run: no network call, no database write")
         return outcome
+
+    # -- T6.3.3a: Growth Post の足し分の枠 -----------------------------------------------
+    def publish_growth_one(
+        self, *, now: datetime | None = None, companion_publication_id: int | None = None
+    ) -> AutoPublishOutcome:
+        """承認済みの今日の Growth Post を 1 本だけ出す。**記事の間隔・1 回 1 本の枠を使わない。**
+
+        記事の投稿を出した直後 (``article_companion``)、承認の取り込みの直後
+        (``post_approval_heartbeat``)、ふだんの評価 (``normal_heartbeat``) のどれでも同じ条件。
+        出した後も記事の間隔の起点にならない。失敗しても記事の queue は止めない。
+        """
+
+        now = ensure_aware(now or datetime.now(UTC))
+        outcome = AutoPublishOutcome(now=now, lane="account_growth")
+        outcome.paired_article_publication_id = companion_publication_id
+        outcome.gates = self.gates()
+        reasons = self._gate_reasons(outcome.gates)
+        if reasons:
+            outcome.outcome = "gated"
+            outcome.blocked_reasons.extend(reasons)
+            return outcome
+        evaluation = self._queue.evaluate_growth(now=now, publication_enabled=True)
+        outcome.growth_date_jst = evaluation.date_jst
+        outcome.next_evaluation_at = evaluation.next_evaluation_at
+        candidate = evaluation.candidate
+        if candidate is not None:
+            outcome.proposal_id = candidate.proposal_id
+        if not evaluation.would_publish_now:
+            outcome.outcome = "blocked"
+            outcome.blocked_reasons.extend(evaluation.blockers)
+            return outcome
+        approved_at = candidate.approved_at
+        outcome.growth_trigger = (
+            "article_companion"
+            if companion_publication_id is not None
+            else "post_approval_heartbeat"
+            if approved_at is not None and now - approved_at <= _POST_APPROVAL_WINDOW
+            else "normal_heartbeat"
+        )
+        plan = self._publications.plan(
+            proposal_id=candidate.proposal_id, now=now, trigger=PUB_TRIGGER_AUTOMATIC
+        )
+        if not plan.ok:
+            outcome.outcome = "blocked"
+            outcome.blocked_reasons.extend(plan.blocked_reasons)
+            return outcome
+        audit = {
+            "lane": "account_growth",
+            "growth_trigger": outcome.growth_trigger,
+            "growth_date_jst": evaluation.date_jst,
+            "paired_article_publication_id": companion_publication_id,
+            "article_gap_applies": False,
+        }
+        self._execute(candidate.proposal_id, now, outcome, audit=audit)
+        after = self._queue.evaluate_growth(now=now, publication_enabled=True)
+        outcome.next_blockers = list(after.blockers)
+        outcome.next_evaluation_at = after.next_evaluation_at
+        return outcome
+
+    def _execute(self, proposal_id: int, now: datetime, outcome: AutoPublishOutcome, *,
+                 audit=None) -> None:  # fmt: skip
+        """事前確認 (読むだけ) → T3 の公開。数えるのは「呼んだ回数」。"""
+
+        if self._policy.automatic_publication_preflight:
+            outcome.network_calls += 1  # GET /me (読むだけ)
+            status = self._threads.check_connection()
+            outcome.preflight = {"reachable": status.reachable, "error": status.error}
+            if not status.reachable:
+                outcome.outcome = "preflight_failed"
+                category = (status.error or {}).get("category", "unknown")
+                outcome.blocked_reasons.append(f"read-only preflight failed ({category})")
+                return
+        outcome.attempted = True
+        result = self._publications.publish(
+            proposal_id=proposal_id, execute=True, now=now, trigger=PUB_TRIGGER_AUTOMATIC,
+            audit=audit,
+        )  # fmt: skip
+        outcome.outcome = result.outcome
+        outcome.publication_id = result.publication_id
+        outcome.media_id = result.media_id
+        outcome.blocked_reasons.extend(result.blocked_reasons)
+        create_called = bool(result.executed)
+        publish_called = bool(result.creation_id)
+        readback_called = bool(result.media_id)
+        outcome.threads_writes = int(create_called) + int(publish_called)
+        outcome.network_calls += int(create_called) + int(publish_called) + int(readback_called)
+        outcome.published = result.outcome == "published"
+        outcome.error = result.error
+        if result.outcome == "uncertain":
+            outcome.notes.append(
+                "the growth publish response was lost; growth posts stay blocked until "
+                "publish_threads_post.py --reconcile confirms what happened (articles continue)"
+            )
 
     # -- publish ---------------------------------------------------------------
     def publish_one(self, *, now: datetime | None = None) -> AutoPublishOutcome:

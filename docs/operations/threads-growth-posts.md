@@ -27,7 +27,7 @@
 |---|---|
 | 1 日の本数 | `GROWTH_POST_TARGET_PER_JST_DAY = 1` (上限でもある) |
 | 作ってよい時刻 | JST 07:00 から (その日の最初の保守で) |
-| 公開してよい時間 | その日の 07:00〜24:00 (`not_before` / `expires_at`)。公開窓 07:00〜23:00・120 分の間隔・1 回 1 本は通常と同じ |
+| 公開してよい時間 | その日の 07:00〜24:00 (`not_before` / `expires_at`) のうち、公開窓 07:00〜23:00 の中。**記事の 120 分の間隔と 1 回 1 本の枠は使わない** (T6.3.3a の足し分の枠) |
 | 目標 | `GROWTH_FOLLOWER_TARGET = 100` (人が決めた。自動で変えない) |
 | 長さ | 本文 120〜280 字くらい (80〜320 字を外れたら書き直し)。Threads の上限 500 字は同じ。T6.3.1 の 280〜360 字は使わない |
 | 絵文字 | 3 個まで |
@@ -60,8 +60,8 @@
 3. 再起動しても同じ (記録は DB とファイルにある)。
 4. 前の日の提案は `expires_at` を過ぎると公開されない (queue の `expired`、まとめ送りでも依頼しない)。
    **人の判断は書き換えない** (却下にしない)。今日の分が 2 本になることはない。
-5. queue は、その日に Growth Post を公開したら次の Growth Post を `growth_daily_limit` で止める。
-6. 公開の順番は承認の順のまま (種類で割り込まない)。記事の投稿が多い日に枠が無ければ、その日の
+5. Growth の枠は、その日に Growth Post を公開したら次の Growth Post を `growth_daily_limit` で止める。
+6. (T6.3.3a で変更) 記事の queue には並ばない。下の「足し分の公開の枠」を見る。記事の投稿が多い日でも、その日の
    Growth Post は出ない (取り戻さない)。
 
 ## フォロワー数
@@ -174,3 +174,34 @@ published_today=... created=... model_calls=... target=100 target_reached=... re
 
 目標に届いたら、人が次の目標を決める。T6.4 (日本語の承認・報告メール)、T6.5 (成績の分析) で
 Growth Post の見せ方と振り返りを扱う。
+
+## 足し分の公開の枠 (T6.3.3a)
+
+T6.3.3 の最初の実装は、Growth Post を記事と同じ queue に並べていた (承認の順・120 分の間隔・
+1 回 1 本)。2026-09-28 の提案 #25 は 12:45 に承認されたが、先に承認された記事 #23・#24 の後ろで、
+それぞれ 120 分を待つ並び (15:02・17:02・19:02) になり、記事の承認が増えれば当日中に出られずに
+期限が来うる。また、Growth の公開が記事の間隔の起点になり、Growth の不確定な公開が記事の
+queue を止める作りだった。人の決定: **Growth Post は記事の本数と間隔を使わない足し分。**
+
+- **記事の枠は変えない**: 公開窓・120 分の間隔・1 回 1 本・承認の順・3〜5 本の目安・トピック
+  "AI Threads"・失敗と照合の扱いは同じ。記事の queue と間隔の起点 (`latest_gap_basis`) は
+  **記事の公開だけ** を見る。
+- **Growth の枠** (`evaluate_growth_lane`、`ThreadsAutoPublisher.publish_growth_one`): 承認済み・
+  今日 (JST) の分・`not_before` 以降で `expires_at` より前・公開窓の中・今日まだ Growth を出して
+  いない・**どの** 公開も不確定でない。記事の間隔は見ない。出した後も記事の間隔の起点にならない。
+- **いつ出るか**: 公開の評価のたびに、記事の枠 (今まで通り) の後で Growth の枠を見る。
+  - 記事を出した評価の中で続けて出す (`article_companion`、組の記事の公開 id を記録)
+  - 承認の取り込みで評価が前倒しされたとき (`post_approval_heartbeat`、承認から 15 分以内)
+  - ふだんの評価 (`normal_heartbeat`)。承認済みの今日の Growth が時刻だけを待っていれば、評価の
+    次の時刻をその時刻 (公開窓の開く時刻・`not_before`) か 30 分後に早める
+- **1 回の評価の枠**: 記事は 1 回 1 本 (今まで通り)。Growth は記事の枠の外で、自分の枠で 1 回
+  1 本まで (worker の核で別に数え、超えたら止める)。1 日 1 本は別に守る。
+- **失敗を分ける**: Growth の公開の失敗・不確定は記録・アラートし、Growth の枠だけを止める
+  (照合まで Growth を出さない。送り直さない)。**記事の queue は止めない。** 記事の公開の不確定は
+  今まで通り記事の queue を止め、Growth も出さない。
+- **記録**: Growth の公開の試行 (`create_container` / `publish_container`) に `lane=account_growth`・
+  `growth_trigger`・`growth_date_jst`・`paired_article_publication_id`・`article_gap_applies=false`・
+  トピック (なし) を残す。ログの `event=publication_evaluation` に `growth_candidate`・`growth`・
+  `growth_trigger` か `growth_blockers`・`growth_publication`。worker の状態に `growth_lane`。
+- 取り戻さない・人の承認・トピックなし・リンクなしは同じ。**T6.3.3 は、本番でこの枠を確かめる
+  までは完了にしない。**

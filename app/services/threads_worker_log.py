@@ -215,6 +215,19 @@ class WorkerLogFormatter:
                 level = "ERROR"
         if summary.get("next_blockers") is not None:
             fields["next_blockers"] = ",".join(summary["next_blockers"]) or "(none)"
+        growth = summary.get("growth")
+        if growth:
+            # T6.3.3a: Growth Post の足し分の枠 (記事の間隔を使わない)。
+            fields["growth_candidate"] = growth.get("proposal_id")
+            fields["growth"] = growth.get("outcome")
+            if growth.get("attempted") or growth.get("outcome") not in ("blocked", "gated"):
+                fields["growth_trigger"] = growth.get("growth_trigger")
+            else:
+                fields["growth_blockers"] = ",".join(growth.get("blocked_reasons") or []) or "-"
+            if growth.get("publication_id"):
+                fields["growth_publication"] = growth.get("publication_id")
+            if growth.get("outcome") in ("uncertain", "failed", "preflight_failed"):
+                level = "ERROR"
         return fields, level
 
     @staticmethod

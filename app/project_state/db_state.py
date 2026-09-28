@@ -364,6 +364,11 @@ def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
             "topic_tag": None,
             "link_mode": "none",
             "target_reached_pauses_for_human": True,
+            # T6.3.3a: 足し分の公開の枠 (記事の 120 分の間隔と 1 回 1 本の枠を使わない)。
+            "supplemental_publication_lane": True,
+            "article_gap_applies": False,
+            "article_cycle_cap_applies": False,
+            "failure_isolated_from_article_queue": True,
             "follower_observation_max_age_hours": FOLLOWER_OBSERVATION_MAX_AGE.total_seconds()
             / 3600,
         },

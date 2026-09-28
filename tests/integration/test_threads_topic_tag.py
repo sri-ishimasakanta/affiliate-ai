@@ -267,7 +267,8 @@ def test_case_a_normal_post_sends_the_topic_and_records_it(session, article) -> 
 
 
 def test_case_b_account_growth_sends_no_topic(session, article) -> None:
-    proposal = _proposal(session, article, guidance={"content_kind": "account_growth"})
+    proposal = _proposal(session, article, guidance={
+        "content_kind": "account_growth", "growth": {"date_jst": "2026-09-28"}})  # fmt: skip
     meta = FakeMeta()
     out = _publisher(session, meta).publish(proposal_id=proposal.id, execute=True, now=_NOW)
     assert out.outcome == "published"

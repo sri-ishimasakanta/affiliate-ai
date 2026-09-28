@@ -58,6 +58,9 @@ SUBSYSTEM_ORDER = (
     SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
 )
 
+#: T6.3.3a: Growth Post は記事の 1 回 1 本の枠の外。自分の枠で 1 回 1 本まで (1 日 1 本は別に守る)。
+MAX_GROWTH_PUBLICATIONS_PER_CYCLE = 1
+
 MODE_PLAN = "plan"
 WORKER_MODES = (MODE_PLAN,)
 
@@ -79,8 +82,10 @@ class SubsystemResult:
     summary: dict = field(default_factory=dict)
     #: 他の仕事の次回時刻を前倒ししたいとき (例: 承認が増えた → 公開を再評価)。
     wake: dict[str, datetime] = field(default_factory=dict)
-    #: この仕事が行った公開の件数。T4.1 では常に 0。
+    #: この仕事が行った公開の件数。T4.1 では常に 0。**記事の投稿だけ** (1 回 1 本の枠)。
     publications: int = 0
+    #: T6.3.3a: Growth Post の公開の件数 (足し分の枠。記事の枠とは別に 1 回 1 本まで)。
+    growth_publications: int = 0
 
 
 @dataclass
@@ -185,6 +190,7 @@ class CycleReport:
     publications: int
     next_wake_at: datetime
     lock_lost: bool = False
+    growth_publications: int = 0
 
     def as_dict(self) -> dict:
         return {
@@ -192,6 +198,7 @@ class CycleReport:
             "ran": list(self.ran),
             "skipped_not_due": list(self.skipped_not_due),
             "publications": self.publications,
+            "growth_publications": self.growth_publications,
             "next_wake_at": self.next_wake_at.isoformat(),
             "lock_lost": self.lock_lost,
         }
@@ -273,6 +280,7 @@ class ThreadsWorker:
         not_due = [s.name for s in self._schedule.states() if s.enabled and s.name not in due]
         ran: list[str] = []
         publications = 0
+        growth_publications = 0
         for name in due:
             handler = self._handlers.get(name)
             if handler is None:
@@ -293,6 +301,9 @@ class ThreadsWorker:
             if publications > MAX_PUBLICATIONS_PER_CYCLE:
                 # 構造上起きないはずだが、起きたら続行しない。
                 raise RuntimeError("a worker cycle attempted more than one publication")
+            growth_publications += result.growth_publications
+            if growth_publications > MAX_GROWTH_PUBLICATIONS_PER_CYCLE:
+                raise RuntimeError("a worker cycle attempted more than one growth publication")
             self._schedule.record(name, now, result)
             ran.append(name)
             self._emit(
@@ -314,6 +325,7 @@ class ThreadsWorker:
             ran=ran,
             skipped_not_due=not_due,
             publications=publications,
+            growth_publications=growth_publications,
             next_wake_at=self._schedule.next_wake(now, self._heartbeat),
         )
 

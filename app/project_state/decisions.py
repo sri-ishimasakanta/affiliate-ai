@@ -364,6 +364,22 @@ DECISIONS = (
         "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
     },
     {
+        "id": "threads-growth-lane-t633a",
+        "area": "threads/publication",
+        "decision": (
+            "T6.3.3a: Growth Post は記事の 120 分の間隔と 1 回 1 本の枠を使わない足し分の枠で"
+            "公開する。記事と同じ評価の中か、承認の後の評価で出す。1 日 1 本・失敗は記事から分ける"
+        ),
+        "rationale": (
+            "人の決定。#25 は記事の queue の後ろで 120 分ずつ待つ並びになり、当日中に出られない"
+            "おそれがあった。記事の本数と間隔は変えない"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "## 足し分の公開の枠 (T6.3.3a)",
+        "resulting_state": "実装済み。本番の worker は再起動で読む (人の確認点)",
+        "follow_up": "本番の切り替え: worker を再起動し、#25 (今日の分なら) で枠を確かめる",
+    },
+    {
         "id": "threads-topic-tag-t632-complete",
         "area": "threads/publication",
         "decision": (

@@ -406,8 +406,14 @@ class ThreadsPublicationService:
                 )
 
         plan.trigger = trigger
-        self._check_other_publications(plan, proposal.id)
-        self._check_gap(plan, proposal.id, now, gap_override)
+        growth = is_account_growth(proposal)
+        # T6.3.3a: 記事の投稿は Growth Post の不確定な公開では止めない (失敗を分ける)。
+        self._check_other_publications(plan, proposal.id, include_growth=growth)
+        if growth:
+            # Growth Post は記事の 120 分の間隔を使わない (足し分の枠)。代わりに Growth の条件。
+            self._check_growth(plan, proposal, now)
+        else:
+            self._check_gap(plan, proposal.id, now, gap_override)
 
         if plan.ok:
             plan.would_call = [
@@ -429,8 +435,12 @@ class ThreadsPublicationService:
         now: datetime | None = None,
         trigger: str = PUB_TRIGGER_MANUAL,
         gap_override: ManualGapOverride | None = None,
+        audit: dict | None = None,
     ) -> PublishOutcome:
-        """``execute=True`` のときだけ外へ出す。既定は PLAN と同じ。"""
+        """``execute=True`` のときだけ外へ出す。既定は PLAN と同じ。
+
+        ``audit`` (T6.3.3a) は試行の記録に足す小さな事実 (Growth の枠・きっかけ・組の公開)。
+        """
 
         now = now or datetime.now(UTC)
         self._op_origin = (ensure_aware(now), time.monotonic())
@@ -468,6 +478,7 @@ class ThreadsPublicationService:
             "content_kind": plan.content_kind,
             "topic_tag": plan.topic_tag,
             "topic_tag_sent": plan.topic_tag is not None,
+            **(audit or {}),
         }
         self._set(row, PUB_CREATING, reason="creating the media container")
         started = self._op_now()
@@ -755,18 +766,28 @@ class ThreadsPublicationService:
             existing=self._existing(proposal.id),
         )
 
-    def _check_other_publications(self, plan: PublishPlan, proposal_id: int) -> None:
-        """他の公開が不確定・照合待ちなら、**どの提案も** 出さない (T4.3)。"""
+    def _check_other_publications(
+        self, plan: PublishPlan, proposal_id: int, *, include_growth: bool = True
+    ) -> None:
+        """他の公開が不確定・照合待ちなら出さない (T4.3)。
 
+        T6.3.3a: 記事の投稿 (``include_growth=False``) は、Growth Post の公開の不確定では止めない
+        (Growth は足し分。失敗を記事の queue に持ち込まない)。Growth Post はどの公開の不確定でも
+        止まる (状態が分からないときに足し分を出さない)。
+        """
+
+        conditions = [
+            ThreadsPublication.proposal_id != proposal_id,
+            or_(
+                ThreadsPublication.status.in_(tuple(PUB_IN_FLIGHT_STATES)),
+                ThreadsPublication.reconciliation_required.is_(True),
+            ),
+        ]
+        if not include_growth:
+            conditions.append(ThreadsPublication.source_article_id.is_not(None))
         blocking = self._session.scalars(
             select(ThreadsPublication)
-            .where(
-                ThreadsPublication.proposal_id != proposal_id,
-                or_(
-                    ThreadsPublication.status.in_(tuple(PUB_IN_FLIGHT_STATES)),
-                    ThreadsPublication.reconciliation_required.is_(True),
-                ),
-            )
+            .where(*conditions)
             .order_by(ThreadsPublication.id)
         ).all()
         for row in blocking:
@@ -775,6 +796,58 @@ class ThreadsPublicationService:
                 + (" and requires reconciliation" if row.reconciliation_required else "")
                 + "; reconcile it before publishing anything else"
             )
+
+    def _check_growth(self, plan: PublishPlan, proposal, now: datetime) -> None:
+        """Growth Post の書き込み経路の条件 (T6.3.3a)。記事の間隔の代わり。
+
+        今日 (JST) の分・``not_before`` 以降・``expires_at`` より前・公開窓の中・今日まだ Growth
+        Post を出していない。承認・stale・中身・二重投稿・不確定の条件は共通のまま。
+        """
+
+        from app.operations.local_time import to_local
+        from app.social.threads.policy import get_operations_policy
+        from app.social.threads.schedule import local_day_bounds, window_is_open
+
+        policy = get_operations_policy()
+        tz = self._timezone()
+        now = ensure_aware(now)
+        today = to_local(now, tz).date().isoformat()
+        meta = (proposal.learning_guidance_json or {}).get("growth") or {}
+        plan.gap = {"lane": "account_growth", "article_gap_applies": False, "date_jst": today}
+        if meta.get("date_jst") != today:
+            plan.blocked_reasons.append(
+                f"this growth post is for {meta.get('date_jst')}, not today ({today}); "
+                "growth posts are never caught up"
+            )
+        if proposal.not_before is not None and now < ensure_aware(proposal.not_before):
+            plan.blocked_reasons.append("the growth post is not eligible yet (not_before)")
+        if proposal.expires_at is not None and now >= ensure_aware(proposal.expires_at):
+            plan.blocked_reasons.append("the growth post expired at the end of its day")
+        if not window_is_open(policy.publication_window, now, tz):
+            plan.blocked_reasons.append("outside the publication window")
+        start, end = local_day_bounds(now, tz)
+        rows = self._session.scalars(
+            select(ThreadsPublication).where(
+                ThreadsPublication.status == PUB_PUBLISHED,
+                ThreadsPublication.source_article_id.is_(None),
+                ThreadsPublication.proposal_id != proposal.id,
+            )
+        ).all()
+        today_growth = [
+            r.id
+            for r in rows
+            if (basis := self.gap_basis(r)) is not None and start <= basis.at < end
+        ]
+        if today_growth:
+            plan.blocked_reasons.append(
+                f"a growth post was already published today (publication {today_growth[0]}); "
+                "at most one per JST day"
+            )
+
+    def _timezone(self):
+        from app.operations.policy import get_policy
+
+        return get_policy().timezone
 
     def _check_gap(
         self,
@@ -842,9 +915,15 @@ class ThreadsPublicationService:
         return None
 
     def latest_gap_basis(self, *, exclude_proposal_id: int | None = None) -> GapBasis | None:
-        """公開済みのうち、実際の公開時刻が最も新しいもの。**手動も自動もこれを使う。**"""
+        """公開済みの **記事の投稿** のうち、実際の公開時刻が最も新しいもの (手動も自動も使う)。
 
-        stmt = select(ThreadsPublication).where(ThreadsPublication.status == PUB_PUBLISHED)
+        T6.3.3a: Growth Post (記事なし) は 120 分の間隔の起点にならない (足し分の枠)。
+        """
+
+        stmt = select(ThreadsPublication).where(
+            ThreadsPublication.status == PUB_PUBLISHED,
+            ThreadsPublication.source_article_id.is_not(None),
+        )
         if exclude_proposal_id is not None:
             stmt = stmt.where(ThreadsPublication.proposal_id != exclude_proposal_id)
         bases = [b for b in (self.gap_basis(r) for r in self._session.scalars(stmt)) if b]

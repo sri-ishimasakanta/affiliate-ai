@@ -39,7 +39,12 @@ from zoneinfo import ZoneInfo
 
 from app.operations.local_time import to_local
 from app.social.threads.policy import ThreadsOperationsPolicy
-from app.social.threads.schedule import PublicationTiming, publication_timing
+from app.social.threads.schedule import (
+    PublicationTiming,
+    next_window_open_at,
+    publication_timing,
+    window_is_open,
+)
 
 #: 1 回の評価サイクルで公開してよい最大件数。**決して増やさない。**
 MAX_PUBLICATIONS_PER_CYCLE = 1
@@ -128,6 +133,8 @@ class CandidateFacts:
     preferred_at: datetime | None = None
     #: T6.3.3: ``article`` か ``account_growth``。
     content_kind: str = KIND_ARTICLE
+    #: T6.3.3a: Growth Post の日付 (JST、``YYYY-MM-DD``)。その日だけ公開の資格がある。
+    growth_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +149,10 @@ class QueueFacts:
     published_today: int = 0
     #: T6.3.3: 今日 (JST) 公開した Growth Post の数 (目安には数えない)。
     growth_published_today: int = 0
+    #: T6.3.3a: 不確定・照合待ちの公開 (**すべての種類**)。Growth の枠はこれで止まる。
+    #: 記事の枠は ``uncertain_publication_ids`` (記事の公開だけ) で止まる (Growth の失敗で
+    #: 記事を止めない)。
+    any_uncertain_publication_ids: tuple[int, ...] = ()
     uncertain_publication_ids: tuple[int, ...] = ()
     mature_post_count: int = 0
     minimum_mature_posts: int = 3
@@ -344,7 +355,9 @@ def evaluate_queue(
     publication_enabled: bool = False,
 ) -> QueueEvaluation:
     now = _aware(queue.now) or datetime.now(UTC)
-    verdicts = [_verdict(c, queue, policy) for c in queue.candidates]
+    # T6.3.3a: 記事の枠。Growth Post は別の枠 (``evaluate_growth_lane``) で評価する。
+    article = [c for c in queue.candidates if c.content_kind != KIND_ACCOUNT_GROWTH]
+    verdicts = [_verdict(c, queue, policy) for c in article]
     eligible = sorted((v for v in verdicts if v.eligible), key=_order_key)
     others = sorted((v for v in verdicts if not v.eligible), key=lambda v: v.proposal_id)
 
@@ -401,6 +414,111 @@ def evaluate_queue(
     )
 
 
+# -- T6.3.3a: Growth Post の足し分の枠 ------------------------------------------------------
+BLOCKER_GROWTH_DAILY_LIMIT = "growth_daily_limit"
+BLOCKER_NO_ELIGIBLE_GROWTH = "no_eligible_growth_candidate"
+
+
+@dataclass(frozen=True)
+class GrowthLaneEvaluation:
+    """Growth Post の枠の評価。**記事の 120 分の間隔と 1 回 1 本の枠を使わない。**"""
+
+    now: datetime
+    date_jst: str
+    blockers: tuple[str, ...]
+    candidate: CandidateVerdict | None
+    candidates: tuple[CandidateVerdict, ...]
+    next_evaluation_at: datetime | None
+    publication_enabled: bool = False
+
+    @property
+    def would_publish_now(self) -> bool:
+        return self.publication_enabled and not self.blockers and self.candidate is not None
+
+    def as_dict(self, tz: ZoneInfo) -> dict:
+        return {
+            "lane": "account_growth",
+            "date_jst": self.date_jst,
+            "blockers": list(self.blockers),
+            "candidate": self.candidate.as_dict() if self.candidate else None,
+            "candidates": [c.as_dict() for c in self.candidates],
+            "next_evaluation_at": (
+                self.next_evaluation_at.isoformat() if self.next_evaluation_at else None
+            ),
+            "would_publish_now": self.would_publish_now,
+            "article_gap_applies": False,
+        }
+
+
+def evaluate_growth_lane(
+    queue: QueueFacts,
+    policy: ThreadsOperationsPolicy,
+    tz: ZoneInfo,
+    *,
+    publication_enabled: bool = False,
+) -> GrowthLaneEvaluation:
+    """承認済みの今日の Growth Post を、記事の間隔と無関係に出してよいか。
+
+    出してよいのは: 承認済み・今日 (JST) の Growth Post・公開窓の中・``not_before`` 以降で
+    ``expires_at`` より前・今日まだ Growth Post を出していない・どの公開も不確定でない。
+    記事の 120 分の間隔は見ない (出した後も記事の間隔の起点にならない)。
+    """
+
+    now = _aware(queue.now) or datetime.now(UTC)
+    today = to_local(now, tz).date().isoformat()
+    growth = [c for c in queue.candidates if c.content_kind == KIND_ACCOUNT_GROWTH]
+    verdicts = [(_verdict(c, queue, policy), c) for c in growth]
+    far = datetime.max.replace(tzinfo=UTC)
+    eligible = sorted(
+        (v for v, c in verdicts if v.eligible and c.growth_date == today),
+        key=lambda v: (v.approved_at or far, v.proposal_id),
+    )
+    blockers: list[str] = []
+    state_blocker = _THREADS_STATE_BLOCKERS.get(queue.threads_state)
+    if state_blocker:
+        blockers.append(state_blocker)
+    if queue.any_uncertain_publication_ids:
+        blockers.append(BLOCKER_UNCERTAIN_PUBLICATION)
+    if queue.growth_published_today >= GROWTH_POSTS_PER_JST_DAY:
+        blockers.append(BLOCKER_GROWTH_DAILY_LIMIT)
+    window_open = window_is_open(policy.publication_window, now, tz)
+    if not window_open:
+        blockers.append(BLOCKER_OUTSIDE_PUBLICATION_WINDOW)
+    if not eligible:
+        blockers.append(BLOCKER_NO_ELIGIBLE_GROWTH)
+    if not publication_enabled:
+        blockers.append(BLOCKER_AUTOMATIC_PUBLICATION_DISABLED)
+
+    # 承認済みの今日の Growth Post が時刻だけを待っているなら、その時刻に見直す。
+    waiting = [
+        v
+        for v, c in verdicts
+        if c.status == "approved" and c.growth_date == today and not c.already_published
+    ]
+    next_at = None
+    if waiting and queue.growth_published_today < GROWTH_POSTS_PER_JST_DAY:
+        moments = [v.not_before for v in waiting if v.not_before and v.not_before > now]
+        if not window_open:
+            moments.append(next_window_open_at(policy.publication_window, now, tz))
+        if eligible and not blockers:
+            moments.append(now)
+        next_at = min(moments) if moments else now + timedelta(
+            minutes=policy.idle_publication_reevaluation_minutes
+        )
+    ordered = eligible + sorted(
+        (v for v, _c in verdicts if v not in eligible), key=lambda v: v.proposal_id
+    )
+    return GrowthLaneEvaluation(
+        now=now,
+        date_jst=today,
+        blockers=tuple(blockers),
+        candidate=eligible[0] if eligible else None,
+        candidates=tuple(ordered),
+        next_evaluation_at=next_at,
+        publication_enabled=publication_enabled,
+    )
+
+
 def _earliest_not_before(verdicts, now: datetime) -> datetime | None:
     """not_before だけで止まっている候補のうち、最も早く資格が生まれる時刻。"""
 
@@ -444,6 +562,10 @@ def _next_evaluation_at(
 
 
 __all__ = [
+    "BLOCKER_GROWTH_DAILY_LIMIT",
+    "BLOCKER_NO_ELIGIBLE_GROWTH",
+    "GrowthLaneEvaluation",
+    "evaluate_growth_lane",
     "CANDIDATE_REASONS",
     "EVIDENCE_INSUFFICIENT",
     "EVIDENCE_USABLE",

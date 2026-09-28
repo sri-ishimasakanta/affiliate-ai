@@ -369,29 +369,39 @@ def test_yesterdays_missed_growth_post_is_not_caught_up(session, tmp_path) -> No
 
     queue = ThreadsQueueService(session, settings=type("S", (), {})(),
                                 threads_service=_ReadyThreads(), timezone=JST)  # fmt: skip
-    verdicts = {c.proposal_id: c for c in queue.evaluate(now=MORNING).candidates}
+    lane = queue.evaluate_growth(now=MORNING, publication_enabled=True)
+    verdicts = {c.proposal_id: c for c in lane.candidates}
     assert verdicts[old.id].reason == REASON_EXPIRED  # 昨日の分は期限切れ (消さない)
+    assert lane.candidate is None  # 今日の分は承認待ち、昨日の分は取り戻さない
 
 
 def test_at_most_one_growth_publication_per_jst_day() -> None:
+    from app.social.threads.queue import evaluate_growth_lane
+
     policy = get_operations_policy()
     now = MORNING + timedelta(hours=4)
     candidates = (
         CandidateFacts(proposal_id=5, status="approved", angle="account_growth",
                        source_article_id=None, link_mode="none", approved_at=MORNING,
-                       content_kind=KIND_ACCOUNT_GROWTH),
+                       content_kind=KIND_ACCOUNT_GROWTH, growth_date="2026-09-28"),
         CandidateFacts(proposal_id=6, status="approved", angle="insight", source_article_id=21,
                        link_mode="none", approved_at=MORNING),
     )  # fmt: skip
     facts = QueueFacts(now=now, threads_state="ready", candidates=candidates,
                        growth_published_today=GROWTH_POST_TARGET_PER_JST_DAY)  # fmt: skip
+    lane = evaluate_growth_lane(facts, policy, JST, publication_enabled=True)
+    assert "growth_daily_limit" in lane.blockers and not lane.would_publish_now
+    assert {c.proposal_id: c for c in lane.candidates}[5].reason == REASON_GROWTH_DAILY_LIMIT
     evaluation = evaluate_queue(facts, policy, JST, publication_enabled=True)
-    verdicts = {c.proposal_id: c for c in evaluation.candidates}
-    assert verdicts[5].reason == REASON_GROWTH_DAILY_LIMIT
     assert evaluation.next_candidate.proposal_id == 6  # 記事の投稿は止めない
+    assert 5 not in {c.proposal_id for c in evaluation.candidates}  # 記事の枠に Growth は無い
 
 
-def test_growth_uses_the_same_gap_and_window_and_does_not_count_toward_the_advisory() -> None:
+def test_growth_ignores_the_article_gap_but_keeps_the_window_and_advisory() -> None:
+    """T6.3.3a: Growth は記事の 120 分の間隔を使わない。公開窓と目安 (記事だけ) は同じ。"""
+
+    from app.social.threads.queue import evaluate_growth_lane
+
     policy = get_operations_policy()
     assert policy.soft_min_gap_minutes == 120
     assert (policy.publication_window.start, policy.publication_window.end) == (time(7), time(23))
@@ -399,15 +409,15 @@ def test_growth_uses_the_same_gap_and_window_and_does_not_count_toward_the_advis
     candidates = (
         CandidateFacts(proposal_id=5, status="approved", angle="account_growth",
                        source_article_id=None, link_mode="none", approved_at=MORNING,
-                       content_kind=KIND_ACCOUNT_GROWTH),
+                       content_kind=KIND_ACCOUNT_GROWTH, growth_date="2026-09-28"),
     )  # fmt: skip
     recent = QueueFacts(now=MORNING + timedelta(minutes=30), threads_state="ready",
                         candidates=candidates, last_published_at=MORNING)  # fmt: skip
-    evaluation = evaluate_queue(recent, policy, JST, publication_enabled=True)
-    assert "gap_not_elapsed" in evaluation.blockers  # 間隔は同じ
+    lane = evaluate_growth_lane(recent, policy, JST, publication_enabled=True)
+    assert lane.would_publish_now and "gap_not_elapsed" not in lane.blockers
     night = QueueFacts(now=datetime(2026, 9, 28, 23, 30, tzinfo=JST), threads_state="ready",
                        candidates=candidates)  # fmt: skip
-    assert "outside_publication_window" in evaluate_queue(
+    assert "outside_publication_window" in evaluate_growth_lane(
         night, policy, JST, publication_enabled=True
     ).blockers
     assert daily_activity(3, policy)["band"] == "within_target"  # 記事 3 本で目安の中

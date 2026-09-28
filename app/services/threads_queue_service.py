@@ -42,8 +42,10 @@ from app.social.threads.queue import (
     KIND_ACCOUNT_GROWTH,
     KIND_ARTICLE,
     CandidateFacts,
+    GrowthLaneEvaluation,
     QueueEvaluation,
     QueueFacts,
+    evaluate_growth_lane,
     evaluate_queue,
 )
 from app.social.threads.schedule import local_day_bounds
@@ -100,8 +102,18 @@ class ThreadsQueueService:
             published_today=self.published_today(now),
             growth_published_today=self.growth_published_today(now),
             uncertain_publication_ids=tuple(self.uncertain_publication_ids()),
+            any_uncertain_publication_ids=tuple(self.uncertain_publication_ids(lane="all")),
             mature_post_count=self.mature_post_count(now),
             minimum_mature_posts=self._measurement.minimum_mature_posts,
+        )
+
+    def evaluate_growth(
+        self, *, now: datetime | None = None, publication_enabled: bool = False
+    ) -> GrowthLaneEvaluation:
+        """T6.3.3a: Growth Post の足し分の枠 (記事の間隔・1 回 1 本の枠を使わない)。"""
+
+        return evaluate_growth_lane(
+            self.facts(now=now), self._policy, self._tz, publication_enabled=publication_enabled
         )
 
     def evaluate(
@@ -154,19 +166,24 @@ class ThreadsQueueService:
         basis = self.latest_gap_basis()
         return self._session.get(ThreadsPublication, basis.publication_id) if basis else None
 
-    def uncertain_publication_ids(self) -> list[int]:
-        """照合が済んでいない公開。**1 件でもあれば queue 全体を止める。**"""
+    def uncertain_publication_ids(self, *, lane: str = "article") -> list[int]:
+        """照合が済んでいない公開。**1 件でもあれば、その枠の queue を止める。**
 
+        T6.3.3a: 記事の枠 (既定) は記事の公開だけを見る (Growth Post の失敗で記事を止めない)。
+        ``lane="all"`` はすべての公開 (Growth の枠が使う: どれかが不確定なら Growth は出さない)。
+        """
+
+        conditions = [
+            or_(
+                ThreadsPublication.status.in_(tuple(PUB_IN_FLIGHT_STATES)),
+                ThreadsPublication.reconciliation_required.is_(True),
+            )
+        ]
+        if lane == "article":
+            conditions.append(ThreadsPublication.source_article_id.is_not(None))
         return list(
             self._session.scalars(
-                select(ThreadsPublication.id)
-                .where(
-                    or_(
-                        ThreadsPublication.status.in_(tuple(PUB_IN_FLIGHT_STATES)),
-                        ThreadsPublication.reconciliation_required.is_(True),
-                    )
-                )
-                .order_by(ThreadsPublication.id)
+                select(ThreadsPublication.id).where(*conditions).order_by(ThreadsPublication.id)
             ).all()
         )
 
@@ -249,6 +266,7 @@ class ThreadsQueueService:
                     content_kind=(
                         KIND_ACCOUNT_GROWTH if is_account_growth(proposal) else KIND_ARTICLE
                     ),
+                    growth_date=_growth_date(proposal),
                 )
             )
         return out
@@ -265,6 +283,13 @@ class ThreadsQueueService:
         if proposal.status != TP_APPROVED:
             return None
         return _aware_or_none(proposal.approved_at)
+
+
+def _growth_date(proposal) -> str | None:
+    if not is_account_growth(proposal):
+        return None
+    meta = (proposal.learning_guidance_json or {}).get("growth") or {}
+    return meta.get("date_jst")
 
 
 def _aware_or_none(moment: datetime | None) -> datetime | None:
