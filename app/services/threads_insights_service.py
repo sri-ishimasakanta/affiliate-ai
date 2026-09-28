@@ -397,6 +397,7 @@ class ThreadsInsightsService:
                     trigger=row.trigger,
                     minutes_in_state=minutes,
                     error_category=row.error_category,
+                    growth=row.source_article_id is None,
                 )
             )
         return out

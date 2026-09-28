@@ -159,7 +159,7 @@ def test_an_absent_weekly_run_makes_the_report_incomplete(session: Session) -> N
 
     assert report.complete is False
     assert any("no weekly operations run" in r for r in report.incomplete_reasons)
-    assert "incomplete" in weekly_subject(report)
+    assert "不完全" in weekly_subject(report)
 
 
 def test_a_succeeded_weekly_run_makes_the_report_complete(session: Session) -> None:
@@ -183,7 +183,7 @@ def test_a_succeeded_weekly_run_makes_the_report_complete(session: Session) -> N
 
     assert report.complete is True
     assert report.incomplete_reasons == []
-    assert "incomplete" not in weekly_subject(report)
+    assert "不完全" not in weekly_subject(report)
 
 
 def test_the_report_is_read_only(session: Session) -> None:

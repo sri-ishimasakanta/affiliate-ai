@@ -185,7 +185,7 @@ def test_an_uncertain_publication_alerts_immediately_at_error() -> None:
     )
     assert [d.fingerprint for d in drafts] == ["threads_publication_uncertain:4"]
     assert drafts[0].severity == SEVERITY_ERROR
-    assert "再送しない" in drafts[0].summary
+    assert "自動再送は停止しています" in drafts[0].summary
     assert drafts[0].evidence["trigger"] == "automatic"
 
 

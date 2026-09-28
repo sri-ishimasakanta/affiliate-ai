@@ -83,18 +83,40 @@ def _threads_post_snapshot(proposal, article) -> dict:
     ものを見せて、別の文章を公開することがあってはならない。
     """
 
-    from app.social.threads.topic import is_account_growth
+    from app.social.threads import labels_ja as ja
+    from app.social.threads.conversation import hook_from_provenance
+    from app.social.threads.topic import (
+        TopicPolicyError,
+        content_kind,
+        is_account_growth,
+        topic_tag_for,
+    )
 
-    if is_account_growth(proposal):
-        # T6.3.3: 記事の題の欄に種類と目標を出す (レビューページは表示する鍵を限っているので、
-        # 新しい鍵は使わない。日本語の画面の作り直しは T6.4)。
+    guidance = proposal.learning_guidance_json or {}
+    growth = is_account_growth(proposal)
+    meta = guidance.get("growth") or {} if growth else {}
+    try:
+        kind = content_kind(proposal)
+        topic = ja.topic_label(topic_tag_for(kind))
+    except TopicPolicyError:
+        kind, topic = None, "不明 (この種類は公開されない)"
+    if growth:
+        # T6.3.3: 今のレビューページは表示する鍵を限っているので、記事の題の欄にも種類と目標を
+        # 出す (新しい鍵を表示するページ (T6.4) では、元記事の欄は source_article_label を使う)。
         from app.social.threads.growth import GROWTH_FOLLOWER_TARGET
 
-        meta = (proposal.learning_guidance_json or {}).get("growth") or {}
         target = meta.get("follower_target", GROWTH_FOLLOWER_TARGET)
         title = f"投稿種別: Growth Post / 目標: フォロワー{target}人"
+        goal = f"フォロワー{target}人"
+        source_label = "なし（Growth Post）"
     else:
         title = getattr(article, "title", None)
+        goal = None
+        source_label = title
+    hook = None if growth else hook_from_provenance(guidance)
+    warnings = ja.localize_warnings(proposal.warnings_json)
+    # T6.4: 人に見せる値だけ日本語にする。内部の値 (angle・link_mode・警告の元の文) は
+    # ``*_raw`` に残し、提案そのもの (本文・hash) は変えない。
     return {
         "subject_type": SUBJECT_THREADS_POST,
         "subject_id": proposal.id,
@@ -103,7 +125,8 @@ def _threads_post_snapshot(proposal, article) -> dict:
         # Threads 提案には版が無いので、生成規則の版を identity の補助に使う。
         "subject_version": 1,
         "status": proposal.status,
-        "angle": proposal.angle,
+        "angle": ja.angle_label(proposal.angle, growth_angle=meta.get("angle")),
+        "angle_raw": proposal.angle,
         "article_id": proposal.source_article_id,
         "article_title": title,
         "article_url": getattr(article, "published_url", None),
@@ -111,12 +134,22 @@ def _threads_post_snapshot(proposal, article) -> dict:
         "source_article_body_hash_short": proposal.source_article_body_hash[:16],
         "policy_version": proposal.policy_version,
         "generator_version": proposal.generator_version,
-        "link_mode": proposal.link_mode,
+        "link_mode": ja.link_label(proposal.link_mode),
+        "link_mode_raw": proposal.link_mode,
         "destination_url": proposal.destination_url,
         # 公開される文字列そのもの。切らない。
         "publish_text": proposal.content_text,
         "character_count": proposal.character_count,
-        "warnings": list(proposal.warnings_json or []),
+        "warnings": [w.text() for w in warnings],
+        "warnings_raw": list(proposal.warnings_json or []),
+        # T6.4: レビューページが表示する日本語の欄 (中継の許可リストにある鍵)。
+        "post_kind_label": ja.kind_label(kind) if kind else "不明",
+        "status_label": ja.status_label(proposal.status),
+        "source_article_label": source_label,
+        "goal_label": goal,
+        "hook_label": ja.hook_label(hook) if hook else ("なし" if growth else None),
+        "topic_label": topic,
+        "warning_details": [{"label": w.label, "detail": w.detail} for w in warnings],
     }
 
 

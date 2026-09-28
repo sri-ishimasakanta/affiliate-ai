@@ -184,9 +184,12 @@ function reviewModel(s){
  var raw=threads?s.publish_text:s.inserted_paragraph;
  var ok=typeof raw==="string"&&raw.replace(/\s+/g,"")!=="";
  var rows=threads?[
-  ["投稿案","#"+s.subject_id],["記事",s.article_title],["切り口",s.angle],
-  ["リンク",s.link_mode],["文字数",s.character_count],["提案",s.subject_hash_short],
-  ["期限",s.expires_at_local]
+  ["投稿案","#"+s.subject_id],["投稿種別",s.post_kind_label],["状態",s.status_label],
+  ["元記事",s.source_article_label!=null?s.source_article_label:s.article_title],
+  ["目標",s.goal_label],["切り口",s.angle],["会話フック",s.hook_label],["リンク",s.link_mode],
+  ["トピック",s.topic_label],
+  ["文字数",typeof s.character_count==="number"?s.character_count+"文字":s.character_count],
+  ["提案",s.subject_hash_short],["期限",s.expires_at_local]
  ]:[
   ["変更要求","#"+s.subject_id],["記事",s.article_title],["リンク先",s.target_article_title],
   ["変更種別",s.change_type],["候補",s.candidate_type],["優先度",s.priority],
@@ -206,7 +209,9 @@ function reviewModel(s){
   contextAfter:threads?null:(s.context_after||null),
   diffLines:threads?[]:(s.diff_lines||[]),
   diffTruncated:!threads&&!!s.diff_truncated,
-  warnings:(s.warnings||[]).map(function(w){return String(w);})
+  warnings:(s.warning_details&&s.warning_details.length?s.warning_details.map(function(w){
+    return "\u26a0 "+String(w.label||"")+(w.detail?"\n"+String(w.detail):"");}):
+   (s.warnings||[]).map(function(w){return String(w);}))
  };
 }
 JS;
@@ -293,7 +298,8 @@ JS;
   h+=m.canApprove?'<pre id="t">'+esc(m.text)+"</pre>":'<p class="msg err" id="t">'+esc(m.error)+"</p>";
   if(m.contextAfter){h+="<p><strong>直後</strong></p><pre>"+esc(m.contextAfter)+"</pre>";}
   if(m.diffLines.length){h+="<p><strong>差分</strong></p><pre>"+esc(m.diffLines.join("\\n"))+(m.diffTruncated?"\\n...":"")+"</pre>";}
-  m.warnings.forEach(function(w){h+='<p class="warn">'+esc(w)+"</p>";});
+  if(m.warnings.length){h+="<p><strong>警告</strong></p>";}
+  m.warnings.forEach(function(w){h+='<p class="warn" style="white-space:pre-wrap">'+esc(w)+"</p>";});
   if(m.canApprove){h+='<button class="approve" id="a">承認する</button>';}
   h+='<button class="reject" id="r">却下する</button>';
   app.innerHTML=h;
@@ -380,6 +386,10 @@ function bfl_approval_public_snapshot( array $snapshot, string $expires_at_local
 		'insertion_line', 'diff_lines', 'diff_truncated', 'warnings',
 		// threads_post (T6.1): the exact text to be published and its context.
 		'angle', 'link_mode', 'publish_text', 'character_count',
+		// threads_post (T6.4): Japanese display labels prepared by affiliate-ai.
+		// Display only; the relay never decides anything from them.
+		'post_kind_label', 'status_label', 'source_article_label', 'goal_label',
+		'hook_label', 'topic_label', 'warning_details',
 	);
 	$out = array();
 	foreach ( $allowed as $key ) {

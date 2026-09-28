@@ -68,6 +68,8 @@ class WeeklyReport:
     content_changes: dict = field(default_factory=dict)
     article_health: dict = field(default_factory=dict)
     alerts: dict = field(default_factory=dict)
+    #: T6.4: Threads のまとめ (読むだけ)。
+    threads: dict = field(default_factory=dict)
     next_attention: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -87,6 +89,7 @@ class WeeklyReport:
                 "content_changes": self.content_changes,
                 "article_health": self.article_health,
                 "alerts": self.alerts,
+                "threads": self.threads,
                 "next_attention": list(self.next_attention),
             }
         )
@@ -132,6 +135,7 @@ class OperationsWeeklyReportService:
         report.content_changes = self._content_changes(since)
         report.article_health = self._article_health()
         report.alerts = self._alerts(since)
+        report.threads = self._threads(period_start, today, now)
 
         self._assess_completeness(report, run)
         report.next_attention = self._next_attention(report)
@@ -396,6 +400,18 @@ class OperationsWeeklyReportService:
                 "regression は ALERTS セクションの indexability アラートで見る。"
             ),
         }
+
+    def _threads(self, start, end, now: datetime) -> dict:
+        """T6.4: Threads のまとめ (読むだけ)。読めなければ空 (レポートは止めない)。"""
+
+        from app.services.threads_report_service import ThreadsReportService
+
+        try:
+            return ThreadsReportService(self._session, timezone=self._policy.timezone).summary(
+                start=start, end=end, now=now
+            )
+        except Exception:  # noqa: BLE001 - Threads の表が無い DB でも週次は送る
+            return {}
 
     def _alerts(self, since: datetime) -> dict:
         opened = self._session.scalars(

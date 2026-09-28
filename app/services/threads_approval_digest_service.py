@@ -255,6 +255,7 @@ class ThreadsApprovalDigestService:
                         self._session.get(ThreadsPostProposal, candidate.proposal_id)
                     ),
                     **_kind_lines(self._session.get(ThreadsPostProposal, candidate.proposal_id)),
+                    **_display(self._session.get(ThreadsPostProposal, candidate.proposal_id)),
                     "review_url": issued.review_url,
                 }
             )
@@ -430,6 +431,31 @@ def _preview(text: str, limit: int) -> str:
 __all__ = ["DigestOutcome", "ThreadsApprovalDigestService"]
 
 
+def _display(proposal) -> dict:
+    """T6.4: まとめ送りの 1 件に出す日本語の欄 (状態・切り口・会話フック・リンク・本文・注意)。"""
+
+    if proposal is None:
+        return {}
+    from app.social.threads import labels_ja as ja
+    from app.social.threads.conversation import hook_from_provenance
+
+    growth = is_account_growth(proposal)
+    meta = (proposal.learning_guidance_json or {}).get("growth") or {} if growth else {}
+    hook = None if growth else hook_from_provenance(proposal.learning_guidance_json)
+    return {
+        "status": ja.status_label(proposal.status),
+        "angle_label": ja.angle_label(proposal.angle, growth_angle=meta.get("angle")),
+        "hook": ja.hook_label(hook) if hook else None,
+        "link": ja.link_label(proposal.link_mode),
+        "characters": proposal.character_count,
+        "body": proposal.content_text,
+        "warnings_ja": [
+            {"label": w.label, "detail": w.detail}
+            for w in ja.localize_warnings(proposal.warnings_json)
+        ],
+    }
+
+
 def _kind_lines(proposal) -> dict:
     """承認のメールに出す投稿の種類と、Growth Post なら目標 (T6.3.3)。"""
 
@@ -438,8 +464,9 @@ def _kind_lines(proposal) -> dict:
 
         meta = (proposal.learning_guidance_json or {}).get("growth") or {}
         target = meta.get("follower_target", GROWTH_FOLLOWER_TARGET)
-        return {"kind": GROWTH_POST_LABEL, "goal": f"フォロワー{target}人"}
-    return {"kind": "記事の投稿"}
+        return {"kind": GROWTH_POST_LABEL, "goal": f"フォロワー{target}人",
+                "article_title": "なし（Growth Post）"}  # fmt: skip
+    return {"kind": "通常記事"}
 
 
 def _topic_text(proposal) -> str:

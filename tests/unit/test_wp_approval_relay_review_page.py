@@ -248,3 +248,49 @@ def test_the_c9_change_request_page_is_unchanged(page_script, tmp_path) -> None:
     assert '<pre id="t">あわせて読みたい: AI議事録の選び方</pre>' in html
     assert "<dt>変更要求</dt><dd>#12</dd>" in html
     assert 'id="a"' in html
+
+
+# == T6.4: 日本語の欄 ==================================================================
+def _japanese(**extra) -> dict:
+    return {**_threads(warnings=[
+        "長い文があります: 60文字を超える文が1文あります。短くすると読みやすくなります。"]),
+        "angle": "よくある間違い（common_mistake）", "link_mode": "元記事へのリンクあり",
+        "post_kind_label": "通常記事", "status_label": "承認待ち",
+        "source_article_label": "ChatGPT 法人プランの選び方", "hook_label": "経験（experience）",
+        "topic_label": "AI Threads",
+        "warning_details": [{
+            "label": "長い文があります",
+            "detail": "60文字を超える文が1文あります。短くすると読みやすくなります。",
+        }],
+        **extra}  # fmt: skip
+
+
+def test_the_review_page_shows_the_japanese_labels(page_script, tmp_path) -> None:
+    public = _public(_japanese())
+    for key in ("post_kind_label", "status_label", "source_article_label", "hook_label",
+                "topic_label", "warning_details"):  # fmt: skip
+        assert key in public, key  # 中継の許可リストを通る
+    html = _run(page_script, tmp_path, _japanese())["steps"][0]["html"]
+    for text in ("投稿種別", "通常記事", "状態", "承認待ち", "元記事", "ChatGPT 法人プランの選び方",
+                 "会話フック", "経験（experience）", "トピック", "AI Threads", "リンク",
+                 "元記事へのリンクあり", "文字数", "文字", "警告", "長い文があります",
+                 "承認する", "却下する"):  # fmt: skip
+        assert text in html, text
+    assert "exceed" not in html
+
+
+def test_the_review_page_shows_a_growth_post(page_script, tmp_path) -> None:
+    growth = _japanese(post_kind_label="Growth Post", source_article_label="なし（Growth Post）",
+                       goal_label="フォロワー100人", topic_label="なし", hook_label="なし",
+                       angle="アカウント紹介", link_mode="なし", warning_details=[], warnings=[])
+    html = _run(page_script, tmp_path, growth)["steps"][0]["html"]
+    for text in ("Growth Post", "目標", "フォロワー100人", "なし（Growth Post）",
+                 "アカウント紹介"):  # fmt: skip
+        assert text in html, text
+    assert "警告" not in html
+
+
+def test_an_old_snapshot_without_the_new_labels_still_renders(page_script, tmp_path) -> None:
+    html = _run(page_script, tmp_path, _threads(warnings=["1 sentence(s) exceed 60"]))[
+        "steps"][0]["html"]  # fmt: skip
+    assert "承認する" in html and "1 sentence(s) exceed 60" in html  # 旧い形も落とさない

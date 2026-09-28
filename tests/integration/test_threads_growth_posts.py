@@ -552,12 +552,14 @@ def test_the_approval_snapshot_and_email_show_the_growth_post(session, tmp_path)
     row = session.get(ThreadsPostProposal, out["created"])
     snap = build_snapshot(subject_type="threads_post", subject=row, article=None)
     assert snap["article_title"] == "投稿種別: Growth Post / 目標: フォロワー100人"
-    assert snap["publish_text"] == row.content_text and snap["link_mode"] == "none"
+    assert snap["publish_text"] == row.content_text and snap["link_mode"] == "なし"
+    assert snap["link_mode_raw"] == "none" and snap["topic_label"] == "なし"
+    assert snap["post_kind_label"] == "Growth Post" and snap["goal_label"] == "フォロワー100人"
     item = {"proposal_id": row.id, "article_title": "Growth Post", "angle": row.angle,
             "preview": "…", "timing": None, "topic": _topic_text(row), **_kind_lines(row),
             "review_url": "https://x/r"}  # fmt: skip
     text = render_approval_digest_text(items=[item], expires_at_local="-")
-    assert "投稿種別: Growth Post" in text and "目標   : フォロワー100人" in text
+    assert "投稿種別: Growth Post" in text and "目標: フォロワー100人" in text
     assert "トピック: なし" in text
 
 

@@ -40,6 +40,7 @@ from app.operations.email import EmailConfigError, build_email_config, build_ema
 from app.operations.notifications import sanitize_payload
 from app.operations.policy import SEVERITY_ORDER, OperationsPolicy, get_policy
 from app.operations.report_format import (
+    approval_digest_subject,
     render_approval_digest_html,
     render_approval_digest_text,
     render_approval_request_html,
@@ -139,9 +140,9 @@ class OperationsNotificationService:
 
         severity = self._severity_for(run, alerts)
         title = {
-            "failed": "Daily operations failed",
-            "partial": "Daily operations requires attention",
-        }.get(run.status, "Production monitoring alert")
+            "failed": "日次運用が失敗しました",
+            "partial": "日次運用の確認が必要です",
+        }.get(run.status, "本番監視のアラート")
         body = render_daily_incident(
             run_summary=summary,
             alerts=alerts,
@@ -272,7 +273,7 @@ class OperationsNotificationService:
             "notification_window_overridden": window_override_reason is not None,
             "window_override_reason": window_override_reason,
         }
-        title = f"Review {len(items)} Threads proposal(s)"
+        title = approval_digest_subject(len(items))
         public_items = [
             {key: value for key, value in item.items() if key != "session"} for item in items
         ]

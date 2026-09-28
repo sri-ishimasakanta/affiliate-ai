@@ -244,6 +244,8 @@ class WorkerLogFormatter:
         }
         if summary.get("followers_observed") is not None:
             fields["followers"] = summary.get("followers_observed")
+        if summary.get("follower_read"):
+            fields["follower_read"] = summary["follower_read"]
         if summary.get("reason"):
             fields["reason"] = summary["reason"]
         failed = bool(summary.get("model_calls")) and not summary.get("created")

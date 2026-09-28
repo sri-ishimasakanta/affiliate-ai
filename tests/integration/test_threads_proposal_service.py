@@ -325,7 +325,8 @@ def test_a_threads_proposal_can_be_sent_for_mobile_approval(
     # 人が見るのは、実際に投稿される文字列そのもの。
     assert snapshot["publish_text"] == proposal.content_text
     assert snapshot["character_count"] == proposal.character_count
-    assert snapshot["angle"] == "insight"
+    # T6.4: 人に見せる値は日本語。内部の値は *_raw に残る。
+    assert snapshot["angle"] == "気づき（insight）" and snapshot["angle_raw"] == "insight"
     assert snapshot["article_title"] == article.title
     assert snapshot["subject_hash_short"] == proposal.proposal_hash[:16]
     # 承認はまだされていない。

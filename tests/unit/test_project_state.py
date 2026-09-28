@@ -566,7 +566,7 @@ def test_markdown_and_json_describe_the_same_core_state(tmp_path) -> None:
     ctx, _, _ = _context(tmp_path)
     report = build_report(ctx)
     md = render_markdown(report)
-    assert report["project"]["current_phase"] == "T6.3.3"  # T6.3.3 は本番の有効化待ち
+    assert report["project"]["current_phase"] == "T6.4"  # T6.4 は本番の展開待ち
     assert f"**{report['project']['current_phase']}** active" in md
     assert "featured images 25/25" in md
     assert f"{report['git']['ahead']} ahead" in md

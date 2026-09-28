@@ -161,7 +161,7 @@ def test_a_failed_daily_run_sends_one_email(session: Session) -> None:
     assert outcome.sent is True
     assert len(notifier.sent) == 1
     subject, body = notifier.sent[0]
-    assert subject == "[BizFluxLab][ERROR] Daily operations failed"
+    assert subject == "[BizFluxLab][ERROR] 日次運用が失敗しました"
     assert "import_ga4" in body
 
 
@@ -173,7 +173,7 @@ def test_a_partial_daily_run_sends_one_warning(session: Session) -> None:
     _service(session, notifier).send_daily_incident(operations_run_id=run.id, now=_NOW)
 
     subject, body = notifier.sent[0]
-    assert subject == "[BizFluxLab][WARNING] Daily operations requires attention"
+    assert subject == "[BizFluxLab][WARNING] 日次運用の確認が必要です"
     assert "import_make_commissions" in body
 
 
@@ -259,7 +259,7 @@ def test_a_healthy_weekly_run_always_sends_one_digest(session: Session) -> None:
 
     assert outcome.sent is True
     subject, body = notifier.sent[0]
-    assert subject == "[BizFluxLab] Weekly Operations Report - 2026-09-23"
+    assert subject == "[BizFluxLab] 週次運用レポート 2026-09-23"
     assert "incomplete" not in subject
     assert "SYSTEM" in body and "ALERTS" in body
 
@@ -274,7 +274,7 @@ def test_a_partial_weekly_run_sends_an_incomplete_digest(session: Session) -> No
     assert outcome.sent is True
     subject, body = notifier.sent[0]
     assert subject.startswith("[BizFluxLab][WARNING]")
-    assert "incomplete" in subject
+    assert "不完全" in subject
     assert "このレポートは不完全である" in body
 
 

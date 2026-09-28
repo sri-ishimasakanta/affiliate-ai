@@ -165,6 +165,8 @@ class PublicationHealthInput:
     trigger: str = "manual"
     minutes_in_state: float | None = None
     error_category: str | None = None
+    #: T6.3.3a/T6.4: Growth Post の公開か (Growth の失敗は記事の queue を止めない)。
+    growth: bool = False
 
 
 def build_publication_alert_drafts(inputs: list[PublicationHealthInput]) -> list[AlertDraft]:
@@ -173,6 +175,8 @@ def build_publication_alert_drafts(inputs: list[PublicationHealthInput]) -> list
     これらは queue 全体を止める状態なので、黙って止まったままにしない。
     """
 
+    from app.social.threads.labels_ja import explain_publication_failure
+
     drafts: list[AlertDraft] = []
     for item in inputs:
         evidence = {
@@ -180,6 +184,7 @@ def build_publication_alert_drafts(inputs: list[PublicationHealthInput]) -> list
             "status": item.status,
             "trigger": item.trigger,
             "error_category": item.error_category,
+            "lane": "account_growth" if item.growth else "article",
         }
         stuck = (
             item.status in ("creating", "container_created", "publishing")
@@ -193,10 +198,12 @@ def build_publication_alert_drafts(inputs: list[PublicationHealthInput]) -> list
                     severity=SEVERITY_ERROR,
                     source="threads_publication",
                     title="Threads の公開が出たかどうか分からない",
-                    summary=(
-                        "公開の応答を取りこぼした (または途中で止まった)。次の公開はすべて止まって"
-                        "いる。publish_threads_post.py --reconcile で確かめる。**再送しない。**"
-                    ),
+                    summary="\n".join(
+                        explain_publication_failure(
+                            status="uncertain", publication_id=item.publication_id,
+                            error_category=item.error_category, growth=item.growth,
+                        ).lines()
+                    ),  # fmt: skip
                     fingerprint=f"threads_publication_uncertain:{item.publication_id}",
                     evidence=evidence,
                 )
@@ -209,14 +216,51 @@ def build_publication_alert_drafts(inputs: list[PublicationHealthInput]) -> list
                     source="threads_publication",
                     title="公開した内容の照合が必要",
                     summary=(
-                        "読み戻した内容が送った内容と一致しない。次の公開はすべて止まっている。"
-                        "内容を確かめてから照合する。"
-                    ),
+                        "読み戻した内容が送った内容と一致しません。"
+                        + ("Growth Post だけを止め、通常投稿は続けます。" if item.growth
+                           else "次の公開は止まっています。")
+                        + "内容を確かめてから照合してください（自動では直しません）。"
+                    ),  # fmt: skip
                     fingerprint=f"threads_publication_reconcile:{item.publication_id}",
                     evidence=evidence,
                 )
             )
     return drafts
+
+
+def build_autopublish_failure_draft(error: dict | None, *, growth: bool = False,
+                                    publication_id: int | None = None) -> AlertDraft:  # fmt: skip
+    """T6.4: 自動公開のコンテナ作成・公開が失敗した (事前確認の失敗とは別)。人に分かる 4 行。"""
+
+    from app.social.threads.labels_ja import explain_publication_failure
+
+    error = error or {}
+    category = error.get("category")
+    reason = str(error.get("reason") or "")
+    status = error.get("status")
+    topic_rejected = (
+        not growth and category == "threads_response" and isinstance(status, int)
+        and 400 <= status < 500 and "topic" in reason.lower()
+    )  # fmt: skip
+    explanation = explain_publication_failure(
+        status="failed", error_category=category, api_code=error.get("api_code"),
+        http_status=status, publication_id=publication_id, topic_rejected=topic_rejected,
+        growth=growth,
+    )  # fmt: skip
+    return AlertDraft(
+        alert_type=AUTOMATION_HEALTH,
+        severity=SEVERITY_ERROR,
+        source="threads_autopublish",
+        title=(
+            "Threads 側で Topic が受け付けられませんでした" if topic_rejected
+            else "Threads への公開に失敗しました"
+        ),  # fmt: skip
+        summary="\n".join(explanation.lines()),
+        fingerprint=f"threads_autopublish_failed:{category or 'unknown'}:"
+        f"{'growth' if growth else 'article'}",
+        evidence={**explanation.technical, "reason": reason[:300],
+                  "lane": "account_growth" if growth else "article"},  # fmt: skip
+    )
 
 
 def build_autopublish_preflight_draft(category: str | None, reason: str | None) -> AlertDraft:
@@ -236,6 +280,7 @@ def build_autopublish_preflight_draft(category: str | None, reason: str | None) 
 __all__ = [
     "STUCK_IN_FLIGHT_MINUTES",
     "PublicationHealthInput",
+    "build_autopublish_failure_draft",
     "build_autopublish_preflight_draft",
     "build_publication_alert_drafts",
     "FATAL_CATEGORIES",

@@ -251,7 +251,7 @@ def test_one_email_carries_several_independent_review_links(session: Session, ar
     body = notifier.sent[0]["body"]
     for s in sessions:
         assert s.relay_session_id in body
-    assert body.count("確認   :") == 3
+    assert body.count("    確認: ") == 3
 
 
 def test_the_email_offers_no_approve_all(session: Session, articles) -> None:
@@ -456,7 +456,7 @@ def test_the_raw_capability_is_never_stored_or_sent_to_the_relay(
     _service(session, relay, notifier).send(now=_NOW, execute=True)
 
     body = notifier.sent[0]["body"]
-    capabilities = [line.split("#", 1)[1] for line in body.splitlines() if "確認   :" in line]
+    capabilities = [line.split("#", 1)[1] for line in body.splitlines() if "    確認: " in line]
     assert len(capabilities) == 2
     stored = " ".join(
         str(v)

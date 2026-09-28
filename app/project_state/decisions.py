@@ -364,6 +364,35 @@ DECISIONS = (
         "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
     },
     {
+        "id": "threads-localization-t64",
+        "area": "threads/presentation",
+        "decision": (
+            "T6.4: 人に見せる Threads の画面・メール・報告を日本語にする。"
+            "内部の値 (状態・理由の ID・enum・ログ) は変えず、"
+            "表示の層 (labels_ja) だけが日本語にする"
+        ),
+        "rationale": (
+            "携帯の承認画面に英語の警告がそのまま出ていた。振る舞いを変えずに、人が読めるようにする"
+        ),
+        "evidence": ["docs/operations/threads-localization.md"],
+        "phrase": "## 仕組み: 内部の値はそのまま、表示の層で日本語にする",
+        "resulting_state": "実装済み。本番は worker の再起動と中継の配備 (別の確認点) で効く",
+        "follow_up": "本番への展開: worker の再起動 → 中継 (WordPress) の配備は人の許可のもとで",
+    },
+    {
+        "id": "threads-growth-t633-complete",
+        "area": "threads/generation",
+        "decision": "T6.3.3 は完了。Growth Post の足し分の枠を本番で確かめ、人が表示を確かめた",
+        "rationale": (
+            "公開 20 (#25) が記事の間隔を変えずに出て、"
+            "人がアプリでトピックなし・リンクなしを確かめた"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "**人の目の確認 (2026-09-28)**",
+        "resulting_state": "T6.3.3 complete。次は T6.4 (日本語の表示)",
+        "follow_up": "フォロー返しは人が手で続ける",
+    },
+    {
         "id": "threads-growth-lane-t633a",
         "area": "threads/publication",
         "decision": (

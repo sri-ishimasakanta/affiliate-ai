@@ -63,6 +63,17 @@ from app.social.threads.proposal import build_publish_text, compute_proposal_has
 from app.social.threads.topic import CONTENT_KIND_ACCOUNT_GROWTH, CONTENT_KIND_KEY
 
 DEFAULT_DIRECTORY = Path("data/threads-growth")
+
+#: T6.4: フォロワー数を読んだ結果の理由 (内部の値 → 人に見せる日本語)。
+FOLLOWER_READ_LABELS = {
+    "success": "取得しました",
+    "not_requested": "今回は読んでいません (--collect-insights なし)",
+    "permission_denied": "権限がないため取得できませんでした",
+    "api_error": "Threads の API がエラーを返しました",
+    "metric_unavailable": "API から値が返されませんでした",
+    "missing_field": "API の値の形が想定と違いました",
+    "stale": "前に読んだ値が古いため使いませんでした",
+}
 FOLLOWERS_FILE = "followers.json"
 STATUS_FILE = "status.json"
 RECORD_SUFFIX = ".openai.json"
@@ -89,6 +100,8 @@ class ThreadsGrowthService:
         self._collect_followers = collect_followers
         self._target = follower_target
         self._enabled = enabled
+        #: T6.4: 最後にフォロワー数を読んだ結果 (理由の ID と日本語。値・秘密は入れない)。
+        self._follower_read: dict | None = None
 
     # -- facts ---------------------------------------------------------------------------
     def growth_proposals(self) -> list[ThreadsPostProposal]:
@@ -188,13 +201,20 @@ class ThreadsGrowthService:
             return result
         day = growth_date(now, self._tz)
         observation = self._observe_followers(now) if self._collect_followers else None
+        if not self._collect_followers:
+            self._set_follower_read("not_requested")
         if observation is None:
             observation = self.latest_observation()
+            if observation is not None and not observation.fresh(now) and (
+                self._follower_read or {}
+            ).get("outcome") in ("not_requested", None):
+                self._set_follower_read("stale")
         if target_reached(observation, self._target):
             result.update(
                 due=False,
                 follower_observation=observation.as_dict(),
                 follower_target_reached=True,
+                follower_read=self._follower_read,
                 reason=(f"follower target {self._target} reached ({observation.count} observed); "
                         "a human chooses the next target"),
             )  # fmt: skip
@@ -209,6 +229,7 @@ class ThreadsGrowthService:
             follower_observation=observation.as_dict() if observation else None,
             angle=brief.angle,
             uses_follower_count=brief.observation is not None,
+            follower_read=self._follower_read,
         )
         self._write_status(result)
         return result
@@ -366,17 +387,36 @@ class ThreadsGrowthService:
         """Threads のアカウントの指標を 1 回だけ読む (読むだけ)。読めなければ None。"""
 
         if self._threads is None:
+            self._set_follower_read("not_requested")
             return None
         try:
             insights = self._threads.user_insights(("followers_count",))
-        except ThreadsError:
+        except ThreadsError as exc:
+            self._set_follower_read(
+                "permission_denied"
+                if exc.category in ("threads_permission", "threads_auth")
+                else "api_error",
+                category=exc.category, status=exc.status, api_code=exc.api_code,
+            )  # fmt: skip
+            return None
+        if "followers_count" not in insights.values:
+            self._set_follower_read("metric_unavailable")
             return None
         value = insights.values.get("followers_count")
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            self._set_follower_read("missing_field")
             return None
+        self._set_follower_read("success")
         observation = FollowerObservation(count=value, observed_at=ensure_aware(now))
         self._write_json(FOLLOWERS_FILE, observation.as_dict())
         return observation
+
+    def _set_follower_read(self, outcome: str, **detail) -> None:
+        self._follower_read = {
+            "outcome": outcome,
+            "label": FOLLOWER_READ_LABELS.get(outcome, outcome),
+            **{k: v for k, v in detail.items() if v is not None},
+        }
 
     def _record(self, rid) -> dict:
         path = self._dir / f"{rid}{RECORD_SUFFIX}"

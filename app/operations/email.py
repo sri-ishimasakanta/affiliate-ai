@@ -169,33 +169,37 @@ def describe_email_settings(settings) -> dict:
 def render_alert_body(message: NotificationMessage) -> str:
     """アラート 1 件の本文 (text/plain)。巨大な JSON は載せない。"""
 
+    from app.social.threads.labels_ja import format_jst
+
     payload = message.as_payload()
+    severity = {"error": "エラー", "warning": "警告", "info": "お知らせ", "critical": "重大"}
     lines = [
-        f"severity        : {payload['severity']}",
-        f"alert type      : {payload['alert_type']}",
-        f"title           : {payload['title']}",
+        f"重要度          : {severity.get(str(payload['severity']), payload['severity'])}"
+        f"（{payload['severity']}）",
+        f"種類            : {payload['alert_type']}",
+        f"件名            : {payload['title']}",
         "",
         payload["summary"],
         "",
-        f"operations run  : {payload.get('operations_run_id')}",
-        f"observed at     : {payload.get('occurred_at')}",
-        f"source          : {payload.get('fingerprint')}",
+        f"運用の実行      : {payload.get('operations_run_id')}",
+        f"発生            : {format_jst(payload.get('occurred_at'))}",
+        f"識別子          : {payload.get('fingerprint')}",
     ]
     if payload.get("article_id"):
         slug = payload.get("article_slug") or ""
-        lines.append(f"article         : {payload['article_id']} {slug}".rstrip())
+        lines.append(f"記事            : {payload['article_id']} {slug}".rstrip())
     if payload.get("affiliate_program_id"):
-        lines.append(f"affiliate program: {payload['affiliate_program_id']}")
+        lines.append(f"アフィリエイト  : {payload['affiliate_program_id']}")
 
     evidence = payload.get("evidence") or {}
     if evidence:
         lines.append("")
-        lines.append("evidence:")
+        lines.append("技術的な詳細 (evidence):")
         lines.extend(_evidence_lines(evidence))
 
     lines += [
         "",
-        "suggested check:",
+        "確かめる (PC で):",
         "  uv run python scripts/run_operations.py --profile daily   (plan)",
         "  uv run python scripts/report_seo_improvement_candidates.py",
         "  uv run python scripts/report_revenue_optimization_candidates.py",

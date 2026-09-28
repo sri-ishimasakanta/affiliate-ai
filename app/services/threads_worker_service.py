@@ -404,6 +404,7 @@ class ThreadsWorkerService:
                 "followers_observed": (outcome.get("follower_observation") or {}).get(
                     "followers_count"
                 ),
+                "follower_read": (outcome.get("follower_read") or {}).get("outcome"),
             },
             wake=(
                 {SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: now, SUBSYSTEM_QUEUE_OBSERVATION: now}
@@ -556,6 +557,7 @@ class ThreadsWorkerService:
         """
 
         from app.operations.threads_health import (
+            build_autopublish_failure_draft,
             build_autopublish_preflight_draft,
             build_publication_alert_drafts,
         )
@@ -568,10 +570,13 @@ class ThreadsWorkerService:
                 build_autopublish_preflight_draft(error.get("category"), error.get("reason"))
             )
         elif result.outcome == "failed":
-            error = result.error or {}
+            # T6.4: コンテナ作成・公開の失敗は「事前確認の失敗」ではない。人に分かる説明で出す。
             drafts.append(
-                build_autopublish_preflight_draft(error.get("category"), error.get("reason"))
-            )
+                build_autopublish_failure_draft(
+                    result.error, growth=getattr(result, "lane", "article") == "account_growth",
+                    publication_id=result.publication_id,
+                )
+            )  # fmt: skip
         if result.attempted:
             health = ThreadsInsightsService(
                 session,

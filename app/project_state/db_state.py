@@ -382,7 +382,8 @@ def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
         #: 3〜5 本の目安は記事の投稿だけ。Growth Post は足し分として別に数える (JST の今日)。
         "posts_today": posts_today,
         "last_maintenance": {k: last.get(k) for k in ("date_jst", "due", "reason", "created",
-                                                      "written_at")} if last else None,  # fmt: skip
+                                                      "written_at", "follower_read")}
+        if last else None,  # fmt: skip
     }
 
 
