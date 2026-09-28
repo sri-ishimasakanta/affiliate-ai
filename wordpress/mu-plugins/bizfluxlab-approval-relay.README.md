@@ -244,6 +244,22 @@ uv run python scripts/publish_threads_post.py --proposal-id <id>
   i.e. a real approval request). They are covered by the tests; the first genuine
   approval request is the live confirmation.
 
+### T6.4 deployment record (2026-09-28, human-authorized)
+
+- Commit `b6bc174` (Japanese display labels: whitelist keys `post_kind_label`, `status_label`,
+  `source_article_label`, `goal_label`, `hook_label`, `topic_label`, `warning_details` and the
+  review-page rows). Display only; the exchange/decide routes, nonce, cookie, content guard and
+  headers are unchanged. Only `lib-core.php` changed (`bizfluxlab-approval-relay.php` is still
+  `4657bd2b…`).
+- Rollback copy: `D:\Backups\affiliate-ai\relay-pre-t6.4\lib-core.php` (`08d5ed12…`, the T6.1
+  version production served). The human uploaded `lib-core.php` `3f0799dc…`; `tests/` was not
+  uploaded.
+- Verification (read-only): the shell served for a random session id matched the shell rendered
+  locally from the uploaded file (script SHA-256 `058b82bf…eeb0c`); headers and `robots.txt`
+  unchanged; the worker's signed syncs kept succeeding. Live: the human opened proposal #27's
+  real review link on the phone and confirmed the Japanese fields; the decision was synchronized
+  at 16:55:04 JST.
+
 ## What is deliberately not stored
 
 No IP address, no User-Agent, no Referer, no raw capability, no SMTP

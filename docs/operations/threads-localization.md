@@ -82,3 +82,19 @@ T6.1 の版 (`08d5ed12…`) で、表示されるページの script が一致�
   `3f0799dc…` の版の描画と一致すること・安全のヘッダが同じこと・worker の次の同期が通ること。
   携帯では #27 (または次の) 承認のリンクを開いて、投稿種別・状態・元記事・会話フック・トピック・
   警告の欄を見る (承認・却下は人がいつも通り判断する)。
+
+**中継 (手順 2、WordPress): 済み。** 人が `lib-core.php` を XServer に上げた (この 1 つだけ)。
+読むだけの確認: 本番が返すページの script は SHA-256 `058b82bf…eeb0c` で、上げたファイル
+(`3f0799dc…cc48c`) を同じ入力で手元で描いたものと完全に一致 (script の外の HTML も一致)。
+安全のヘッダ (X-Robots-Tag・Cache-Control・Referrer-Policy・X-Frame-Options・CSP) は前と同じ。
+トップページ・`/wp-json/` は 200、`robots.txt` に `Disallow: /bfl-approval/`。上げた後の署名つきの
+同期は通った (`bizfluxlab-approval-relay.php` は変わらない)。
+
+**携帯の確認 (2026-09-28): 済み。** 投稿案 #27 の承認依頼 (16:25 JST のまとめ送り、件名
+「【Threads承認】投稿案1件の確認をお願いします」) の本物のリンクを人が携帯で開き、日本語の表示
+(投稿種別・状態・元記事・切り口・会話フック・リンク・トピック AI Threads・文字数・本文・日本語の
+警告「会話フックを確認してください」・承認 / 却下のボタン) を目で確かめた。人が判断した #27 の決定は、
+新しい worker (pid 9288) の最初の同期 (16:55:04) で取り込まれた (`applied 1 decision(s)`、
+#27 approved、session synchronized)。公開の方針・間隔・トピック・Growth の枠は変わっていない。
+
+**T6.4 は完了。** 次は T6.5 (Threads Trend Intelligence、`docs/operations/threads-trend-intelligence.md`)。

@@ -254,3 +254,12 @@ queue を止める作りだった。人の決定: **Growth Post は記事の本�
 - Project State: `threads.topic.growth_topic_tag = インサイト祭り`、
   `growth_topic_production_acceptance = pending_canary` (今のトピックで送った Growth の作成が
   受け入れられたら `observed`)。本番の確認点: worker の再起動の後の、次の自然な Growth Post。
+
+### 本番の切り替え (T6.3.3b、2026-09-28、人の許可あり)
+
+`c47bcd6` を読んだ worker: 16:27:11〜16:27:17 JST に pid 16164 の親子だけを止め、16:55:02 に
+自然に復帰 (pid 9288、ロックを回収)。16:25 の承認のまとめ送り (#27) が終わってから止めた。
+読み込んだ方針: 記事 → "AI Threads"、Growth → "インサイト祭り"、未知の種類 → 公開しない。
+今日は #25 がすでに出ているので `growth_daily_limit` (Growth の生成 0 回・公開 0 件)。
+**本番での受け入れはまだ** (`growth_topic_production_acceptance = pending_canary`)。確認は
+2026-09-29 以降の、次の自然な Growth Post (人の承認の後に Growth の枠で公開) で行う。

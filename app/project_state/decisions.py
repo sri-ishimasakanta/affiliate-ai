@@ -364,6 +364,20 @@ DECISIONS = (
         "follow_up": "本番の確認: worker を新しい commit で再起動し、次の通常の公開を確かめる",
     },
     {
+        "id": "threads-localization-t64-complete",
+        "area": "threads/presentation",
+        "decision": (
+            "T6.4 は完了。日本語の表示を worker と中継の両方で本番に出し、人が携帯で確かめた"
+        ),
+        "rationale": (
+            "投稿案 #27 の本物の承認リンクで日本語の欄と警告を人が確かめ、配備の後の同期も通った"
+        ),
+        "evidence": ["docs/operations/threads-localization.md"],
+        "phrase": "**T6.4 は完了。**",
+        "resulting_state": "T6.4 complete。次は T6.5 (Threads Trend Intelligence)",
+        "follow_up": "T6.3.3b の Growth のトピックの本番の確認は、次の自然な Growth Post で",
+    },
+    {
         "id": "threads-growth-topic-t633b",
         "area": "threads/publication",
         "decision": (
