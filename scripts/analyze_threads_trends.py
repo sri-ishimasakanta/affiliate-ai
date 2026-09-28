@@ -54,7 +54,8 @@ def render(report: dict) -> str:
                 f"{item['likes_breakout_ratio']} 倍) {item['external_post_key']}"
             )
         topics = ", ".join(t["topic"] for t in ext["repeated_trending_topics"]) or "なし"
-        lines.append(f"  繰り返し出たトレンドのトピック: {topics}")
+        # 一覧は Threads の「おすすめのトピック」(このアカウント向け)。「トレンド」ではない。
+        lines.append(f"  繰り返し出た一覧のトピック (おすすめのトピック): {topics}")
     own = report["own"]
     lines += ["", "■ 自分の投稿 (公開済み)",
               f"  {own['publications']} 本 (指標あり {own['publications_with_metrics']} 本)"

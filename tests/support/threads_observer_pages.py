@@ -94,10 +94,32 @@ def drifted_page() -> str:
             "<p>本文</p></article></main></body></html>")  # fmt: skip
 
 
-def trends_page(*topics: str) -> str:
-    links = "".join(f'<a href="/search?q={escape(t)}&amp;serp_type=tags"><span>{escape(t)}</span>'
-                    "</a>" for t in topics)  # fmt: skip
-    return f"<html><body><main>{links}</main></body></html>"
+SUGGESTION_SERP = "search_nullstate_topic_for_you"
+
+
+def suggestion_url(topic: str) -> str:
+    """一覧のトピックのリンク先 (2026-09-28 に画面で見た形)。"""
+
+    from urllib.parse import quote
+
+    from app.social.threads.observer import selectors as sel
+
+    return f"{sel.BASE_URL}/search?q={quote(topic)}&serp_type={SUGGESTION_SERP}"
+
+
+def trends_page(*topics: str, sidebar: bool = True) -> str:
+    """検索の最初の画面: 左のメニューのコミュニティ (一覧ではない) + おすすめのトピックのリンク。"""
+
+    from urllib.parse import quote
+
+    nav = ('<a role="link" href="/search?q=aithreads&amp;serp_type=tags&amp;tag_id=1">'
+           "<span>AI Threads</span></a>") if sidebar else ""  # fmt: skip
+    links = "".join(
+        f'<a role="link" href="/search?q={quote(t)}&amp;serp_type={SUGGESTION_SERP}">'
+        f"<span>{escape(t)}</span></a>"
+        for t in topics
+    )
+    return f"<html><body><main>{nav}<div>{links}</div></main></body></html>"
 
 
 class FakePage:

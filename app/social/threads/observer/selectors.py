@@ -32,7 +32,8 @@ VERIFIED_SURFACES = (
 #: いない (分析の層の決まった規則で除く: ``observer.normalize``)。
 UNVERIFIED_SURFACES = (
     "reposts", "shares", "quotes", "media_video", "has_link", "quoted_post_scoping",
-    "meta_ai_label_dom", "trending_page", "topic_page", "custom_feed_page", "account_page",
+    "meta_ai_label_dom", "custom_feed_page", "account_page", "search_recent_tab",
+    "search_profile_tab", "global_trending_ranking",
 )  # fmt: skip
 
 #: 画面 (出どころ) ごとの確かめた状態。**全体の版とは別に記録する。** ここに無い出どころは
@@ -56,6 +57,27 @@ SURFACE_VERIFICATION = {
         "evidence": "Search dry-run 2026-09-28 (query 生成AI, 上位検索結果), screenshots and "
                     "a structure probe cross-checked",
     },
+    #: トピックの一覧 = 検索の最初の画面 (``/search``、語なし) の「おすすめのトピック」
+    #: (``serp_type=search_nullstate_topic_for_you``)。**Threads は「トレンド」と表示して
+    #: いない** (このアカウント向け。世の中の順位ではない)。数も分類も表示されない。
+    "trending_list": {
+        "version": "threads-topic-list-verified-2026-09-28-v1",
+        "verified_fields": ("topic_name", "topic_query", "serp_type", "rank_on_screen",
+                            "candidate_accounting", "sidebar_communities_excluded",
+                            "account_suggestions_excluded"),
+        "evidence": "trending dry-run 2026-09-28 (/search landing), screenshots and a "
+                    "structure probe cross-checked",
+    },
+    #: 一覧のトピックのリンク先 = そのトピックの語の検索結果 (「上位検索結果」)。投稿の
+    #: まとまりの形は For You・検索と同じ。ページのトピックは投稿に写さない。
+    "trending_topic": {
+        "version": "threads-topic-posts-verified-2026-09-28-v1",
+        "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
+                            "analysis_body", "post_topic", "likes", "replies", "media_image",
+                            "candidate_accounting", "page_topic_not_copied_to_posts"),
+        "evidence": "trending dry-run 2026-09-28 (topic ハンドメイド, 5 posts), screenshots "
+                    "cross-checked",
+    },
 }  # fmt: skip
 
 
@@ -77,6 +99,15 @@ PERMALINK_PATTERN = (
     r"^(?:https://www\.threads\.(?:com|net))?/@([A-Za-z0-9._]+)/post/([A-Za-z0-9_-]+)"
 )
 TOPIC_LINK = {"tag": "a", "href__contains": "serp_type=tags"}
+#: 検索の最初の画面 (``/search``、語なし) のトピックの一覧 (T6.5B、2026-09-28 に画面で確認)。
+#: 各トピックは ``/search?q=<語>&serp_type=search_nullstate_topic_for_you`` へのリンク。
+#: **Threads はこれを「トレンド」とは表示していない** (見出しも「トレンド」「話題」の文字も
+#: 無い)。``serp_type`` のとおり、このアカウント向けの「おすすめのトピック」。左のメニューの
+#: コミュニティ (``serp_type=tags``) は一覧ではない (数えない)。
+TOPIC_SUGGESTION_LINK = {"tag": "a", "href__contains": "serp_type=search_nullstate_topic"}
+#: ``serp_type`` → 一覧の種類 (保存するときの ``source_type``。24 文字以内)。
+TOPIC_LIST_KINDS = {"search_nullstate_topic_for_you": "topic_for_you"}
+TOPIC_LIST_KIND_UNKNOWN = "topic_suggestion"
 EXTERNAL_LINK_PREFIXES = ("https://l.threads.com/", "https://l.threads.net/")
 LOGIN_MARKERS = ("/login",)
 

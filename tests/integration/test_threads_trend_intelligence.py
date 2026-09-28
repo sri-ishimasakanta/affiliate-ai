@@ -45,6 +45,7 @@ from tests.support.threads_observer_pages import (
     drifted_page,
     login_page,
     page,
+    suggestion_url,
     trends_page,
 )
 
@@ -250,8 +251,8 @@ def test_login_required_is_recorded_without_posts(session: Session) -> None:
 
 def test_run_row_and_trending_topics(session: Session) -> None:
     pages = {sel.trends_url(): trends_page("AI", "副業")}
-    pages[sel.topic_url("AI")] = page(card("e", "E1", "AIの話", topic="AI"))
-    pages[sel.topic_url("副業")] = page(card("f", "F1", "副業の話", topic="副業"),
+    pages[suggestion_url("AI")] = page(card("e", "E1", "AIの話", topic="AI"))
+    pages[suggestion_url("副業")] = page(card("f", "F1", "副業の話", topic="副業"),
                                        card("f", "F2", "副業の話2", topic="副業"))  # fmt: skip
     for hour in (0, 1):
         result = collect(FakePage(pages), CollectionPlan(trending=True, screenshots=False),
@@ -469,7 +470,7 @@ class _StrictPage(FakePage):
 def test_the_collector_only_reads(session: Session) -> None:
     pages = {sel.for_you_url(): page(card("r", "R1", "本文")),
              sel.trends_url(): trends_page("AI"),
-             sel.topic_url("AI"): page(card("r", "R2", "本文2")),
+             suggestion_url("AI"): page(card("r", "R2", "本文2")),
              sel.search_url("q"): page(card("r", "R3", "本文3")),
              sel.custom_feed_url("f1"): page(card("r", "R4", "本文4")),
              sel.account_url("r"): page(card("r", "R5", "本文5"))}  # fmt: skip

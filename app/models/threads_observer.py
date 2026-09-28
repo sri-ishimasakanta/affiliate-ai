@@ -130,7 +130,12 @@ class ThreadsExternalObservation(Base):
 
 
 class ThreadsTrendingTopic(Base):
-    """観察したトレンドのトピック (1 つの信号にすぎない。良い・悪いは決めない)。"""
+    """観察したトピックの一覧の名前 (1 つの信号にすぎない。良い・悪いは決めない)。
+
+    2026-09-28 の確認: Web で見える一覧は検索の最初の画面の「おすすめのトピック」
+    (``source_type = topic_for_you``)。Threads はこれを「トレンド」と表示していない。
+    表の名前は元のまま (``threads_trending_topics``)。一覧の順・リンクは実行の記録に残る。
+    """
 
     __tablename__ = "threads_trending_topics"
     __table_args__ = (

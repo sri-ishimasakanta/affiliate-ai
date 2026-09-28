@@ -52,6 +52,9 @@ from app.social.threads.observer.parser import (
     CARD_UNSUPPORTED_OUTSIDE,
     PAGE_DOM_UNRECOGNIZED,
     PAGE_LOGIN_REQUIRED,
+    TOPIC_DUPLICATE,
+    TOPIC_MALFORMED,
+    TOPIC_OK,
     ExternalPostRecord,
     parse_page,
     parse_trending_topics,
@@ -81,6 +84,9 @@ OUTCOME_BY_REASON = {
     CARD_UNSUPPORTED_NESTED: OUTCOME_UNSUPPORTED,
     CARD_UNSUPPORTED_OUTSIDE: OUTCOME_UNSUPPORTED,
     REASON_LATE_INSERTED: OUTCOME_OTHER,
+    # トピックの一覧の候補の理由。
+    TOPIC_DUPLICATE: OUTCOME_DUPLICATE,
+    TOPIC_MALFORMED: OUTCOME_MALFORMED,
 }
 
 #: 並びが落ち着くまで読むときの間隔と、読む回数の上限。
@@ -135,6 +141,8 @@ class CollectionResult:
     item_limit: int = 0
     #: 出どころごとの候補の勘定 (``_Ledger.summary``)。
     accounting: list[dict] = field(default_factory=list)
+    #: トピックの一覧の候補の勘定 (投稿の候補とは別に数える)。
+    topic_accounting: dict | None = None
 
     def accounting_summary(self) -> dict:
         by_outcome: Counter = Counter()
@@ -143,14 +151,17 @@ class CollectionResult:
             by_outcome.update(item["by_outcome"])
             by_reason.update(item["by_reason"])
         candidates = sum(item["candidate_cards"] for item in self.accounting)
+        topics = self.topic_accounting
         return {
             "version": ACCOUNTING_VERSION,
             "candidate_cards": candidates,
             "by_outcome": dict(sorted(by_outcome.items())),
             "by_reason": dict(sorted(by_reason.items())),
             "equality_holds": candidates == sum(by_outcome.values()),
-            "complete": all(item["complete"] for item in self.accounting),
+            "complete": all(item["complete"] for item in self.accounting)
+            and (topics is None or topics["complete"]),
             "sources": self.accounting,
+            "topic_list": topics,
         }
 
 
@@ -380,21 +391,67 @@ def _shot(page, result, shot_dir: Path, name: str) -> None:
 
 
 def _trending(page, result, limits, plan, shot_dir):
+    """トピックの一覧 (検索の最初の画面の「おすすめのトピック」) → 決まった数のトピックの投稿。
+
+    一覧の候補にはすべて結果と理由を付ける (``topic_accounting``)。受け入れたトピックを画面の
+    順にたどり、投稿が 1 件以上取れたトピックが ``trending_topics_follow`` 個になったら止める
+    (読めたが受け入れた投稿が 0 件のトピックは ``posts=0`` として残し、次へ。投稿のまとまりが
+    1 つも無いページは、画面の形の違いと区別できないので fail closed で実行を止める)。
+    トピックのページは、一覧の
+    **リンクそのもの** を開く (URL を作り直さない)。ページのトピックを投稿に写さない
+    (投稿のトピックは、その投稿のまとまりに出ているものだけ)。
+    """
+
     page.goto(sel.trends_url())
     result.pages_opened += 1
-    parsed = parse_trending_topics(page.content(), limit=int(limits["trending_topics_max"]))
+    page.wait(SETTLE_MS)
+    if plan.screenshots and shot_dir is not None:
+        _shot(page, result, shot_dir, "trends")  # 撮った直後に読む
+    maximum = int(limits["trending_topics_max"])
+    parsed = parse_trending_topics(page.content(), limit=maximum)
     if parsed.status == PAGE_LOGIN_REQUIRED:
         raise _Stop(RUN_LOGIN_REQUIRED, f"trending: {parsed.reason}")
     if parsed.status == PAGE_DOM_UNRECOGNIZED:
         raise _Stop(RUN_DOM_UNRECOGNIZED, f"trending: {parsed.reason}")
-    if plan.screenshots and shot_dir is not None:
-        page.screenshot(shot_dir / "trends.png")
-        result.screenshots["trends"] = str(shot_dir / "trends.png")
-    for topic in parsed.trending_topics:
+    sequence = []
+    accepted = []
+    for entry in parsed.topic_entries:
+        if entry.reason == TOPIC_OK:
+            reason = REASON_ACCEPTED if len(accepted) < maximum else REASON_FILTERED_OVER_LIMIT
+            if reason == REASON_ACCEPTED:
+                accepted.append(entry)
+        else:
+            reason = entry.reason
+        sequence.append({"rank": entry.rank, "name": entry.name, "query": entry.query,
+                         "serp_type": entry.serp_type, "kind": entry.kind, "href": entry.href,
+                         "outcome": OUTCOME_BY_REASON[reason], "reason": reason,
+                         "followed": False, "posts": None})  # fmt: skip
+    by_outcome = Counter(e["outcome"] for e in sequence)
+    surface = sel.surface_verification("trending_list")
+    result.topic_accounting = {
+        "surface_selector_version": surface["version"],
+        "surface_verified": surface["verified"],
+        "candidate_topics": len(sequence),
+        "by_outcome": dict(sorted(by_outcome.items())),
+        "by_reason": dict(sorted(Counter(e["reason"] for e in sequence).items())),
+        "complete": len(sequence) == sum(by_outcome.values()) == len(parsed.topic_entries),
+        "sequence": sequence,
+    }
+    follow = int(limits.get("trending_topics_follow", maximum))
+    followed = 0
+    for entry in accepted:
+        if followed >= follow:
+            break
+        row = next(e for e in sequence if e["rank"] == entry.rank)
         before = len(result.posts)
-        _feed(page, result, sel.topic_url(topic), SOURCE_TRENDING_TOPIC, topic,
-              limits["trending_topic"], limits, plan, None, "")  # fmt: skip
-        result.trending_topics.append((topic, len(result.posts) - before))
+        url = entry.href if entry.href.startswith("https://") else f"{sel.BASE_URL}{entry.href}"
+        _feed(page, result, url, SOURCE_TRENDING_TOPIC, entry.name, limits["trending_topic"],
+              limits, plan, shot_dir, f"topic-{entry.rank}")  # fmt: skip
+        gained = len(result.posts) - before
+        row["followed"], row["posts"] = True, gained
+        result.trending_topics.append((entry.name, gained))
+        if gained > 0:
+            followed += 1
 
 
 def _mask(handle: str | None) -> str | None:

@@ -95,6 +95,8 @@ class PageResult:
     cards: list[CardEval] = field(default_factory=list)
     #: 投稿の時刻のリンクから独立に数えた、ページの投稿のキー (上から順)。
     anchor_keys: list[str] = field(default_factory=list)
+    #: トピックの一覧の画面の、すべての候補 (``parse_trending_topics``)。
+    topic_entries: list = field(default_factory=list)
 
 
 def parse_count(text: str | None) -> int | None:
@@ -338,27 +340,78 @@ def parse_page(html: str, *, limit: int) -> PageResult:
                       anchor_keys=[k for k, _, _ in anchors])
 
 
+TOPIC_OK = "ok"
+TOPIC_DUPLICATE = "duplicate_topic"
+TOPIC_MALFORMED = "malformed_topic"
+
+
+@dataclass(frozen=True)
+class TopicEntry:
+    """トピックの一覧の 1 つ (画面の順)。数は画面に出ていないので持たない。"""
+
+    rank: int
+    name: str | None
+    href: str
+    query: str | None
+    serp_type: str | None
+    kind: str
+    reason: str
+
+
+def _topic_entry(rank: int, link: Node) -> TopicEntry:
+    from urllib.parse import parse_qs, urlsplit
+
+    href = link.attrs.get("href", "")
+    params = parse_qs(urlsplit(href).query)
+    query = (params.get("q") or [None])[0]
+    serp_type = (params.get("serp_type") or [None])[0]
+    name = " ".join(t.strip() for t in link.text().split("\n") if t.strip()) or None
+    kind = sel.TOPIC_LIST_KINDS.get(serp_type or "", sel.TOPIC_LIST_KIND_UNKNOWN)
+    reason = TOPIC_OK if name and query else TOPIC_MALFORMED
+    return TopicEntry(rank, name, href, query, serp_type, kind, reason)
+
+
 def parse_trending_topics(html: str, *, limit: int) -> PageResult:
-    """トレンドのトピックの名前 (最大 ``limit``)。形が違えば止める。"""
+    """トピックの一覧 (検索の最初の画面の「おすすめのトピック」)。形が違えば止める。
+
+    候補 = 投稿のまとまりの外にある ``TOPIC_SUGGESTION_LINK`` のリンク (画面の順)。1 つずつ
+    ``ok`` / ``duplicate_topic`` (同じ語) / ``malformed_topic`` (名前か語が無い) を付ける
+    (``PageResult.topic_entries``)。``trending_topics`` は ``ok`` の名前の先頭 ``limit`` 件。
+    左のメニューのコミュニティ (``serp_type=tags``) は候補にしない。
+    """
 
     root = parse_html(html)
-    names: list[str] = []
-    for node in root.find_all(**sel.TOPIC_LINK):
-        name = node.text().strip()
-        if name and name not in names:
-            names.append(name)
-        if len(names) >= limit:
-            break
-    if not names:
+    containers = {id(c) for c in root.find_all(**sel.POST_CONTAINER)}
+    links = [a for a in root.find_all(**sel.TOPIC_SUGGESTION_LINK)
+             if not any(id(p) in containers for p in a.ancestors())]  # fmt: skip
+    entries: list[TopicEntry] = []
+    seen: set[str] = set()
+    for rank, link in enumerate(links, start=1):
+        entry = _topic_entry(rank, link)
+        if entry.reason == TOPIC_OK and entry.query in seen:
+            entry = TopicEntry(entry.rank, entry.name, entry.href, entry.query, entry.serp_type,
+                               entry.kind, TOPIC_DUPLICATE)  # fmt: skip
+        if entry.query:
+            seen.add(entry.query)
+        entries.append(entry)
+    if not entries:
         if any(m in a.attrs.get("href", "") for a in root.find_all("a") for m in sel.LOGIN_MARKERS):
             return PageResult(PAGE_LOGIN_REQUIRED, reason="the page asks for a login")
         return PageResult(PAGE_DOM_UNRECOGNIZED,
-                          reason=f"no trending topic matched ({sel.SELECTOR_VERSION})")  # fmt: skip
-    return PageResult(PAGE_OK, trending_topics=names)
+                          reason=f"no topic list matched ({sel.SELECTOR_VERSION})")  # fmt: skip
+    malformed = sum(1 for e in entries if e.reason == TOPIC_MALFORMED)
+    if malformed * 2 > len(entries):
+        return PageResult(
+            PAGE_DOM_UNRECOGNIZED, topic_entries=entries,
+            reason=f"{malformed} of {len(entries)} topic entries did not match",
+        )  # fmt: skip
+    names = [e.name for e in entries if e.reason == TOPIC_OK][:limit]
+    return PageResult(PAGE_OK, trending_topics=names, topic_entries=entries)
 
 
 __all__ = ["CARD_DUPLICATE_IN_FRAME", "CARD_MALFORMED_EMPTY_BODY", "CARD_MALFORMED_NO_PERMALINK",
            "CARD_OK", "CARD_REASONS", "CARD_UNSUPPORTED_NESTED", "CARD_UNSUPPORTED_OUTSIDE",
            "MALFORMED_REASONS", "PAGE_DOM_UNRECOGNIZED", "PAGE_EMPTY", "PAGE_LOGIN_REQUIRED",
-           "PAGE_OK", "CardEval", "ExternalPostRecord", "PageResult", "parse_count",
-           "parse_page", "parse_trending_topics"]  # fmt: skip
+           "PAGE_OK", "TOPIC_DUPLICATE", "TOPIC_MALFORMED", "TOPIC_OK", "CardEval",
+           "ExternalPostRecord", "PageResult", "TopicEntry", "parse_count", "parse_page",
+           "parse_trending_topics"]  # fmt: skip

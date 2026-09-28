@@ -28,6 +28,7 @@ from tests.support.threads_observer_pages import (
     drifted_page,
     login_page,
     page,
+    suggestion_url,
     trends_page,
 )
 
@@ -131,7 +132,7 @@ def test_search_and_known_account_sources() -> None:
 def test_trending_topics_are_followed_within_limits() -> None:
     topics = [f"T{i}" for i in range(8)]
     pages = {sel.trends_url(): trends_page(*topics)}
-    pages.update({sel.topic_url(t): page(*_cards(t.lower(), 9)) for t in topics})
+    pages.update({suggestion_url(t): page(*_cards(t.lower(), 9)) for t in topics})
     fake = FakePage(pages)
     result = collect(fake, CollectionPlan(trending=True))
     assert [name for name, _ in result.trending_topics] == topics[:5]

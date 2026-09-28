@@ -106,7 +106,10 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
     parser.add_argument("--login", action="store_true",
                         help="画面を開き、人がログインしてブラウザを閉じるまで待つ (観察しない)")
     parser.add_argument("--for-you", action="store_true", help="おすすめ (For You)")
-    parser.add_argument("--trending", action="store_true", help="トレンドのトピック")
+    parser.add_argument("--trending", action="store_true",
+                        help="トピックの一覧 (検索の最初の画面の「おすすめのトピック」) とその投稿")
+    parser.add_argument("--follow-topics", type=int,
+                        help="投稿を読むトピックの数を下げる (一覧の上から、投稿のあるもの)")
     parser.add_argument("--search", action="append", metavar="QUERY", help="検索 (繰り返し可)")
     parser.add_argument("--custom-feed", action="append", metavar="ID",
                         help="カスタムフィード (繰り返し可)")
@@ -148,6 +151,11 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
         parser.error("choose at least one source (--for-you / --trending / --search / "
                      "--custom-feed / --account)")  # fmt: skip
     limits = dict(sel.LIMITS)
+    if args.follow_topics is not None:
+        if args.follow_topics < 1:
+            parser.error("--follow-topics must be >= 1")
+        limits["trending_topics_follow"] = min(int(args.follow_topics),
+                                               sel.LIMITS["trending_topics_max"])  # fmt: skip
     if args.limit_total is not None:
         if args.limit_total < 1:
             parser.error("--limit-total must be >= 1")
@@ -193,7 +201,16 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
             summary["run_id"] = run.id
     summary["stored"] = not args.dry_run
     accounting = result.accounting_summary()
-    summary["candidate_accounting"] = {k: v for k, v in accounting.items() if k != "sources"}
+    summary["candidate_accounting"] = {k: v for k, v in accounting.items()
+                                       if k not in ("sources", "topic_list")}  # fmt: skip
+    if accounting.get("topic_list"):
+        topics = accounting["topic_list"]
+        summary["topic_list"] = {k: v for k, v in topics.items() if k != "sequence"}
+        summary["topic_entries"] = [
+            {k: e[k] for k in ("rank", "name", "query", "serp_type", "kind", "outcome", "reason",
+                               "followed", "posts")}
+            for e in topics["sequence"]
+        ]  # fmt: skip
     summary["surfaces"] = [
         {"source_type": s["source_type"], "surface_selector_version": s["surface_selector_version"],
          "surface_verified": s["surface_verified"]}

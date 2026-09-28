@@ -96,10 +96,15 @@ def test_surface_verification_is_recorded_per_surface() -> None:
     assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-28-v2"  # 全体の版は変えない
     assert sel.surface_verification(SOURCE_SEARCH)["verified"] is True
     assert "search_tabs_outside_cards" in sel.surface_verification(SOURCE_SEARCH)["verified_fields"]
-    for other in (SOURCE_TRENDING_TOPIC, "custom_feed", "known_account"):
+    # 2026-09-28: トピックの一覧と 1 つのトピックの投稿も確認済み (別の版)。
+    assert sel.surface_verification(SOURCE_TRENDING_TOPIC)["version"] == (
+        "threads-topic-posts-verified-2026-09-28-v1")  # fmt: skip
+    assert sel.surface_verification("trending_list")["version"] == (
+        "threads-topic-list-verified-2026-09-28-v1")  # fmt: skip
+    for other in ("custom_feed", "known_account"):
         assert sel.surface_verification(other) == {"version": None, "verified": False,
                                                    "verified_fields": ()}  # fmt: skip
     assert "search_page" not in sel.UNVERIFIED_SURFACES
-    for still in ("trending_page", "custom_feed_page", "account_page", "meta_ai_label_dom",
-                  "quoted_post_scoping"):  # fmt: skip
+    for still in ("custom_feed_page", "account_page", "meta_ai_label_dom", "quoted_post_scoping",
+                  "global_trending_ranking"):  # fmt: skip
         assert still in sel.UNVERIFIED_SURFACES

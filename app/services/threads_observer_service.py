@@ -5,7 +5,8 @@
   変われば、観測の ``body_hash`` で分かる (上書きしない)。
 - 観測 = ``threads_external_observations`` (**積むだけ**)。同じ投稿を何度も見れば、見た回数
   だけ行が増える (いいね等の推移)。見えなかった指標は NULL (0 にしない)。表示回数は持たない。
-- トレンドのトピック = ``threads_trending_topics`` (名前ごと)。
+- トピックの一覧 = ``threads_trending_topics`` (名前ごと。``source_type`` は一覧の種類。
+  例 ``topic_for_you`` = 検索の最初の画面の「おすすめのトピック」)。
 - ログインが要る / 画面の形が違う実行は、実行の行だけを残し、投稿は保存しない。
 """
 
@@ -80,8 +81,12 @@ def record_run(session: Session, result: CollectionResult) -> ThreadsObserverRun
                 selector_version=sel.SELECTOR_VERSION,
             )
         )
+    # トピックの一覧の種類 (例 ``topic_for_you``) を source_type にする。一覧の順・リンク・
+    # 語は実行の ``artifacts_json.candidate_accounting.topic_list`` に残る。
+    kinds = {e["name"]: e["kind"] for e in (result.topic_accounting or {}).get("sequence", [])}
     for name, sample in result.trending_topics:
-        _upsert_topic(session, name, sample, observed_at, run.id)
+        _upsert_topic(session, name, sample, observed_at, run.id,
+                      source_type=kinds.get(name, SOURCE_TRENDING_TOPIC))  # fmt: skip
     session.commit()
     return run
 
@@ -123,16 +128,16 @@ def _upsert_post(session: Session, record, observed_at: datetime) -> ThreadsExte
 
 
 def _upsert_topic(session: Session, name: str, sample: int, observed_at: datetime,
-                  run_id: int) -> None:  # fmt: skip
+                  run_id: int, *, source_type: str = SOURCE_TRENDING_TOPIC) -> None:  # fmt: skip
     row = session.scalars(
         select(ThreadsTrendingTopic).where(
             ThreadsTrendingTopic.topic_name == name,
-            ThreadsTrendingTopic.source_type == SOURCE_TRENDING_TOPIC,
+            ThreadsTrendingTopic.source_type == source_type,
         )
     ).first()
     if row is None:
         row = ThreadsTrendingTopic(
-            topic_name=name, source_type=SOURCE_TRENDING_TOPIC, first_seen_at=observed_at,
+            topic_name=name, source_type=source_type, first_seen_at=observed_at,
             last_seen_at=observed_at, observations=0, sample_post_count=0,
         )  # fmt: skip
         session.add(row)
