@@ -44,6 +44,12 @@ SCHEDULER_CONTRACTS = {
         "arguments": "publish",
         "repetition": "PT15M",
     },
+    # C10-2: 夜の分析 (毎日 03:30。worker とは別のタスク)。
+    "affiliate-ai-nightly-analysis": {
+        "action_endswith": "run_nightly_analysis_task.cmd",
+        "arguments": "",
+        "start_time": "03:30",
+    },
 }
 
 

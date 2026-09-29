@@ -1,6 +1,6 @@
 {
   "policy_version": "nightly-analysis-1",
-  "note": "C10-2 nightly analysis (C10-C). Once a day, separate from the resident Threads worker. budget is an analysis budget (about 80 candidates), not a quota: fewer candidates are fine and nothing is padded. Analysis reads local and cached data only; anything that needs a new external fetch is grouped per provider into a refresh plan (never called by the batch). Registering the Windows scheduled task is a human decision (registered stays false until then).",
+  "note": "C10-2 nightly analysis (C10-C). Once a day, separate from the resident Threads worker. budget is an analysis budget (about 80 candidates), not a quota: fewer candidates are fine and nothing is padded. Analysis reads local and cached data only; anything that needs a new external fetch is grouped per provider into a refresh plan (never called by the batch). The Windows scheduled task was registered on 2026-09-30 (human-approved, C10-2 activation; interactive logon like the other project tasks). Changing it is a human decision.",
   "budget": 80,
   "selection_order": [
     "existing_keyword_gap",
@@ -27,7 +27,8 @@
     "timezone": "Asia/Tokyo",
     "launcher": "scripts\\run_nightly_analysis_task.cmd",
     "log_file": "nightly-analysis.log",
-    "registered": false,
+    "registered": true,
+    "registered_at": "2026-09-30",
     "rationale": "clear of the daily (06:30) and weekly (Sunday 07:30) operations pipeline and its lock, outside every Threads publication and notification window, after the OS backup tasks (about 01:00-02:30); reads the previous morning's imports (about 21 hours old, inside the 48 hour staleness limit)"
   }
 }

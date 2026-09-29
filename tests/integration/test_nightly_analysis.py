@@ -275,5 +275,5 @@ def test_the_cli_is_plan_by_default(session, site, capsys) -> None:
     assert "no article is created" in capsys.readouterr().out
     assert run_nightly_analysis.main(["--section", "schedule"]) == 0
     schedule = capsys.readouterr().out
-    assert "registered: False" in schedule and "03:30" in schedule
+    assert "registered: True" in schedule and "03:30" in schedule
     assert _counts(session) == before

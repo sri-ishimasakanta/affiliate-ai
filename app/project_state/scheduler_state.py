@@ -17,7 +17,10 @@ TASKS = (
     "affiliate-ai-operations-daily",
     "affiliate-ai-operations-weekly",
     "affiliate-ai-threads-worker",
+    "affiliate-ai-nightly-analysis",
 )
+# 最後の結果が 0 以外なら警告するタスク (常駐の worker は状態で見る)。
+_RESULT_CHECKED = ("affiliate-ai-operations-daily", "affiliate-ai-nightly-analysis")
 # 読むだけの PowerShell (Get-* だけ)。タスク名は固定の値だけを埋め込む。
 _SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
@@ -91,7 +94,7 @@ def summarize(raw: str, *, now: datetime) -> dict:
             warnings.append("task does not exist")
         elif not row.get("enabled"):
             warnings.append("task is disabled")
-        if row.get("name") == "affiliate-ai-operations-daily" and code not in (0, None, 267009):
+        if row.get("name") in _RESULT_CHECKED and code not in (0, None, 267009):
             warnings.append(f"last run result {code}: {RESULT_MEANINGS.get(code, 'non-zero')}")
         if row.get("name") == "affiliate-ai-threads-worker" and row.get("state") != "Running":
             warnings.append(f"worker task is {row.get('state')} (resident worker expected Running)")

@@ -81,7 +81,7 @@ def schedule_plan(policy: dict, *, project_root: Path | str) -> dict:
     return {"task_name": s["task_name"], "start_time": s["start_time"], "days": s["days"],
             "timezone": s["timezone"], "launcher": launcher, "schtasks_arguments": args,
             "registered": bool(s.get("registered")), "rationale": s.get("rationale"),
-            "note": "not registered by this code; registering the task is a human decision"}
+            "note": "this code never registers or changes the task; that is a human decision"}
 
 
 class NightlyAnalysisService:
@@ -132,8 +132,10 @@ class NightlyAnalysisService:
             "analyzed": len(analyzed), "deferred_by_budget": len(deferred), "budget": budget,
             "by_tier": dict(Counter(t for t, _r, _i in analyzed)),
             "handoff": dict(Counter(i.handoff["readiness"] for _t, _r, i in analyzed)),
-            "refresh_required": sum(1 for _t, _r, i in analyzed if i.external_refresh
-                                    or i.keyword_id is None),
+            # 外の取り直しが要るものだけ (Keyword にするだけの発見の候補は数えない)。
+            "refresh_required": sum(1 for _t, _r, i in analyzed if i.external_refresh),
+            "promotion_only": sum(1 for _t, _r, i in analyzed if i.keyword_id is None
+                                  and not i.external_refresh),
             "clusters": len(ci.clusters), "gaps": len(ci.gaps),
             "discovery_new": sum(1 for d in ci.discovery if d.is_new),
         }
