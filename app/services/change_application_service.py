@@ -201,6 +201,14 @@ class ChangeApplicationService:
         article = session.get(Article, request.article_id)
         if article is None or not article.wordpress_post_id:
             outcome.blocked_reasons.append("article has no WordPress post id")
+        if request.change_type == "meta_description":
+            outcome.blocked_reasons.append(
+                "meta description changes are applied by MetaDescriptionApplyService "
+                "(a different WordPress write form), not by the body update path")
+            return
+        if request.change_type == "text_edit":
+            self._check_text_edit_gates(request, article, outcome)
+            return
         if article is not None:
             body = article.body or ""
             if added_link_count(body, request.proposed_body) != 1:
@@ -213,6 +221,24 @@ class ChangeApplicationService:
                 )
             if compute_text_hash(request.proposed_body) != request.proposed_body_hash:
                 outcome.blocked_reasons.append("stored proposed body does not match its hash")
+
+    @staticmethod
+    def _check_text_edit_gates(request: ChangeRequest, article, outcome: ApplyOutcome) -> None:
+        """C10-3: 本文の書き換え (ChangeRequest V2)。承認・古さ・hash は上の共通の検査。"""
+
+        from app.change.text_edit import check_text_edit
+        from app.services.change_apply_policy import text_edit_apply_enabled
+
+        if not text_edit_apply_enabled():
+            outcome.blocked_reasons.append(
+                "text_edit apply is not enabled (change_apply_policy.json "
+                "text_edit_apply_enabled=false; the first production apply is a human "
+                "decision)")
+        if article is not None:
+            check = check_text_edit(article.body or "", request.proposed_body)
+            outcome.blocked_reasons.extend(check.problems)
+        if compute_text_hash(request.proposed_body) != request.proposed_body_hash:
+            outcome.blocked_reasons.append("stored proposed body does not match its hash")
 
     # -- execution (managed path のみを使う) ----------------------------------
     def _execute(

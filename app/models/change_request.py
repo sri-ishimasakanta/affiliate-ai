@@ -91,12 +91,15 @@ CHANGE_ADD_INTERNAL_LINK = "add_internal_link"
 CHANGE_REMOVE_OR_REPLACE_INTERNAL_LINK = "remove_or_replace_internal_link"
 CHANGE_TEXT_EDIT = "text_edit"
 CHANGE_AFFILIATE_LINK_CHANGE = "affiliate_link_change"
+#: C10-3: メタディスクリプション (WordPress の抜粋) の変更。本文は変えない。
+CHANGE_META_DESCRIPTION = "meta_description"
 
 CHANGE_TYPES = (
     CHANGE_ADD_INTERNAL_LINK,
     CHANGE_REMOVE_OR_REPLACE_INTERNAL_LINK,
     CHANGE_TEXT_EDIT,
     CHANGE_AFFILIATE_LINK_CHANGE,
+    CHANGE_META_DESCRIPTION,
 )
 #: V1 で自動生成してよいのはこれだけ (他は表現できるが生成しない)。
 CHANGE_TYPES_GENERATED_IN_V1 = (CHANGE_ADD_INTERNAL_LINK,)

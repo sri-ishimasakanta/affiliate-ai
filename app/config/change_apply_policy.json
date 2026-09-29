@@ -1,0 +1,6 @@
+{
+  "policy_version": "change-apply-1",
+  "note": "C10-3 / C10-E apply paths. Both stay false until a human approves the first real production apply. text_edit reuses the existing managed content update (the same WordPress write form as internal links) but is a new apply path; meta_description is a new WordPress write form (excerpt update of an existing post). Each change still needs its own ChangeRequest approval (a Growth approval never applies anything).",
+  "text_edit_apply_enabled": false,
+  "meta_description_apply_enabled": false
+}

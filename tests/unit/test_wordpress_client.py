@@ -228,6 +228,8 @@ def test_client_exposes_only_approved_operations() -> None:
         "upload_featured_image_exact",
         "update_media_text_exact",
         "set_featured_media_exact",
+        # C10-E: one exact {"excerpt": ...} update (meta description; policy-gated, off).
+        "update_post_excerpt_exact",
         "target_base_url",
     }
     forbidden_names = (
@@ -556,3 +558,22 @@ def test_publish_exactly_one_post_on_success() -> None:
 
     _client(handler).publish_existing_post_exact(25, _PUBLISH_PAYLOAD_JSON)
     assert calls["n"] == 1
+
+
+# -- C10-E: meta description (excerpt only) -------------------------
+def test_excerpt_update_sends_exactly_one_excerpt_only_post() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"id": 25, "excerpt": {"raw": "新しい説明"}})
+
+    client = _client(handler)
+    client.update_post_excerpt_exact(25, json.dumps({"excerpt": "新しい説明"}))
+    assert len(calls) == 1 and calls[0].method == "POST"
+    assert calls[0].url.path == "/wp-json/wp/v2/posts/25"
+    assert json.loads(calls[0].content) == {"excerpt": "新しい説明"}
+    for bad in ({"excerpt": "x", "content": "y"}, {"excerpt": ""}, {"status": "publish"}):
+        with pytest.raises(ValueError):
+            client.update_post_excerpt_exact(25, json.dumps(bad))
+    assert len(calls) == 1  # 形が違えば送らない

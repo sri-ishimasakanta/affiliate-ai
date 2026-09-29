@@ -64,6 +64,8 @@ from app.models.article_reference_fact import ArticleReferenceFact
 from app.models.base import Base, TimestampMixin
 from app.models.change_request import (
     CHANGE_ADD_INTERNAL_LINK,
+    CHANGE_META_DESCRIPTION,
+    CHANGE_TEXT_EDIT,
     CHANGE_TYPES,
     CR_APPLIED,
     CR_APPLY_FAILED,
@@ -394,6 +396,8 @@ __all__ = [
     "CR_APPLIED",
     "CHANGE_TYPES",
     "CHANGE_ADD_INTERNAL_LINK",
+    "CHANGE_META_DESCRIPTION",
+    "CHANGE_TEXT_EDIT",
     "ChangeRequestApproval",
     "ChangeRequest",
     "ChangeApplication",

@@ -520,6 +520,27 @@ class WordPressClient:
             link=str(link) if isinstance(link, str) else None,
         )
 
+    # -- C10-3: meta description (excerpt) of an existing post (exact contract) -----
+    def update_post_excerpt_exact(self, wordpress_post_id: int, payload_json: str) -> dict:
+        """既存の post の抜粋 (メタディスクリプション) だけを更新する (``POST /posts/{id}`` 1 回)。
+
+        payload は logically ちょうど ``{"excerpt": <str>}``。本文・タイトル・状態・slug などの
+        第 2 のキーがあれば ``ValueError`` (この経路では本文を変えられない)。リトライはしない。
+        返り値の検証 (id と抜粋の一致) は呼び出し側が mandatory な read-back で行う。
+        **C10-3 で追加した新しい書き込みの形** で、本番の最初の実行は人の判断
+        (``change_apply_policy.json`` の ``meta_description_apply_enabled``)。
+        """
+
+        _assert_exact_excerpt_payload(payload_json)
+        response = self._send(
+            "POST",
+            f"{self._base_url}{_POSTS_PATH}/{wordpress_post_id}",
+            content=payload_json.encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            ambiguous_on_no_response=True,
+        )
+        return _expect_json_object(_check_status(response, expected_status=200))
+
     # -- W1.4: featured image (exact contracts) -----------------------------
     def upload_featured_image_exact(
         self, image_bytes: bytes, *, filename: str, mime_type: str
@@ -729,6 +750,20 @@ def _assert_exact_content_update_payload(update_payload_json: str) -> None:
         raise ValueError(
             'update_post_content_exact only accepts an exact {"content": <str>} payload'
         )
+
+
+def _assert_exact_excerpt_payload(payload_json: str) -> None:
+    """logically ちょうど ``{"excerpt": <空でない str>}`` であることを検証する。"""
+
+    parsed = json.loads(payload_json)
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != {"excerpt"}
+        or not isinstance(parsed.get("excerpt"), str)
+        or not parsed["excerpt"].strip()
+    ):
+        raise ValueError(
+            'update_post_excerpt_exact only accepts an exact {"excerpt": <str>} payload')
 
 
 def _assert_exact_media_text_payload(payload_json: str) -> None:

@@ -32,6 +32,8 @@ from app.change.internal_link import (
 from app.exceptions import ApplicationError
 from app.models import (
     CHANGE_ADD_INTERNAL_LINK,
+    CHANGE_META_DESCRIPTION,
+    CHANGE_TEXT_EDIT,
     CR_APPLY_FAILED,
     CR_APPROVED,
     CR_AWAITING_APPROVAL,
@@ -181,6 +183,97 @@ class ChangeRequestService:
             idempotency_key=idempotency_key,
             created_at=to_storage_utc(now),
         )
+        self._session.add(request)
+        self._session.commit()
+        self._session.refresh(request)
+        return request
+
+    # -- C10-3: ChangeRequest V2 (人が書いた本文・メタディスクリプション) ------------------
+    def propose_text_edit(self, *, article_id: int, proposed_body: str, rationale: str,
+                          idempotency_key: str | None = None, handoff_request_id: int | None =
+                          None, now: datetime | None = None) -> ChangeRequest:  # fmt: skip
+        """人が書いた本文の書き換えを、承認待ちの変更の依頼にする (生成しない)。
+
+        今の本文の hash を固定する。リンクを変える・足す・PR 表記を消す提案は作らない。
+        同じ内容の提案は作り直さない。**承認・適用はしない** (独自の承認と適用のまま)。
+        """
+
+        from app.change.text_edit import check_text_edit
+
+        now = now or datetime.now(UTC)
+        article = self._session.get(Article, article_id)
+        if article is None:
+            raise ChangeRequestError(f"article {article_id} does not exist")
+        if not (rationale or "").strip():
+            raise ChangeRequestError("a text edit needs a rationale")
+        check = check_text_edit(article.body or "", proposed_body)
+        if not check.ok:
+            raise ChangeRequestError("; ".join(check.problems))
+        source_hash = compute_text_hash(article.body or "")
+        proposed_hash = compute_text_hash(proposed_body)
+        return self._create_v2(article, CHANGE_TEXT_EDIT, source_hash=source_hash,
+                               proposed_body=proposed_body, proposed_hash=proposed_hash,
+                               rationale=rationale, idempotency_key=idempotency_key, now=now,
+                               proposal={"diff": check.diff, "added_lines": check.added_lines,
+                                         "removed_lines": check.removed_lines,
+                                         "links_preserved": True},
+                               handoff_request_id=handoff_request_id)
+
+    def propose_meta_description(self, *, article_id: int, proposed_meta: str, rationale: str,
+                                 idempotency_key: str | None = None,
+                                 handoff_request_id: int | None = None,
+                                 now: datetime | None = None) -> ChangeRequest:  # fmt: skip
+        """人が書いたメタディスクリプションを、承認待ちの変更の依頼にする。本文は変えない。"""
+
+        from app.change.text_edit import check_meta_description
+
+        now = now or datetime.now(UTC)
+        article = self._session.get(Article, article_id)
+        if article is None:
+            raise ChangeRequestError(f"article {article_id} does not exist")
+        if not (rationale or "").strip():
+            raise ChangeRequestError("a meta description change needs a rationale")
+        check = check_meta_description(article.meta_description, proposed_meta)
+        if not check.ok:
+            raise ChangeRequestError("; ".join(check.problems))
+        body = article.body or ""
+        return self._create_v2(
+            article, CHANGE_META_DESCRIPTION, source_hash=compute_text_hash(body),
+            proposed_body=body, proposed_hash=compute_text_hash(body), rationale=rationale,
+            idempotency_key=idempotency_key, now=now, handoff_request_id=handoff_request_id,
+            proposal={"current_meta": article.meta_description or "",
+                      "current_meta_hash": compute_text_hash(article.meta_description or ""),
+                      "proposed_meta": proposed_meta.strip(),
+                      "proposed_meta_hash": compute_text_hash(proposed_meta.strip()),
+                      "warnings": list(check.warnings)})
+
+    def _create_v2(self, article, change_type, *, source_hash, proposed_body, proposed_hash,
+                   rationale, idempotency_key, now, proposal, handoff_request_id):
+        import hashlib
+        import json
+
+        proposal_hash = hashlib.sha256(json.dumps(
+            {"schema": "change-request-v2/1", "article_id": article.id,
+             "change_type": change_type, "source": source_hash, "proposed": proposed_hash,
+             "meta": proposal.get("proposed_meta_hash")}, sort_keys=True).encode()).hexdigest()
+        existing = self._session.scalars(select(ChangeRequest).where(
+            ChangeRequest.article_id == article.id,
+            ChangeRequest.proposal_hash == proposal_hash)).first()  # fmt: skip
+        if existing is not None:
+            return existing
+        previous = self._session.scalars(select(ChangeRequest).where(
+            ChangeRequest.article_id == article.id, ChangeRequest.change_type == change_type)
+            .order_by(ChangeRequest.proposal_version.desc()).limit(1)).first()  # fmt: skip
+        request = ChangeRequest(
+            source_engine="manual", article_id=article.id, change_type=change_type,
+            proposal_version=(previous.proposal_version + 1) if previous else 1,
+            proposal_hash=proposal_hash, expected_source_body_hash=source_hash,
+            proposed_body_hash=proposed_hash, proposed_body=proposed_body,
+            rationale=rationale.strip(), proposal_json={"schema": "change-request-v2/1",
+                                                        **proposal},
+            evidence_json={"source": "human", "handoff_request_id": handoff_request_id},
+            status=CR_AWAITING_APPROVAL, idempotency_key=idempotency_key,
+            created_at=to_storage_utc(now))
         self._session.add(request)
         self._session.commit()
         self._session.refresh(request)
