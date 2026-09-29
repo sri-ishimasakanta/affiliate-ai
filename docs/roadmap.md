@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-30 (C10-A).
+Last updated: 2026-09-30 (C10-2).
 
 ---
 
@@ -26,7 +26,11 @@ Last updated: 2026-09-30 (C10-A).
 | C9-C Measurement Feedback Hardening | **COMPLETED** | DEPLOYED (worker-local follow-up measurement, read-only; no migration) |
 | **C9 Growth Engine (A–C)** | **COMPLETED** (closed) | remaining capabilities are placed explicitly below (C9-B limits → C10-D/E) |
 | C10-A Analysis Foundation | **COMPLETED** | DEPLOYED (read-only foundation; commercial_intent v2 backfilled 30 keywords from stored data; no migration, no new external calls) |
-| C10-B Content Intelligence | **NEXT** | — |
+| **C10-2** Content Intelligence + Nightly Discovery + Next Article Orchestrator (C10-B + C10-C + C10-D) | **COMPLETED** (C10-D apply paths DEFERRED) | read-only PLAN DEPLOYED; migration `c1d0e233e180` **PENDING HUMAN**; nightly task registration **PENDING HUMAN**; Google Ads batch refresh (38 terms, 1 call) **PENDING HUMAN** |
+| C10-B Content Intelligence | **COMPLETED** | DEPLOYED (read-only) |
+| C10-C Nightly Analysis | **COMPLETED** (implementation) | PLAN DEPLOYED; `--execute` needs migration `c1d0e233e180` (**PENDING HUMAN**); scheduled task **NOT ENABLED** (registration = human decision) |
+| C10-D Next Article Orchestrator | **COMPLETED** (planning); apply paths **DEFERRED** | DEPLOYED (read-only PLAN; never creates articles) |
+| **C10-3** Site Growth Orchestrator + Operations (C10-E + C10-F) | **NEXT** | — |
 
 ---
 
@@ -168,9 +172,9 @@ outcomes (T6.5F/G), attribution of revenue to articles (C11).
 
 | Capability | State | Placed in |
 |---|---|---|
-| `body_update` apply path (text edits through ChangeApplication) | preparation / linkage only | C10-D Next Article Orchestrator (content update execution) |
+| `body_update` apply path (text edits through ChangeApplication) | preparation / linkage only | C10-E (moved from C10-D in C10-2; see C10-D) |
 | `affiliate_placement` apply path (placement change requests) | preparation / linkage only (link-mapping substitution stays manual) | C10-E Site Growth Orchestrator (with C11 attribution) |
-| `meta_description` WordPress path (excerpt update) | no WordPress apply path | C10-D (content update execution) |
+| `meta_description` WordPress path (excerpt update) | no WordPress apply path | C10-E (moved from C10-D in C10-2; new write form = human decision) |
 | `create_growth_post` handoff | plan_only (Growth lane owns it) | stays with the Growth lane (T6.3.3) |
 | Growth digest first real email | NOT ENABLED | human decision (C10-F operations) |
 | Mobile Growth Action review | DEFERRED (relay redeploy) | C10-F |
@@ -192,26 +196,68 @@ providers.
 | Affiliate attribution readiness | COMPLETED (assessment): truth table + per-program readiness; clicks A_direct, Make commissions B_provider, nothing allocated to articles | assessment only; C11 needs a per-click reference (SubID / clickref) = human decision; 13 of 21 trusted clicks are flagged as possible instrumentation bursts (not excluded) |
 | Unified evidence contract + operator CLI | COMPLETED: per-component `CandidateEvidence` (no composite score) with access class and a per-provider batched refresh plan; `scripts/analyze_signal_health.py` | DEPLOYED (read-only) |
 
-Kept for later units: search_demand stores 0.0 for no-volume keywords (missing semantics →
-C10-B); C6 is not fed index state in the pipeline (`INDEXING_FOLLOWUP` → C10-B/C); Make commission
-program tagging (C11).
+Kept for later units: ~~search_demand stores 0.0 for no-volume keywords~~ (resolved in C10-2);
+~~C6 is not fed index state~~ (resolved in C10-2); Make commission program tagging (C11);
+same-second click bursts stay flags only (no provable exclusion rule; C11).
 
-### C10-B Content Intelligence — NEXT
-- Topic Cluster, Content Gap, Continuous Keyword Discovery
-- article types: comparison, roundup, how-to, practical workflow, implementation, pricing,
-  informational, category landing
-- reusable SaaS facts
+### C10-2 — Content Intelligence + Nightly Discovery + Next Article Orchestrator — COMPLETED
 
-### C10-C Nightly Analysis — PLANNED
+One development unit covering C10-B, C10-C and C10-D (detail:
+`docs/operations/content-intelligence.md`). Everything reads local and stored data only; no
+Keyword, Article, planning request or Growth Action is created; no composite score.
+
+| Item | State | Production |
+|---|---|---|
+| search_demand missing semantics (C10-A deferred) | RESOLVED: normalizer v2 separates observed / observed_zero / missing / insufficient; missing signals are no longer written; stored v1 zeros without history are read as missing (scoring and evidence) | no write needed (2 keywords affected, neither scored) |
+| C6 index integration (C10-A deferred) | RESOLVED: C6 receives the saved inspected index state (unknown / stale → GSC_UNKNOWN); window aligned to 8 days | DEPLOYED; 0 new Growth revisions |
+| migration `c1d0e233e180` | `nightly_analysis_runs` + `content_discovery_candidates` (additive; downgrade guard) — rehearsed on a production copy | **PENDING HUMAN** (not applied) |
+
+### C10-B Content Intelligence — COMPLETED
+- Topic Cluster: one registry merging `content_clusters.json` and `content_portfolio.json`
+  (E stays deferred with its portfolio members); stable `cluster:<id>` identity separate from
+  evidence; explicit-then-unique-theme membership. Production: 5 clusters, all 25 articles placed.
+- Content Gap: evidence-based only (no_article, missing_pillar, missing_<role>, weak internal
+  linking, outdated facts, index gap, monetization gap). Production: 20 gaps.
+- Continuous Keyword Discovery: GSC queries, portfolio plan / reserve, cluster config, manual
+  seeds; dedup and cannibalization suppression; candidates are never Keywords. Production: 26 new.
+- article types (content-type strategy): comparison, roundup, how-to, practical workflow,
+  implementation, pricing, informational, category landing (the two workflow roles reuse the
+  how_to template); deterministic reasons; `undetermined` when evidence is missing.
+- reusable SaaS facts: cross-article view of `article_facts` (latest value, source article,
+  freshness, conflicts; unknown is not a value; stale is not current); research is PLAN only.
+
+### C10-C Nightly Analysis — COMPLETED (implementation)
 - dedicated nightly batch, once per day, separate from the resident Threads worker
-- about 80 candidates analysed per run as an operating guideline (80 is **not** a strict quota)
-- compressed at the end into a small number of Growth Actions
+  (`scripts/run_nightly_analysis.py`, PLAN by default)
+- about 80 candidates analysed per run as an operating guideline (80 is **not** a strict quota;
+  fewer is fine, nothing is padded; explainable preselection order, deferred items keep a reason)
+- compressed at the end into a small number of Growth Actions (existing C9 identity; the human
+  still sees the C9-A inbox / digest, not 80 items)
+- cost tiers: local / cached / refresh-required; refreshes are batched per provider and never run
+  by the batch (Google Ads: 38 terms → 1 call, **PENDING HUMAN**)
+- run history + retry-safe idempotency (`nightly:<date>`); schedule plan 03:30 JST daily
+  (`affiliate-ai-nightly-analysis`), **registration PENDING HUMAN**
 
-### C10-D Next Article Orchestrator — PLANNED
+### C10-D Next Article Orchestrator — COMPLETED (planning); apply paths DEFERRED
+- NextArticleCandidate: topic, cluster, content type, cluster role, gap filled, monetization role,
+  rationale, evidence, blockers, freshness, cannibalization, refresh needs, handoff readiness
+  (ready_for_growth_review / needs_signals / needs_keyword_promotion / blocked); same identity as
+  the Growth `create_new_article` action; never creates an Article (human review → C9-B planning
+  request → existing plan approval → Article). Production: 11 ready, 4 need signals, 26 need keyword
+  promotion, 2 blocked by cannibalization.
+- **DEFERRED → C10-E**: body `text_edit` apply (reuses the existing content write form but needs
+  text-edit proposal / staleness / review gates in ChangeApplication) and meta description apply
+  (a **new** WordPress write form: excerpt update of existing posts; human decision). Deferred so
+  the read-only C10-2 core was not blocked.
+
+### C10-3 = C10-E + C10-F — NEXT
 
 ### C10-E Site Growth Orchestrator — PLANNED
+- body text_edit apply path and meta description (excerpt) WordPress path (moved from C10-D)
+- affiliate placement apply path (with C11 attribution)
 
 ### C10-F Operations / Monitoring — PLANNED
+- nightly task registration and monitoring, Growth digest first send (human decisions)
 
 ## C11 — Affiliate Revenue Attribution — PLANNED
 - article-level attribution (needs tracking / provider configuration changes: human decision)
