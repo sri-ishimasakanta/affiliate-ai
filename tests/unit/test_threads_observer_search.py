@@ -101,10 +101,10 @@ def test_surface_verification_is_recorded_per_surface() -> None:
         "threads-topic-posts-verified-2026-09-28-v1")  # fmt: skip
     assert sel.surface_verification("trending_list")["version"] == (
         "threads-topic-list-verified-2026-09-28-v1")  # fmt: skip
-    for other in ("custom_feed", "known_account"):
+    for other in ("custom_feed",):
         assert sel.surface_verification(other) == {"version": None, "verified": False,
                                                    "verified_fields": ()}  # fmt: skip
     assert "search_page" not in sel.UNVERIFIED_SURFACES
-    for still in ("custom_feed_page", "account_page", "meta_ai_label_dom", "quoted_post_scoping",
-                  "global_trending_ranking"):  # fmt: skip
+    for still in ("custom_feed_page", "meta_ai_label_dom", "quoted_post_scoping",
+                  "global_trending_ranking", "profile_replies_tab"):  # fmt: skip
         assert still in sel.UNVERIFIED_SURFACES

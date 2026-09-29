@@ -32,8 +32,9 @@ VERIFIED_SURFACES = (
 #: いない (分析の層の決まった規則で除く: ``observer.normalize``)。
 UNVERIFIED_SURFACES = (
     "reposts", "shares", "quotes", "media_video", "has_link", "quoted_post_scoping",
-    "meta_ai_label_dom", "custom_feed_page", "account_page", "search_recent_tab",
-    "search_profile_tab", "global_trending_ranking",
+    "meta_ai_label_dom", "custom_feed_page", "search_recent_tab", "search_profile_tab",
+    "global_trending_ranking", "profile_replies_tab", "profile_media_tab", "profile_reposts_tab",
+    "pinned_post", "repost_header",
 )  # fmt: skip
 
 #: 画面 (出どころ) ごとの確かめた状態。**全体の版とは別に記録する。** ここに無い出どころは
@@ -76,6 +77,20 @@ SURFACE_VERIFICATION = {
                             "analysis_body", "post_topic", "likes", "replies", "media_image",
                             "candidate_accounting", "page_topic_not_copied_to_posts"),
         "evidence": "trending dry-run 2026-09-28 (topic ハンドメイド, 5 posts), screenshots "
+                    "cross-checked",
+    },
+    #: 知っているアカウントのプロフィール (``/@<名前>``、既定の「スレッド」のタブ)。投稿の
+    #: まとまりの形は For You・検索と同じ。表示名・自己紹介・プロフィールのトピックの札・
+    #: フォロワー数・フォローのボタン・タブは、まとまりの **外** (本文・投稿のトピックに入らない)。
+    #: 見ているアカウント (source_query) と、投稿のまとまりに出ている投稿者は別のもの。
+    "known_account": {
+        "version": "threads-known-account-verified-2026-09-29-v1",
+        "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
+                            "analysis_body", "post_topic", "likes", "replies",
+                            "candidate_accounting", "profile_header_outside_cards",
+                            "profile_topic_chips_not_post_topics", "thread_segments"),
+        "evidence": "known-account dry-run 2026-09-29 (account from the verified Search run, "
+                    "default スレッド tab, 5 posts), screenshots and a structure probe "
                     "cross-checked",
     },
 }  # fmt: skip

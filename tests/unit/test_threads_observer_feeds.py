@@ -109,7 +109,7 @@ def _factory(fake):
 
 def test_an_unverified_surface_is_never_stored(capsys) -> None:
     build = _factory(FakePage({}))
-    for args in (["--custom-feed", "feed1"], ["--account", "someone"]):
+    for args in (["--custom-feed", "feed1"], ["--custom-feed", "feed1", "--for-you"]):
         assert observe_threads.main(args, page_factory=build) == observe_threads.EXIT_USAGE
         assert "not verified" in capsys.readouterr().out
     assert build.opened is False  # ブラウザを開いていない
