@@ -190,13 +190,10 @@ def describe_url(url: str) -> str:
 #: ``affiliate_ai.before-2cfa0ccb2059.20260928-220811.db``。
 #: 記録: ``74bfaf6c9c9f`` (C9 Batch 2 の Growth Action の履歴の表) は 2026-09-29 に本番へ適用した
 #: (人の許可あり。integrity_check ok・foreign_key_check 0)。
-PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {
-    "74dbecaa4bb2": (
-        "C9 Batch 3 growth action conversions (growth_action_conversions + conversion event "
-        "types); rehearsed on a production copy; not applied to production yet (needs a human "
-        "checkpoint). Code runs without it: conversion PLAN works and --execute refuses"
-    ),
-}
+#: 記録: ``74dbecaa4bb2`` (C9 Batch 3 の変換の記録の表) は 2026-09-29 21:47 JST に本番へ適用した
+#: (人の許可あり。integrity_check ok・foreign_key_check 0・既存の表の行と中身は同じ)。backup は
+#: D:/Backups/affiliate-ai/ の ``affiliate_ai.pre-c9b3.20260929T124657Z.db``。
+PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {}
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 
 
