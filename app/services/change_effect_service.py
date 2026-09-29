@@ -294,6 +294,23 @@ class ChangeEffectService:
             caveats=caveats,
         )
 
+    def measure_window(
+        self,
+        window: EffectWindow,
+        article: Article,
+        *,
+        trusted_from: datetime | None,
+        through: date | None = None,
+    ) -> WindowMetrics:
+        """1 つの記事の 1 つの窓の指標 (C9-C の追跡の観測から使う。読むだけ)。
+
+        ``through`` より後の日のデータは使わない (観測の時点より未来のデータを混ぜない)。
+        """
+
+        base = (self._settings.wordpress_base_url or "").rstrip("/")
+        key = normalize_url_key(article.published_url or "")
+        return self._measure(window, key, base, article.id, trusted_from, through=through)
+
     def _measure(
         self,
         window: EffectWindow,
@@ -301,13 +318,18 @@ class ChangeEffectService:
         base: str,
         article_id: int,
         trusted_from: datetime | None,
+        *,
+        through: date | None = None,
     ) -> WindowMetrics:
         metrics = WindowMetrics()
+        end = min(window.end, through) if through is not None else window.end
+        if end < window.start:
+            return metrics
 
         rows = self._session.scalars(
             select(SearchConsolePageDaily).where(
                 SearchConsolePageDaily.metric_date >= window.start,
-                SearchConsolePageDaily.metric_date <= window.end,
+                SearchConsolePageDaily.metric_date <= end,
             )
         ).all()
         weighted: list[tuple[float, int]] = []
@@ -323,7 +345,7 @@ class ChangeEffectService:
         ga4_rows = self._session.scalars(
             select(Ga4PageDaily).where(
                 Ga4PageDaily.metric_date >= window.start,
-                Ga4PageDaily.metric_date <= window.end,
+                Ga4PageDaily.metric_date <= end,
             )
         ).all()
         sessions: dict[str, int] = defaultdict(int)
@@ -344,7 +366,7 @@ class ChangeEffectService:
             metrics.affiliate_clicks_trusted = False
         else:
             buckets = AffiliateClickMetricsService(self._session).aggregate(
-                start_date=window.start, end_date=window.end
+                start_date=window.start, end_date=end
             )
             metrics.affiliate_clicks = sum(b.clicks for b in buckets.for_article(article_id))
         return metrics

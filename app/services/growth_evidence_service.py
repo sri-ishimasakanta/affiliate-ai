@@ -51,8 +51,10 @@ def _iso(value) -> str | None:
 class GrowthEvidenceService:
     def __init__(self, session: Session, *, settings=None, timezone: ZoneInfo | None = None,
                  include_threads: bool = True,
-                 include_growth_lane: bool = True) -> None:  # fmt: skip
+                 include_growth_lane: bool = True, followup=None) -> None:  # fmt: skip
         self._session = session
+        #: C9-C: 追跡の観測の出どころ (``now`` → {記事: 観測}。None なら読むだけで求める)。
+        self._followup = followup
         if settings is None:
             from app.config.settings import get_settings
 
@@ -114,6 +116,7 @@ class GrowthEvidenceService:
         # サイト全体の直近 1〜2 本の通常の投稿の切り口 (既存の弱い好みと同じく避ける)。
         recent_regular_angles = [p.get("angle") for p in recent_posts[:2] if p.get("angle")]
         growth_plan = self._growth_plan(now) if self._include_growth_lane else None
+        followup = self._followup_for(now)
 
         evidence: list[ga.GrowthEvidence] = []
         linked_keywords = set()
@@ -152,6 +155,7 @@ class GrowthEvidenceService:
             evidence.append(ga.GrowthEvidence(
                 subject_type="article", subject_id=f"article:{aid}", article_id=aid,
                 keyword_id=row["keyword_id"], article=row, sources=sources,
+                followup=followup.get(aid, ()),
                 existing_candidates={
                     "seo": tuple(_candidate(c, "seo") for c in getattr(s, "candidates", ())),
                     "revenue": tuple(_candidate(c, "revenue")
@@ -214,6 +218,24 @@ class GrowthEvidenceService:
             "open_regular_proposals": {aid: list(ids) for aid, ids in open_props.items()},
             "engine_notes": {"seo": list(seo.notes), "revenue": list(revenue.notes)},
         }
+
+    def _followup_for(self, now: datetime) -> dict:
+        """変換した行動の追跡の観測 (記事ごと)。求められなくても証拠の収集は止めない。"""
+
+        if self._followup is not None:
+            return self._followup(now) if callable(self._followup) else dict(self._followup)
+        from app.services.growth_measurement_service import (
+            GrowthMeasurementService,
+            measurement_ready,
+        )
+
+        try:
+            if not measurement_ready(self._session):
+                return {}
+            return GrowthMeasurementService(self._session, settings=self._settings,
+                                            timezone=self._tz).followup_by_article(now=now)
+        except Exception:  # noqa: BLE001 - 追跡の観測は補助 (無くても証拠は同じ)
+            return {}
 
     def _freshness(self, now: datetime) -> tuple[dict[str, str], dict[str, dict]]:
         from app.operations.policy import get_policy as get_ops_policy

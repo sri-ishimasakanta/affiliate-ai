@@ -711,9 +711,20 @@ def _conversion_dict(c: GrowthActionConversion) -> dict:
 
 
 class GrowthActionOutcomeService:
+    """C9 Batch 3 の観測の入口 (C9-C からは ``GrowthMeasurementService`` の薄い包み)。
+
+    流れをまたいだ anchor (変更の依頼・Threads の公開・記事の公開)、出所ごとの届き方、未来の
+    データの除外は ``growth_measurement_service`` が持つ。ここは同じ形 (``MeasurementAnchor`` /
+    ``GrowthActionOutcome``) で返すだけ。
+    """
+
     def __init__(self, session: Session, *, settings=None) -> None:
+        from app.services.growth_measurement_service import GrowthMeasurementService
+
         self._session = session
         self._settings = settings
+        self._measurement = GrowthMeasurementService(session, settings=settings)
+        self._items: dict[tuple, dict] = {}
 
     def conversions(self) -> list[GrowthActionConversion]:
         if not conversions_ready(self._session):
@@ -722,64 +733,44 @@ class GrowthActionOutcomeService:
                                           .order_by(GrowthActionConversion.id)))
 
     def anchors(self) -> list[go.MeasurementAnchor]:
-        service = GrowthActionConversionService(self._session, settings=self._settings)
         out = []
-        for conversion in self.conversions():
-            row = self._session.get(GrowthActionCandidate, conversion.candidate_id)
-            for item in service.downstream(conversion):
-                out.append(go.MeasurementAnchor(
-                    growth_action_id=conversion.candidate_id, action_type=row.action_type,
-                    subject_id=row.subject_id, article_id=row.article_id,
-                    downstream_type=item["type"], downstream_id=item["id"],
-                    downstream_state=item["state"], effective_at=item.get("effective_at"),
-                    effective_source=item.get("effective_source")))  # fmt: skip
+        for item in self._measurement.anchors():
+            a = item["anchor"]
+            anchor = go.MeasurementAnchor(
+                growth_action_id=a["growth_action_id"], action_type=a["action_type"],
+                subject_id=a["subject_id"], article_id=a.get("article_id"),
+                downstream_type=a["downstream_type"], downstream_id=a["downstream_id"],
+                downstream_state=a.get("downstream_state") or "unknown",
+                effective_at=a.get("effective_at"),
+                effective_source=a.get("effective_event"))  # fmt: skip
+            self._items[self._key(anchor)] = item
+            out.append(anchor)
         return out
+
+    @staticmethod
+    def _key(anchor: go.MeasurementAnchor) -> tuple:
+        return (anchor.growth_action_id, anchor.downstream_type, anchor.downstream_id)
+
+    def measured(self, anchor: go.MeasurementAnchor, *, now: datetime | None = None,
+                 checkpoint: str | None = None):  # fmt: skip
+        if self._key(anchor) not in self._items:
+            self.anchors()
+        return self._measurement.measure(self._items[self._key(anchor)], now=now,
+                                         checkpoint=checkpoint)
 
     def outcome(self, anchor: go.MeasurementAnchor, *, now: datetime | None = None,
                 checkpoint: str | None = None) -> go.GrowthActionOutcome:  # fmt: skip
-        now = ensure_aware(now or datetime.now(UTC))
-        freshness = self._freshness(now)
-        windows = [c for c in go.CHECKPOINTS if checkpoint in (None, c[0])]
-        if anchor.effective_at is None:
-            checkpoints = tuple(go.Checkpoint(name, days, go.WAITING,
-                                              ("not applied yet: effective_at is None",))
-                                for name, days in windows)  # fmt: skip
-        elif anchor.downstream_type == TARGET_CHANGE_REQUEST:
-            from app.services.change_effect_service import ChangeEffectService
-
-            stale = freshness.get("search_console") == "stale"
-            checkpoints = []
-            for name, days in windows:
-                report = ChangeEffectService(self._session, settings=self._settings).build(
-                    window_days=days, request_id=anchor.downstream_id, now=now)
-                effect = report.effects[0].as_dict() if report.effects else None
-                checkpoints.append(go.checkpoint_from_effect(name, days, effect,
-                                                             source_stale=stale))
-            checkpoints = tuple(checkpoints)
-        else:
-            checkpoints = tuple(go.Checkpoint(name, days, go.NOT_APPLICABLE,
-                                              (f"no measurement for {anchor.downstream_type}",))
-                                for name, days in windows)  # fmt: skip
+        measured = self.measured(anchor, now=now, checkpoint=checkpoint)
+        checkpoints = tuple(go.Checkpoint(c["name"], c.get("days"), c["state"],
+                                          tuple(c.get("reasons") or ()), c.get("before") or {},
+                                          c.get("after") or {}, c.get("differences") or {},
+                                          tuple(c.get("observations") or ()))
+                            for c in measured.checkpoints)  # fmt: skip
+        freshness = {k: v.get("freshness") or v.get("state")
+                     for k, v in measured.sources.items()}  # fmt: skip
         self._session.rollback()
         return go.GrowthActionOutcome(anchor=anchor, checkpoints=checkpoints,
                                       source_freshness=freshness, notes=go.NOTES)
-
-    def _freshness(self, now: datetime) -> dict:
-        from app.operations.policy import get_policy as get_ops_policy
-        from app.operations.source_health import evaluate_source_refresh
-        from app.services.operations_source_health_service import collect_source_freshness
-
-        policy = get_ops_policy()
-        today = now.astimezone(policy.timezone).date()
-        out = {}
-        for name, f in collect_source_freshness(self._session).items():
-            if not f.ever_imported:
-                out[name] = "unavailable"
-            elif evaluate_source_refresh(freshness=f, today=today, now=now, policy=policy):
-                out[name] = "stale"
-            else:
-                out[name] = "fresh"
-        return out
 
 
 __all__ = ["CONVERSION_REVISION", "CONVERSION_SCHEMA", "GrowthActionConversionService",

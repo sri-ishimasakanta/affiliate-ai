@@ -332,7 +332,9 @@ def test_before_application_everything_waits(session, approved) -> None:
     result = outcomes.outcome(anchor, now=_NOW + timedelta(days=40)).as_dict()
     assert anchor.effective_at is None
     assert {c["state"] for c in result["checkpoints"]} == {"waiting"}
-    assert all("not applied yet" in c["reasons"][0] for c in result["checkpoints"])
+    # C9-C: 何を待っているかを言う (承認・変換では始まらない)。
+    assert all(c["reasons"][0].startswith("waiting for approval of the change request")
+               for c in result["checkpoints"])
 
 
 # == 閉じた輪 ================================
@@ -394,7 +396,9 @@ def test_the_cli_is_plan_by_default(session, approved, capsys, monkeypatch) -> N
     assert session.scalar(select(func.count()).select_from(ChangeRequest)) == 1
     assert outcomes_cli.main(["list", "--as-of", _NOW.isoformat()], **kw) == 0
     out = capsys.readouterr().out
-    assert "effective_at — (not applied)" in out and "no success score" in out
+    # C9-C: 変換しただけでは効果は始まっていない (何を待っているかも出る)。
+    assert "effective_at — (not in effect)" in out and "no success score" in out
+    assert "waiting: waiting for approval of the change request" in out
 
 
 def test_the_worker_never_converts() -> None:

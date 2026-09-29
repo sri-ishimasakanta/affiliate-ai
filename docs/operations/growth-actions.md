@@ -281,3 +281,60 @@ uv run python scripts/manage_growth_actions.py handoff close <request_id> --reas
 - 記事の計画の承認は API だけ (記事の行そのものが承認の記録)。計画の依頼は、その記事を結ぶだけ。
 - 変換の先の効果の観測は、変更の依頼の適用だけ (Threads の公開・記事の公開の窓は C9-C)。
 
+
+## C9-C: 追跡の観測の強化 (measurement feedback hardening)
+
+変換した行動の「その後」を、流れをまたいで同じ規則で観測する (`app/growth/measurement.py`
+`growth-measurement/1` と `app/services/growth_measurement_service.py`)。**読むだけ・外に問い合わせ
+ない・新しい表や migration は無い** (観測は保存済みのデータから決まるので、同じ時点の観測は何度
+しても同じ)。1 つの成功の点数・勝ち負け・因果の言葉は作らない。
+
+```bash
+uv run python scripts/analyze_growth_action_outcomes.py summary          # 何を待っているか
+uv run python scripts/analyze_growth_action_outcomes.py list [--due]
+uv run python scripts/analyze_growth_action_outcomes.py show <id> [--checkpoint 7d] [--format json]
+uv run python scripts/manage_growth_actions.py show <id>                 # 候補 → … → 観測の流れ
+```
+
+### 流れと効果の始まり (`effective_at`)
+
+| 流れ | 一連の状態 | 効果の始まり | 使わない時刻 |
+|---|---|---|---|
+| 変更の依頼 (内部リンク) | change_request → approval → application | 適用の成功 (`change_applications.finished_at`) | 承認・適用の失敗・変換 |
+| 変更の準備 (本文・メタ・配置) | preparation → (結んだ変更の依頼 → 承認 → 適用) | 結んだ変更の依頼の適用の成功だけ | 準備・編集の版・リンクの置き換え (WordPress への適用の時刻を持たない) |
+| Threads の生成の依頼 | generation_request → proposal → publication | Threads の公開 (`published_at`) | 依頼・提案の作成・提案の承認 |
+| 記事の計画 | planning_request → article → publication | 記事の公開 (`published_at`) | 依頼・承認・記事の作成・下書き |
+| Growth Action | candidate → review → conversion → (上の流れ) → 観測 | 上の流れの時刻 | 承認・変換 |
+
+### チェックポイントと出所
+
+- 24h / 72h / 7d / 14d / 28d。記事と変更は、変更日 (レポートのタイムゾーン) を含めない同じ長さの
+  前後の窓 (ChangeEffect と同じ)。記事の公開は前の窓が無いので、後の窓だけ (`observable`、比べない)。
+  Threads は T6.5 の 24h / 72h (公開からの経過時間。観測は T6.5 の一致の規則のまま)。
+- 出所ごとに `data_through` (GSC / GA4 は取り込みの問い合わせの終わり、クリックは取り込んだ日の
+  前の日)・取り込みの時刻・運用の鮮度・遅れの目安 (GSC 3 日・GA4 2 日・クリック 1 日) を持つ。
+  窓がまだ終わっていない・出所がまだ届いていない (目安の中) → `waiting`。目安を過ぎた・運用の判定で
+  古い → `stale_data`。出所が無い → その出所は対象外 (値は `None`)。**届いていない出所の値は
+  `None` にする (0 にしない)。届いた出所だけで窓を閉じない。**
+- 観測の時点より後の日のデータは使わない (`ChangeEffectService.measure_window(..., through=)`)。
+- クリックは信頼できる計測開始 (C7 の `trusted_measurement_start_at`) より後だけ。前を含む窓は比べない。
+- 状態: waiting / insufficient / observable / stale_data / completed_window (Batch 3 と同じ言葉)。
+
+### 次の観測と worker
+
+- anchor ごとに `next_measurement_at` (終わっていないチェックポイントの期日。待っている・古いものは
+  6 時間おき)。効果が始まっていない anchor は観測しない (流れを見るだけ)。
+- worker は既存の `growth_opportunity_evaluation` (1 時間おきの軽い点検) の中で、期日が来た anchor
+  だけを観測し直す (結果はメモリだけ。DB には書かない)。終わったチェックポイントが増えたら、成長の
+  評価をやり直す合図にする (`trigger=followup_measured`、最短の間隔は同じ)。新しい subsystem・
+  Task Scheduler の変更は無い。ログ: `followup_anchors` / `followup_measured` / `followup_changed` /
+  `followup_next`。
+- worker は変換・承認・適用・公開・OpenAI の生成をしない (観測は保存済みのデータを読むだけ)。
+
+### 証拠へ戻す (自分を強めない)
+
+- 観測は `GrowthEvidence.followup` と候補の `followup` に入る (前後・差の向き・出所の鮮度・足りない
+  理由・流れ・`evidence_version`、`causal_claim=none`、`score=None`)。
+- **分類・識別・指紋には入れない**: 追跡の観測だけでは新しい版も新しい候補もできない
+  (「自分が提案した行動だから良かった」を作らない)。本当の証拠 (GSC・GA4・クリック・Threads・C6/C7)
+  が変われば、今までどおり新しい版。変換済みで証拠が同じなら再び出さない (Batch 3 のまま)。

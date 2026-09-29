@@ -329,7 +329,7 @@ def linkage(session, settings, candidate_id) -> dict:
     )
 
     out = {"review": None, "notification": None, "conversion": None, "downstream": [],
-           "latest_outcome": None}
+           "latest_outcome": None, "measurement": []}
     if candidate_id is None or not GrowthActionHistory(session).tables_ready():
         return out
     from app.services.growth_action_digest_service import GrowthActionDigestService
@@ -354,6 +354,16 @@ def linkage(session, settings, candidate_id) -> dict:
                          "downstream_ids": list(conversion.downstream_ids_json),
                          "executed_at": conversion.executed_at.isoformat()}  # fmt: skip
     out["downstream"] = service.downstream(conversion)
+    from app.services.growth_measurement_service import GrowthMeasurementService
+
+    # C9-C: 候補 → レビュー → 変換 → 引き渡し → 実際の変化 → 観測、を 1 本の流れで見せる。
+    measurement = GrowthMeasurementService(session, settings=settings)
+    for item in measurement.anchors():
+        if item["anchor"]["growth_action_id"] != candidate_id:
+            continue
+        m = measurement.measure(item).as_dict()
+        out["measurement"].append({k: m[k] for k in (
+            "anchor", "lifecycle", "measurement_state", "waiting", "next_measurement_at")})
     outcomes = GrowthActionOutcomeService(session, settings=settings)
     anchors = [a for a in outcomes.anchors() if a.growth_action_id == candidate_id]
     if anchors:
@@ -379,6 +389,15 @@ def render_linkage(link: dict) -> str:
                      f"{d.get('effective_at') or '— (not applied)'}")
         if d.get("handoff"):
             lines.append(render_handoff(d["handoff"]))
+    for m in link.get("measurement") or []:
+        life = m["lifecycle"]
+        lines.append("lifecycle: candidate → review → conversion → " + " → ".join(
+            f"{s['name']}={s['state'] or '—'}" for s in life["stages"]))
+        lines.append(f"effective: {life['effective_at'] or '— (not in effect)'}"
+                     + (f" [{life['effective_event']}]" if life["effective_event"] else "")
+                     + f"; measurement {m['measurement_state']}; next "
+                     f"{m['next_measurement_at'] or '—'}")
+        lines.append("waiting: " + ("; ".join(m["waiting"]) or "nothing"))
     if link["latest_outcome"]:
         o = link["latest_outcome"]
         lines.append(f"latest outcome: {o['measurement_state']} "

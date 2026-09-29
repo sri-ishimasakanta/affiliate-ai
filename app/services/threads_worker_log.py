@@ -154,6 +154,11 @@ class WorkerLogFormatter:
             "reason": summary.get("reason"),
             "created": summary.get("created"),
             "fingerprint": summary.get("fingerprint"),
+            # C9-C: 追跡の観測 (anchor の数・観測し直した数・終わった窓が増えた行動・次の時刻)。
+            "followup_anchors": (summary.get("measurement") or {}).get("anchors"),
+            "followup_measured": (summary.get("measurement") or {}).get("measured"),
+            "followup_changed": len((summary.get("measurement") or {}).get("changed") or []),
+            "followup_next": (summary.get("measurement") or {}).get("next_measurement_at"),
         }, "INFO"
 
     @staticmethod

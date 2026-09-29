@@ -536,14 +536,17 @@ SUPPRESSED_DECISIONS = frozenset({REOBSERVED, SUPPRESSED_REJECTED, SUPPRESSED_CO
 
 def build_inbox(session: Session, *, settings=None, now: datetime | None = None,
                 days: int = 28, report: dict | None = None,
-                include_stock_plan: bool = True) -> dict:  # fmt: skip
+                include_stock_plan: bool = True, followup=None) -> dict:  # fmt: skip
     """評価 → 既存の仕事 → 履歴との照らし合わせ → 受け箱の行。**書かない。**"""
 
     from app.services.growth_opportunity_service import GrowthOpportunityService
 
     now = ensure_aware(now or datetime.now(UTC))
     if report is None:
-        report = GrowthOpportunityService(session, settings=settings
+        from app.services.growth_evidence_service import GrowthEvidenceService
+
+        evidence = GrowthEvidenceService(session, settings=settings, followup=followup)
+        report = GrowthOpportunityService(session, settings=settings, evidence_service=evidence
                                           ).evaluate_growth_opportunities(now, days=days)
     coverage = collect_coverage(session, now=now, report=report, settings=settings,
                                 include_stock_plan=include_stock_plan)  # fmt: skip

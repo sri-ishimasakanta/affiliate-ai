@@ -122,14 +122,22 @@ def checkpoint_from_effect(name: str, days: int, effect: Mapping | None, *,
 
 
 def threads_checkpoint(name: str, post: Mapping | None) -> Checkpoint:
-    """T6.5 の 1 本の投稿のチェックポイント → 観測 (cohort との比べはしない)。"""
+    """T6.5 の 1 本の投稿のチェックポイント → 観測 (cohort との比べはしない)。
+
+    達したかは、T6.5 の投稿の行の ``age_at_as_of_hours`` (観測の時点の経過時間) で決める
+    (行に ``reached`` があればそれを使う)。未来の観測は T6.5 の側で除かれている。
+    """
 
     if name not in THREADS_CHECKPOINTS:
         return Checkpoint(name, None, NOT_APPLICABLE, ("Threads checkpoints are 24h and 72h",))
     if post is None:
         return Checkpoint(name, None, WAITING, ("not published yet",))
     cp = (post.get("checkpoints") or {}).get(name) or {}
-    if not cp.get("reached"):
+    reached = cp.get("reached")
+    if reached is None:
+        age = post.get("age_at_as_of_hours")
+        reached = age is not None and age >= int(name.rstrip("h"))
+    if not reached:
         return Checkpoint(name, None, WAITING, ("checkpoint not reached",))
     if not cp.get("comparable"):
         return Checkpoint(name, None, INSUFFICIENT, (str(cp.get("reason") or "no matched "

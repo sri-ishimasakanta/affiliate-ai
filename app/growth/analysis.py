@@ -170,6 +170,9 @@ class GrowthEvidence:
     sources: Mapping[str, SourceEvidence] = field(default_factory=dict)
     #: 既存のエンジン (SEO C6・収益 C7) がこの対象に出した候補 (そのまま、再計算しない)。
     existing_candidates: Mapping[str, tuple[dict, ...]] = field(default_factory=dict)
+    #: C9-C: 変換した行動の追跡の観測 (``growth-measurement/1`` の ``followup``)。**観測だけ**:
+    #: 分類・識別・指紋に入れない (自分の行動の観測で、自分の候補を作らない・強めない)。
+    followup: tuple[dict, ...] = ()
 
     @property
     def usable_sources(self) -> tuple[str, ...]:
@@ -190,6 +193,7 @@ class GrowthEvidence:
                                     for k, v in sorted(self.existing_candidates.items())},
             "usable_sources": list(self.usable_sources),
             "evidence_state": self.evidence_state,
+            "followup": [dict(f) for f in self.followup],
         }  # fmt: skip
 
 
@@ -497,6 +501,8 @@ class GrowthActionCandidate:
     #: いま実行するならどうするかの勧め (例: 別の切り口なら、どの切り口か)。**識別・指紋に
     #: 入れない** (サイトの直近の投稿で変わる弱い好みなので、変わっても同じ機会・同じ版)。
     recommendation: Mapping = field(default_factory=dict)
+    #: C9-C: この対象の、変換した行動の追跡の観測 (表示と記録だけ。**識別・指紋に入れない**)。
+    followup: tuple[dict, ...] = ()
 
     @property
     def opportunity_key(self) -> str:
@@ -714,6 +720,7 @@ def build_candidates(evidence: GrowthEvidence, opportunities: Iterable[Opportuni
             priority=_priority(evidence, action, items, state, context),
             variant=variants[0] if variants else None,
             recommendation=_recommendation(items),
+            followup=tuple(dict(f) for f in evidence.followup),
             material=tuple({"pattern": o.pattern, "basis": o.basis, **dict(o.material)}
                            for o in sorted(items, key=lambda o: (o.pattern, o.reason))),
             source_states={k: v.state for k, v in sorted(evidence.sources.items())

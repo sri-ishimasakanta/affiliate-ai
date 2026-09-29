@@ -208,6 +208,8 @@ class ThreadsWorkerService:
         self._last_growth_evaluation: datetime | None = None
         self._growth_signature: str | None = None
         self._growth_fingerprint: str | None = None
+        #: C9-C: 変換した行動の追跡の観測 (anchor ごと。メモリだけ。DB には書かない)。
+        self._measurement_cache: dict = {}
 
     # -- growth opportunities (C9) -----------------------------------------------
     #: 既定は **無効** (本番ではまだ使わない)。方針の ``subsystems.growth_opportunity_evaluation``。
@@ -256,17 +258,21 @@ class ThreadsWorkerService:
                 return SubsystemResult(next_run_at=now + interval, summary={
                     "evaluated": False, "reason": "history tables missing (migration "
                     "74bfaf6c9c9f not applied)", "db_writes": 0, "external_writes": 0})
+            measured, measurement = self._measure_followups(session, now)
             signature = self._growth_signature_now(session)
             last = self._last_growth_evaluation
             due = last is None or now - last >= interval
-            changed = signature != self._growth_signature
+            followup_changed = bool(measurement.get("changed"))
+            changed = signature != self._growth_signature or followup_changed
             if not due and not (changed and now - last >= minimum):
                 session.rollback()
                 return SubsystemResult(next_run_at=now + check, summary={
                     "evaluated": False, "reason": "signature unchanged" if not changed
                     else "signature changed; waiting for the minimum interval",
+                    "measurement": measurement,
                     "db_writes": 0, "external_writes": 0})  # fmt: skip
-            box = build_inbox(session, settings=self._settings, now=now)
+            followup = self._followup_provider(session, measured)
+            box = build_inbox(session, settings=self._settings, now=now, followup=followup)
             written = None
             if config.get("write_history", True):
                 written = GrowthActionHistory(session).apply_refresh(box["plan"], now=now)
@@ -275,10 +281,41 @@ class ThreadsWorkerService:
             self._growth_fingerprint = box["report"]["fingerprint"]
             counts = box["plan"].counts()
         return SubsystemResult(next_run_at=now + check, summary={
-            "evaluated": True, "trigger": "interval" if due else "signature_changed",
+            "evaluated": True, "trigger": "interval" if due else (
+                "followup_measured" if followup_changed else "signature_changed"),
+            "measurement": measurement,
             "fingerprint": (self._growth_fingerprint or "")[:12], "counts": counts,
             "created": len((written or {}).get("created") or []),
             "db_writes": "growth_action_* only" if written else 0, "external_writes": 0})
+
+    def _measure_followups(self, session, now: datetime) -> tuple[list, dict]:
+        """C9-C: 期日が来た追跡の観測だけをし直す (読むだけ。外に問い合わせない)。"""
+
+        from app.services.growth_measurement_service import (
+            GrowthMeasurementService,
+            measurement_ready,
+        )
+
+        if not measurement_ready(session):
+            return [], {"anchors": 0, "measured": 0, "changed": []}
+        try:
+            measured, stats = GrowthMeasurementService(
+                session, settings=self._settings, timezone=self.timezone).refresh(
+                now=now, cache=self._measurement_cache)  # fmt: skip
+        except Exception as exc:  # noqa: BLE001 - 観測の失敗で成長の評価を止めない
+            session.rollback()
+            return [], {"anchors": 0, "measured": 0, "changed": [],
+                        "error": f"{type(exc).__name__}"}
+        session.rollback()
+        return measured, {k: stats[k] for k in ("anchors", "effective", "measured", "reused",
+                                                "changed", "next_measurement_at")}
+
+    def _followup_provider(self, session, measured: list):
+        from app.services.growth_measurement_service import GrowthMeasurementService
+
+        service = GrowthMeasurementService(session, settings=self._settings,
+                                           timezone=self.timezone)
+        return lambda _now: service.followup_by_article(measured)
 
     # -- performance feedback (T6.5) ---------------------------------------------
     #: 方針に節が無いときの値 (``threads_operations_policy.json`` の
