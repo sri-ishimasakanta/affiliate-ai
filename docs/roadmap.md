@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-29 (C9-B).
+Last updated: 2026-09-30 (C9-C; C9 closed).
 
 ---
 
@@ -21,9 +21,11 @@ Last updated: 2026-09-29 (C9-B).
 
 | Unit | Status | Production |
 |---|---|---|
-| C9-A Growth Action Operations & Stable Prioritization | **COMPLETED** | stable identity DEPLOYED (worker reloaded); Growth digest sending **NOT ENABLED** (first real send = human decision) |
+| C9-A Growth Action Operations & Stable Prioritization | **COMPLETED** | DEPLOYED (stable identity); Growth digest sending **NOT ENABLED** (first real send = human decision) |
 | C9-B Safe Downstream Handoffs | **COMPLETED** | migration `4fe83827d695` **DEPLOYED** (2026-09-29); targeted Threads consumption **ENABLED** (`consume_in_stock_maintenance: true`) |
-| C9-C Measurement Feedback Hardening | **ACTIVE** | — |
+| C9-C Measurement Feedback Hardening | **COMPLETED** | DEPLOYED (worker-local follow-up measurement, read-only; no migration) |
+| **C9 Growth Engine (A–C)** | **COMPLETED** (closed) | remaining capabilities are placed explicitly below (C9-B limits → C10-D/E) |
+| C10-A Analysis Foundation | **NEXT** | — |
 
 ---
 
@@ -129,22 +131,54 @@ Known limits kept (not changed in C9-B; still real capabilities to build, not re
 - Article plan approval is REST-only and records no approver / plan hash (the Article row is the
   approval); the planning request only links it.
 
-### C9-C — Measurement Feedback Hardening — NEXT
+### C9-C — Measurement Feedback Hardening — COMPLETED
 
-- scheduled follow-up measurement (checkpoints evaluated on a schedule, not only on demand)
-- evidence feedback: outcome checkpoints fed back into Growth Evidence as observations (never
-  "worked because we did it"), source-specific maturity
-- automatic re-evaluation of converted actions when their windows complete
-- cross-workflow measurement: Threads-publication anchors (T6.5 24h/72h), article publication
-  anchors, change-application anchors — including C9-B handoffs
-- stale / missing data handling hardening (stale sources, missing downstream rows)
-- operator summary (long-window follow-up review list, 28d completed windows, no success scores)
+| Field | Value |
+|---|---|
+| implementation | COMPLETED (2026-09-30) |
+| migration | none (measurement is derived from stored data; worker keeps results in memory only) |
+| production | DEPLOYED: the existing `growth_opportunity_evaluation` subsystem measures due anchors; 0 anchors at rollout (no conversions yet) |
+
+Delivered (`docs/operations/growth-actions.md`, section C9-C):
+
+- cross-workflow lifecycles and anchors (change request, change preparation, Threads generation
+  request, article planning request; Growth candidate → review → conversion → handoff → effect)
+- `effective_at` only from real external state changes (successful application, Threads
+  publication, article publication); never approval / conversion / request creation / proposal
+  approval / preparation / article creation
+- scheduled follow-up: `next_measurement_at` per anchor, worker re-measures only due anchors,
+  re-evaluation trigger `followup_measured` when a checkpoint completes (no new subsystem, no
+  Task Scheduler change)
+- per-source freshness: data-through, observed_at, expected lag, freshness state; waiting vs
+  stale_data; missing stays missing (never zero); no future data; trusted clicks only
+- feedback into GrowthEvidence as observation only (`followup`: before / after / direction /
+  freshness / data quality / downstream context / evidence version; no score, no causal claim);
+  never part of identity or fingerprints, so it cannot create revisions or self-reinforce
+- operator summary (`analyze_growth_action_outcomes.py summary / list --due / show`) and
+  lifecycle chain in `manage_growth_actions.py show / history`
+- fix: Threads 24h / 72h checkpoints are reached by the T6.5 row age (Batch 3 expected a key the
+  T6.5 rows never had)
+
+Not in C9-C (kept for later units): durable per-checkpoint history rows (not needed while
+measurement is deterministic; revisit with C10-C nightly analysis), cohort comparison for Threads
+outcomes (T6.5F/G), attribution of revenue to articles (C11).
+
+### C9 closure — remaining capabilities and where they go
+
+| Capability | State | Placed in |
+|---|---|---|
+| `body_update` apply path (text edits through ChangeApplication) | preparation / linkage only | C10-D Next Article Orchestrator (content update execution) |
+| `affiliate_placement` apply path (placement change requests) | preparation / linkage only (link-mapping substitution stays manual) | C10-E Site Growth Orchestrator (with C11 attribution) |
+| `meta_description` WordPress path (excerpt update) | no WordPress apply path | C10-D (content update execution) |
+| `create_growth_post` handoff | plan_only (Growth lane owns it) | stays with the Growth lane (T6.3.3) |
+| Growth digest first real email | NOT ENABLED | human decision (C10-F operations) |
+| Mobile Growth Action review | DEFERRED (relay redeploy) | C10-F |
 
 ---
 
 ## C10 — Growth platform (PLANNED; declared by the human in T7A: T7 before C10, only after maturity)
 
-### C10-A Analysis Foundation — PLANNED
+### C10-A Analysis Foundation — NEXT
 - Google Ads `commercial_intent` signal
 - URL / index state (URL Inspection coverage beyond the saved snapshot)
 - freshness / data quality
