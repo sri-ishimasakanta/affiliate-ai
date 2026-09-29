@@ -316,6 +316,11 @@ def observer_state(conn) -> dict:
         "selector_version": sel.SELECTOR_VERSION,
         "selector_verified": sel.SELECTOR_VERIFIED,
         "limits": dict(sel.LIMITS),
+        # 2026-09-28 に画面で確認: Web のトピックの一覧は、このアカウント向けの「おすすめの
+        # トピック」(topic_for_you)。世の中のトレンドの順位ではない。本物のトレンドは未確認。
+        "topic_list_semantics": "topic_for_you (personalized topic suggestions for this account)",
+        "global_trending": "unverified",
+        "surfaces_verified": sorted(sel.SURFACE_VERIFICATION),
     }
     if not present:
         return base

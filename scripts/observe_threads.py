@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
     parser.add_argument("--login", action="store_true",
                         help="画面を開き、人がログインしてブラウザを閉じるまで待つ (観察しない)")
     parser.add_argument("--for-you", action="store_true", help="おすすめ (For You)")
-    parser.add_argument("--trending", action="store_true",
+    parser.add_argument("--trending", "--topics-for-you", dest="trending", action="store_true",
                         help="トピックの一覧 (検索の最初の画面の「おすすめのトピック」) とその投稿")
     parser.add_argument("--follow-topics", type=int,
                         help="投稿を読むトピックの数を下げる (一覧の上から、投稿のあるもの)")
@@ -166,6 +166,13 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
 
         session_factory = SessionLocal
     if not args.dry_run:
+        # 画面ごとに確かめてからでないと保存しない (確かめていない画面は --dry-run だけ)。
+        surfaces = [*plan.source_types(), *(["trending_list"] if plan.trending else [])]
+        unverified = [s for s in surfaces if not sel.surface_verification(s)["verified"]]
+        if unverified:
+            print(f"refusing to store: surface(s) not verified: {', '.join(unverified)}; "
+                  "run with --dry-run and verify the surface first")  # fmt: skip
+            return EXIT_USAGE
         from app.services.threads_trend_analysis_service import observer_tables_present
 
         with session_factory() as session:

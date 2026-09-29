@@ -340,6 +340,41 @@ def parse_page(html: str, *, limit: int) -> PageResult:
                       anchor_keys=[k for k, _, _ in anchors])
 
 
+FEED_BUILT_IN = "built_in"
+FEED_CUSTOM_CANDIDATE = "custom_candidate"
+_FEEDISH = re.compile(r"(feed|custom|^/following/?$|^/saved/?$|^/liked/?$|^/for_you/?$)", re.I)
+
+
+@dataclass(frozen=True)
+class FeedLink:
+    href: str
+    name: str | None
+    kind: str
+
+
+def parse_feed_links(html: str) -> list[FeedLink]:
+    """ページのフィードのリンク (組み込み / 自分で作ったものの候補)。読むだけ。
+
+    組み込み = ``selectors.BUILT_IN_FEED_PATHS`` (おすすめ・フォロー中・保存済み・「いいね！」
+    済み)。それ以外で ``feed`` / ``custom`` を含むリンクは、自分で作ったフィードの **候補**
+    (形はまだ画面で確かめていない)。
+    """
+
+    root = parse_html(html)
+    out: list[FeedLink] = []
+    seen: set[str] = set()
+    for a in root.find_all("a"):
+        href = a.attrs.get("href", "")
+        path = href.split("?", 1)[0]
+        if not path.startswith("/") or not _FEEDISH.search(path) or href in seen:
+            continue
+        seen.add(href)
+        name = " ".join(t.strip() for t in a.text().split("\n") if t.strip()) or None
+        built_in = path.rstrip("/") in {p.rstrip("/") for p in sel.BUILT_IN_FEED_PATHS}
+        out.append(FeedLink(href, name, FEED_BUILT_IN if built_in else FEED_CUSTOM_CANDIDATE))
+    return out
+
+
 TOPIC_OK = "ok"
 TOPIC_DUPLICATE = "duplicate_topic"
 TOPIC_MALFORMED = "malformed_topic"
@@ -413,5 +448,6 @@ __all__ = ["CARD_DUPLICATE_IN_FRAME", "CARD_MALFORMED_EMPTY_BODY", "CARD_MALFORM
            "CARD_OK", "CARD_REASONS", "CARD_UNSUPPORTED_NESTED", "CARD_UNSUPPORTED_OUTSIDE",
            "MALFORMED_REASONS", "PAGE_DOM_UNRECOGNIZED", "PAGE_EMPTY", "PAGE_LOGIN_REQUIRED",
            "PAGE_OK", "TOPIC_DUPLICATE", "TOPIC_MALFORMED", "TOPIC_OK", "CardEval",
-           "ExternalPostRecord", "PageResult", "TopicEntry", "parse_count", "parse_page",
+           "ExternalPostRecord", "FEED_BUILT_IN", "FEED_CUSTOM_CANDIDATE", "FeedLink",
+           "PageResult", "TopicEntry", "parse_count", "parse_feed_links", "parse_page",
            "parse_trending_topics"]  # fmt: skip

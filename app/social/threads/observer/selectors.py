@@ -81,6 +81,27 @@ SURFACE_VERIFICATION = {
 }  # fmt: skip
 
 
+#: 画面が **このアカウントで使えるか** (確かめた結果)。確認の状態 (``SURFACE_VERIFICATION``)
+#: とは別。使えない画面は、確かめようがない (パーサーの失敗ではない)。
+SURFACE_AVAILABILITY = {
+    #: 2026-09-29 に確認: For You の画面の DOM 全体 (隠れた要素を含む) に、自分で作った
+    #: フィードへのリンクは無かった。左のメニューの「他のフィード」は組み込みのフィード
+    #: (フォロー中・保存済み・「いいね！」済み) だけ。「表示を増やす」「編集」はボタン
+    #: (リンクではない) で、押す操作はこの段階では使わない。組み込みのフィードは、自分で作った
+    #: フィードの代わりにしない。
+    "custom_feed": {
+        "available": False,
+        "checked_at": "2026-09-29",
+        "reason": "no user-created feed link in the readable DOM; only built-in feeds "
+                  "(/following/, /saved/, /liked/); 表示を増やす is a button (not followed)",
+        "built_in_feeds_observed": ("/for_you", "/following/", "/saved/", "/liked/"),
+    },
+}  # fmt: skip
+
+#: 組み込みのフィードの path (自分で作ったフィードではない)。
+BUILT_IN_FEED_PATHS = ("/", "/for_you", "/following", "/saved", "/liked")
+
+
 def surface_verification(source_type: str) -> dict:
     """出どころの確かめた状態 (``version`` / ``verified`` / ``verified_fields``)。"""
 
@@ -160,6 +181,9 @@ def trends_url() -> str:
 
 
 def custom_feed_url(feed_id: str) -> str:
+    """**下書きの形 (画面で確かめていない)**。自分で作ったフィードが見つかったら、そのリンクで
+    確かめて直す。"""
+
     return f"{BASE_URL}/custom_feed/{quote(feed_id)}"
 
 
@@ -169,7 +193,8 @@ def account_url(handle: str) -> str:
 
 __all__ = [
     "ALLOWED_HOSTS", "COLLECTOR_VERSION", "LIMITS", "METRIC_LABELS", "RENDER_WAIT_MS",
-    "SURFACE_VERIFICATION", "surface_verification",
+    "BUILT_IN_FEED_PATHS", "SURFACE_AVAILABILITY", "SURFACE_VERIFICATION",
+    "surface_verification",
     "SELECTOR_VERIFIED", "UNVERIFIED_METRIC_LABELS", "UNVERIFIED_SURFACES", "VERIFIED_METRICS",
     "VERIFIED_SURFACES",
     "SELECTOR_VERSION", "account_url", "custom_feed_url", "for_you_url", "search_url",
