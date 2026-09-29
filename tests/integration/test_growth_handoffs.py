@@ -261,8 +261,38 @@ def test_an_open_proposal_or_targeted_request_is_refused(session, site) -> None:
              "no_open_threads_proposal")
 
 
-def test_stock_maintenance_ignores_targeted_requests_by_default(session, site, tmp_path) -> None:
-    assert ghs.consume_targeted_enabled() is False  # 方針の既定
+def _disable(monkeypatch):
+    monkeypatch.setattr(ghs, "consume_targeted_enabled", lambda policy=None: False)
+
+
+def test_the_consume_switch_semantics() -> None:
+    from dataclasses import replace
+
+    from app.growth.policy import load_policy
+
+    policy = load_policy()
+    # 本番の方針は有効 (2026-09-29、人の判断)。まとめの送信は無効のまま。
+    assert ghs.consume_targeted_enabled(policy) is True
+    assert policy.sending_enabled is False
+    # コードの既定: 鍵が無い・true 以外なら無効。
+    assert ghs.consume_targeted_enabled(replace(policy, raw={})) is False
+    for value in (False, "true", 1, None):
+        raw = {**policy.raw, "threads_generation_requests": {
+            "consume_in_stock_maintenance": value}}
+        assert ghs.consume_targeted_enabled(replace(policy, raw=raw)) is False
+
+
+def test_the_switch_changes_nothing_while_no_request_is_pending(session, site, tmp_path,
+                                                                monkeypatch) -> None:
+    on = _stock(session, tmp_path).plan(now=_NOW)["stock"]
+    _disable(monkeypatch)
+    off = _stock(session, tmp_path).plan(now=_NOW)["stock"]
+    assert on == off and on["requests"]
+
+
+def test_stock_maintenance_ignores_targeted_requests_when_disabled(session, site, tmp_path,
+                                                                   monkeypatch) -> None:
+    _disable(monkeypatch)
     row = _approved(session, site, ga.CREATE_REGULAR_THREADS_POST, 25)
     _service(session, site).execute(row.id, now=_NOW)
     stock = _stock(session, tmp_path)
@@ -277,12 +307,15 @@ def test_enabled_stock_maintenance_uses_the_request_without_extra_calls(
         session, site, tmp_path, monkeypatch) -> None:  # fmt: skip
     row = _approved(session, site, ga.CREATE_REGULAR_THREADS_POST, 25)
     _service(session, site).execute(row.id, now=_NOW)
+    _disable(monkeypatch)
+    baseline = _stock(session, tmp_path / "off").plan(now=_NOW)["would_request"]
     _enable(monkeypatch)
     stock = _stock(session, tmp_path)
     plan = stock.plan(now=_NOW)
     assert plan["stock"]["requests"][0]["targeted_request_id"] == _handoffs(session)[0].id
+    assert plan["would_request"] == baseline  # 呼び出しの数は増えない
     outcome = stock.maintain(now=_NOW, execute=True)
-    assert len(outcome["requests_created"]) == 3  # 依頼の数は同じ
+    assert len(outcome["requests_created"]) == baseline == 3
     [handoff] = _handoffs(session)
     assert handoff.status == "claimed" and handoff.generation_request_id in outcome[
         "requests_created"]  # fmt: skip
@@ -310,6 +343,22 @@ def test_healthy_stock_leaves_the_request_waiting(session, site, tmp_path, monke
     outcome = _stock(session, tmp_path).maintain(now=_NOW, execute=True)
     assert outcome["requests_created"] == []
     assert _handoffs(session)[0].status == "pending"
+
+
+def test_a_conflict_after_conversion_is_not_consumed(session, site, tmp_path,
+                                                     monkeypatch) -> None:
+    row = _approved(session, site, ga.CREATE_REGULAR_THREADS_POST, 25)
+    _service(session, site).execute(row.id, now=_NOW)
+    _proposal(session, 25, seed="z")  # 変換の後に、その記事の提案ができた (在庫がある)
+    _enable(monkeypatch)
+    stock = _stock(session, tmp_path)
+    plan = stock.plan(now=_NOW)
+    assert all("targeted_request_id" not in r for r in plan["stock"]["requests"])
+    assert plan["stock"]["skipped_articles"][
+        "targeted request waiting: article already has usable stock"] == 1  # fmt: skip
+    stock.maintain(now=_NOW, execute=True)
+    assert _handoffs(session)[0].status == "pending"
+    assert 25 not in {r.article_id for r in stock.provider.pending()}
 
 
 def test_a_stale_generation_request_releases_the_targeted_request(

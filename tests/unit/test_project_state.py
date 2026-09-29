@@ -178,8 +178,8 @@ def _db(tmp_path: Path, *, heartbeat_age=timedelta(seconds=60)) -> Path:
                "'resolved', '2026-09-24', '2026-09-25')")  # fmt: skip
     db.execute("insert into notification_deliveries values (1, 'daily_incident', 'sent', "
                "'2026-09-24', 'secret-recipient@example.test')")  # fmt: skip
-    # 本番と同じ revision (C9 Batch 3 の変換の記録の表は 2026-09-29 に本番へ適用済み)。
-    db.execute("insert into alembic_version values ('74dbecaa4bb2')")
+    # 本番と同じ revision (C9-B の引き渡しの依頼の表は 2026-09-29 に本番へ適用済み)。
+    db.execute("insert into alembic_version values ('4fe83827d695')")
     db.commit()
     db.close()
     return path

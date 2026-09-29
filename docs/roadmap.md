@@ -22,8 +22,8 @@ Last updated: 2026-09-29 (C9-B).
 | Unit | Status | Production |
 |---|---|---|
 | C9-A Growth Action Operations & Stable Prioritization | **COMPLETED** | stable identity DEPLOYED (worker reloaded); Growth digest sending **NOT ENABLED** (first real send = human decision) |
-| C9-B Safe Downstream Handoffs | **COMPLETED** | migration `4fe83827d695` **PENDING HUMAN** (not applied; rehearsed on a production copy); targeted Threads consumption **NOT ENABLED** (`consume_in_stock_maintenance: false`) |
-| C9-C Measurement Feedback Hardening | **NEXT** | — |
+| C9-B Safe Downstream Handoffs | **COMPLETED** | migration `4fe83827d695` **DEPLOYED** (2026-09-29); targeted Threads consumption **ENABLED** (`consume_in_stock_maintenance: true`) |
+| C9-C Measurement Feedback Hardening | **ACTIVE** | — |
 
 ---
 
@@ -90,9 +90,9 @@ Deferred from C9-A:
 | Field | Value |
 |---|---|
 | implementation | COMPLETED (2026-09-29) |
-| migration | `4fe83827d695` (`growth_handoff_requests`, additive) — **PENDING HUMAN** production apply; rehearsed on a production copy (upgrade / check / downgrade / re-upgrade, integrity ok, FK 0, existing rows unchanged, downgrade guard) |
-| production targeted Threads consumption | **NOT ENABLED** (`growth_action_policy.json` `threads_generation_requests.consume_in_stock_maintenance: false`; turning it on points existing OpenAI generation at the requested article = human decision) |
-| production executions | none (0 approved Growth Action reviews) |
+| migration | `4fe83827d695` (`growth_handoff_requests`, additive) — **DEPLOYED** 2026-09-29 23:44 JST (human approved; backup `D:/Backups/affiliate-ai/affiliate_ai.pre-c9b.20260929T144335Z.db`; integrity ok, FK 0, existing tables unchanged) |
+| production targeted Threads consumption | **ENABLED** (`growth_action_policy.json` `threads_generation_requests.consume_in_stock_maintenance: true`, human approved 2026-09-29; consumed only when the stock would generate anyway — no new cadence, no extra calls) |
+| production executions | none at activation (0 approved Growth Action reviews, 0 handoff requests) |
 
 Delivered (`docs/operations/growth-actions.md`, section C9-B):
 
@@ -118,11 +118,14 @@ Delivered (`docs/operations/growth-actions.md`, section C9-B):
   execute-time checks + per-target conflict checks; lifecycles observed separately
   (`manage_growth_actions.py show / explain / history` + `handoff ...`). The worker never converts.
 
-Known limits kept (not changed in C9-B):
+Known limits kept (not changed in C9-B; still real capabilities to build, not removed):
 
-- `ChangeApplicationService` V1 applies only a single inserted internal link; text / placement
-  change requests are blocked at apply (fail closed).
-- Meta description has no WordPress update path (content-only updates); needs a later unit.
+- `body_update` is preparation / linkage only: `ChangeApplicationService` V1 applies only a
+  single inserted internal link; text change requests are blocked at apply (fail closed).
+- `affiliate_placement` is preparation / linkage only (placement change requests are blocked at
+  apply; link-mapping substitution of existing links stays the manual path).
+- `meta_description` has no WordPress apply path (content-only updates).
+- `create_growth_post` stays plan_only (the Growth lane owns generation).
 - Article plan approval is REST-only and records no approver / plan hash (the Article row is the
   approval); the planning request only links it.
 
@@ -188,7 +191,5 @@ Known limits kept (not changed in C9-B):
   covers T / W / N / T7; adding units needs evidence files and updated project-state tests).
 - Mobile Growth Action review (relay redeploy) — see C9-A.
 - Growth digest scheduled trigger — see C9-A.
-- PENDING HUMAN: apply migration `4fe83827d695` in production; enable targeted Threads
-  consumption (`consume_in_stock_maintenance`) — see C9-B.
 - Apply paths for text edits / affiliate placement change requests and meta description updates
   (WordPress excerpt) — see C9-B known limits.

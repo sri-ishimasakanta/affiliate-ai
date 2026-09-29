@@ -8,7 +8,7 @@
     "respect_approval_notification_window": true
   },
   "threads_generation_requests": {
-    "note": "C9-B targeted Threads generation requests (from converted Growth Actions). While false, the proposal stock maintenance ignores them (behaviour unchanged). When true, a pending request replaces one fairness pick only when the stock would generate anyway (floor, per-cycle cap, cooldown, pending-request and recent-angle rules unchanged), so the number of OpenAI calls does not grow. Turning it on in production is a human decision.",
-    "consume_in_stock_maintenance": false
+    "note": "C9-B targeted Threads generation requests (from converted Growth Actions). While false, the proposal stock maintenance ignores them (behaviour unchanged). When true, a pending request replaces one fairness pick only when the stock would generate anyway (floor, per-cycle cap, cooldown, pending-request and recent-angle rules unchanged), so the number of OpenAI calls does not grow. Enabled in production on 2026-09-29 by a human decision (C9-B activation); a missing key means false.",
+    "consume_in_stock_maintenance": true
   }
 }

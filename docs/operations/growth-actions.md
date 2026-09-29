@@ -229,7 +229,7 @@ uv run python scripts/manage_growth_actions.py review <id> --fingerprint <sha> -
 ## C9-B: 下流への安全な引き渡し (手元の依頼)
 
 承認した Growth Action を、既存の流れの **手元の依頼** に変える。表は 1 つ
-(`growth_handoff_requests`、migration `4fe83827d695`、**本番にはまだ適用していない**。追加だけで
+(`growth_handoff_requests`、migration `4fe83827d695`、2026-09-29 に本番へ適用済み。追加だけで
 既存の表は変えない。downgrade は依頼の行が 1 行でもあれば止まる)。どの依頼も OpenAI・Threads・
 WordPress を呼ばない。**Growth Action の変換 ≠ 先の承認 ≠ 公開 / 適用** (状態は別々に見る)。
 
@@ -261,8 +261,9 @@ uv run python scripts/manage_growth_actions.py handoff close <request_id> --reas
 ### 在庫の保守が指定の依頼を使う規則
 
 - `growth_action_policy.json` の `threads_generation_requests.consume_in_stock_maintenance`
-  (**既定 false**)。false の間、在庫の保守は今までと同じ (依頼は pending のまま待つ)。
-  **本番で true にするのは人の判断** (その先で既存の OpenAI の生成が指定の記事に向く)。
+  (コードの既定は無効: 鍵が無い・true 以外なら使わない)。本番の方針は 2026-09-29 に人の判断で
+  **true** (その先で既存の OpenAI の生成が指定の記事に向く)。false に戻せば今までと同じ
+  (依頼は pending のまま待つ)。待っている依頼が無ければ、true でも計画は同じ。
 - true のとき: 在庫の規則で **もともと生成するとき** だけ、公平の順の 1 つの代わりに使う
   (下限 3 / 1 回 3 本 / 答え待ちの抑止 / 1 記事 1 本 / トピックの散らし / 切り口の重なりはそのまま)。
   呼び出しの数は増えない。使えない (その記事に在庫がある・休みの期間・固定した切り口が最近使われた・
