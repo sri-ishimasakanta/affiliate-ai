@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-29 (C9-A).
+Last updated: 2026-09-29 (C9-B).
 
 ---
 
@@ -22,8 +22,8 @@ Last updated: 2026-09-29 (C9-A).
 | Unit | Status | Production |
 |---|---|---|
 | C9-A Growth Action Operations & Stable Prioritization | **COMPLETED** | stable identity DEPLOYED (worker reloaded); Growth digest sending **NOT ENABLED** (first real send = human decision) |
-| C9-B Safe Downstream Handoffs | **NEXT** | — |
-| C9-C Measurement Feedback Hardening | PLANNED | — |
+| C9-B Safe Downstream Handoffs | **COMPLETED** | migration `4fe83827d695` **PENDING HUMAN** (not applied; rehearsed on a production copy); targeted Threads consumption **NOT ENABLED** (`consume_in_stock_maintenance: false`) |
+| C9-C Measurement Feedback Hardening | **NEXT** | — |
 
 ---
 
@@ -85,21 +85,57 @@ Deferred from C9-A:
 - Digest scheduling: evaluated on demand (CLI); a scheduled trigger (worker subsystem or C8 weekly
   task) is decided in C9-B/C10-F once sending is approved.
 
-### C9-B — Safe Downstream Handoffs — NEXT
+### C9-B — Safe Downstream Handoffs — COMPLETED
 
-- Targeted Threads GenerationRequest adapter: request a proposal for a given article + angle
-  through the existing proposal-stock rules (caps, cooldowns, recent-angle preference, approval
-  flow). Converts `create_regular_threads_post` / `create_threads_alternative_angle` from
-  unsupported to local handoff.
-- ChangeRequest V2: text_edit, meta/snippet change and affiliate placement as reviewable local
-  change requests (frozen hashes, separate approval and apply; no automatic WordPress write).
-- Durable article-planning request (so `create_new_article` can be converted, not only planned).
+| Field | Value |
+|---|---|
+| implementation | COMPLETED (2026-09-29) |
+| migration | `4fe83827d695` (`growth_handoff_requests`, additive) — **PENDING HUMAN** production apply; rehearsed on a production copy (upgrade / check / downgrade / re-upgrade, integrity ok, FK 0, existing rows unchanged, downgrade guard) |
+| production targeted Threads consumption | **NOT ENABLED** (`growth_action_policy.json` `threads_generation_requests.consume_in_stock_maintenance: false`; turning it on points existing OpenAI generation at the requested article = human decision) |
+| production executions | none (0 approved Growth Action reviews) |
 
-### C9-C — Measurement Feedback Hardening — PLANNED
+Delivered (`docs/operations/growth-actions.md`, section C9-B):
 
-- Outcome checkpoints fed back into Growth Evidence as observations (never "worked because we
-  did it"); source-specific maturity; Threads-publication outcome anchors (T6.5 24h/72h).
-- Long-window follow-up review list (28d completed windows) without success scores.
+- **Targeted Threads GenerationRequest**: `create_regular_threads_post` /
+  `create_threads_alternative_angle` → a local `threads_generation` request (alternative angle
+  frozen at conversion, rechecked against tried / published angles). The existing proposal-stock
+  maintenance uses it only when it would generate anyway (floor, per-cycle cap, pending-request,
+  cooldown and recent-angle rules unchanged; no extra calls) → proposal `awaiting_approval` →
+  existing approval / publication. No LLM call inside the conversion. `create_growth_post` stays
+  plan_only (the Growth lane owns it).
+- **ChangeRequest V2** as typed change-preparation requests (`body_update`, `meta_description`,
+  `affiliate_placement`): frozen body / meta hashes (+ affiliate program / target / mapping ids,
+  never URLs), execute needs the plan's source hash (drift fails closed), no generated content,
+  no empty ChangeRequest. A human links the concrete downstream (change request / editorial
+  revision / link mapping) made from the frozen source; its own approval and apply stay separate.
+  The Batch 3 internal-link conversion is unchanged.
+- **Durable article planning request** for `create_new_article`: never creates an Article;
+  rechecks existing articles (keyword id or normalized text), open requests and cannibalization
+  (existing read-only article plan); human approve / reject, then link the Article created by the
+  existing plan approval (`materialize`, strict checks).
+- Unified conversion targets `change_request` / `threads_generation_request` /
+  `article_planning_request` / `change_preparation_request`; idempotent on both sides; common
+  execute-time checks + per-target conflict checks; lifecycles observed separately
+  (`manage_growth_actions.py show / explain / history` + `handoff ...`). The worker never converts.
+
+Known limits kept (not changed in C9-B):
+
+- `ChangeApplicationService` V1 applies only a single inserted internal link; text / placement
+  change requests are blocked at apply (fail closed).
+- Meta description has no WordPress update path (content-only updates); needs a later unit.
+- Article plan approval is REST-only and records no approver / plan hash (the Article row is the
+  approval); the planning request only links it.
+
+### C9-C — Measurement Feedback Hardening — NEXT
+
+- scheduled follow-up measurement (checkpoints evaluated on a schedule, not only on demand)
+- evidence feedback: outcome checkpoints fed back into Growth Evidence as observations (never
+  "worked because we did it"), source-specific maturity
+- automatic re-evaluation of converted actions when their windows complete
+- cross-workflow measurement: Threads-publication anchors (T6.5 24h/72h), article publication
+  anchors, change-application anchors — including C9-B handoffs
+- stale / missing data handling hardening (stale sources, missing downstream rows)
+- operator summary (long-window follow-up review list, 28d completed windows, no success scores)
 
 ---
 
@@ -152,3 +188,7 @@ Deferred from C9-A:
   covers T / W / N / T7; adding units needs evidence files and updated project-state tests).
 - Mobile Growth Action review (relay redeploy) — see C9-A.
 - Growth digest scheduled trigger — see C9-A.
+- PENDING HUMAN: apply migration `4fe83827d695` in production; enable targeted Threads
+  consumption (`consume_in_stock_maintenance`) — see C9-B.
+- Apply paths for text edits / affiliate placement change requests and meta description updates
+  (WordPress excerpt) — see C9-B known limits.
