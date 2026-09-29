@@ -23,7 +23,12 @@ from sqlalchemy.orm import Session
 
 from app.article.fact_freshness import ensure_aware
 from app.growth import inbox as gi
-from app.growth.analysis import IDENTITY_SCHEMA
+from app.growth.analysis import (
+    IDENTITY_SCHEMA,
+    canonical_opportunity_key,
+    is_legacy_key,
+    stable_candidate_fingerprint,
+)
 from app.growth.conversion import plan_conversion
 from app.models import (
     CR_APPROVED,
@@ -136,7 +141,7 @@ def collect_coverage(session: Session, *, now: datetime, report: dict, settings=
     if history_tables_ready(session):
         for review in session.scalars(select(GrowthActionReview).where(
                 GrowthActionReview.status == GAR_PENDING)):  # fmt: skip
-            open_reviews[review.opportunity_key] = review.id
+            open_reviews[canonical_opportunity_key(review.opportunity_key)] = review.id
     growth_plan = report.get("growth_plan") or {}
     return gi.CoverageContext(
         open_regular_proposals={k: tuple(v) for k, v in open_props.items()},
@@ -240,25 +245,31 @@ class GrowthActionHistory:
     # -- refresh ---------------------------------------------------------------------------
     def plan_refresh(self, report: dict, coverage: gi.CoverageContext, *,
                      now: datetime) -> RefreshPlan:  # fmt: skip
-        """評価の結果を履歴に照らす (書かない)。"""
+        """評価の結果を履歴に照らす (書かない)。
+
+        C9-A: 機会は ``canonical_opportunity_key`` でまとめる。古い形 (勧めの切り口つき) の行は
+        消さず・書き換えず、今の規則で計算し直した指紋が同じなら **その行を同じ候補として** 扱う
+        (新しい行を作らない。却下・変換・レビュー中の状態もそのまま効く)。1 つの機会に生きている
+        行は 1 つ (ほかの古い変種は ``not_observed``: 置き換えられた)。
+        """
 
         now = ensure_aware(now)
         ready = self.tables_ready()
         by_fp: dict[str, GrowthActionCandidate] = {}
-        latest: dict[str, GrowthActionCandidate] = {}
+        groups: dict[str, list[GrowthActionCandidate]] = defaultdict(list)
         if ready:
-            for row in self._session.scalars(select(GrowthActionCandidate)):
+            for row in self._session.scalars(select(GrowthActionCandidate)
+                                             .order_by(GrowthActionCandidate.id)):
                 by_fp[row.candidate_fingerprint] = row
-                current = latest.get(row.opportunity_key)
-                if current is None or row.revision > current.revision:
-                    latest[row.opportunity_key] = row
+                groups[canonical_opportunity_key(row.opportunity_key)].append(row)
         plan = RefreshPlan(as_of=now.isoformat(), tables_ready=ready)
-        seen_keys = set()
+        kept: dict[str, int] = {}
         for candidate in report["candidates"]:
-            key = candidate["opportunity_key"]
-            seen_keys.add(key)
+            key = canonical_opportunity_key(candidate["opportunity_key"])
+            group = groups.get(key, [])
             availability, reasons = gi.assess(candidate, coverage)
-            existing = by_fp.get(candidate["candidate_fingerprint"])
+            existing = by_fp.get(candidate["candidate_fingerprint"]) or _legacy_match(
+                group, candidate["candidate_fingerprint"])
             if existing is not None:
                 decision = {GA_REJECTED: SUPPRESSED_REJECTED, GA_APPROVED: SUPPRESSED_COMPLETED,
                             GA_CONVERTED: SUPPRESSED_COMPLETED,
@@ -268,21 +279,31 @@ class GrowthActionHistory:
                                                                        REOBSERVED)  # fmt: skip
                 plan.items.append(RefreshItem(candidate, decision, availability, reasons,
                                               existing.revision, existing_id=existing.id))
+                current = _current(group)
+                # 証拠が前の (置き換えられた) 版に戻った: いまの版を生きている行のまま残す
+                # (行を作らない・置き換えない。行き来する証拠で行が増えたり消えたりしない)。
+                kept[key] = (current.id if existing.status == GA_SUPERSEDED and current is not None
+                             else existing.id)  # fmt: skip
                 continue
-            previous = latest.get(key)
+            previous = _current(group)
+            same_key = [r.revision for r in group if r.opportunity_key == key]
             item = RefreshItem(candidate, NEW_REVISION if previous else NEW, availability,
-                               reasons, (previous.revision + 1) if previous else 1)
-            if previous is not None and previous.status != GA_SUPERSEDED:
+                               reasons, (max(same_key) + 1) if same_key else 1)
+            if previous is not None:
                 item.supersedes_id = previous.id
+                kept[key] = previous.id
                 if previous.status == GA_PENDING_REVIEW:
                     review = self._review_for(previous.id)
                     item.stale_review_id = review.id if review else None
             plan.items.append(item)
-        for key, row in sorted(latest.items()):
-            if key in seen_keys or row.status == GA_SUPERSEDED or row.availability == NOT_OBSERVED:
-                continue
-            plan.not_observed.append({"id": row.id, "opportunity_key": key,
-                                      "status": row.status})  # fmt: skip
+        for key, group in sorted(groups.items()):
+            for row in _live(group):
+                if key in kept and row.id == kept[key]:
+                    continue
+                plan.not_observed.append({
+                    "id": row.id, "opportunity_key": row.opportunity_key, "status": row.status,
+                    "reason": ("replaced by the canonical opportunity" if key in kept
+                               else "no longer produced by the evaluation")})  # fmt: skip
         return plan
 
     def apply_refresh(self, plan: RefreshPlan, *, now: datetime) -> dict:
@@ -347,9 +368,11 @@ class GrowthActionHistory:
             created.append(row.id)
         for gone in plan.not_observed:
             row = self._session.get(GrowthActionCandidate, gone["id"])
-            self._event(row.id, None, GAE_NOT_OBSERVED, now, {"previous": row.availability})
+            reason = gone.get("reason") or "no longer produced by the evaluation"
+            self._event(row.id, None, GAE_NOT_OBSERVED, now,
+                        {"previous": row.availability, "reason": reason})
             row.availability = NOT_OBSERVED
-            row.availability_reasons_json = ["no longer produced by the evaluation"]
+            row.availability_reasons_json = [reason]
             if row.status == GA_ACTIVE:
                 row.status, row.status_changed_at = GA_OBSERVED, now
         self._session.commit()
@@ -431,6 +454,48 @@ class GrowthActionHistory:
         self._session.add(GrowthActionEvent(candidate_id=candidate_id, review_id=review_id,
                                             event_type=event_type, detail_json=detail,
                                             occurred_at=now))  # fmt: skip
+
+
+def _is_live(row: GrowthActionCandidate) -> bool:
+    return (row.status != GA_SUPERSEDED and row.superseded_by_id is None
+            and row.availability != NOT_OBSERVED)  # fmt: skip
+
+
+def _live(group: list[GrowthActionCandidate]) -> list[GrowthActionCandidate]:
+    return [r for r in group if _is_live(r)]
+
+
+def _current(group: list[GrowthActionCandidate]) -> GrowthActionCandidate | None:
+    """1 つの機会のいまの行 (新しい証拠の版が置き換える相手)。"""
+
+    candidates = [r for r in group if r.status != GA_SUPERSEDED and r.superseded_by_id is None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: (r.availability != NOT_OBSERVED,
+                                          ensure_aware(r.last_seen_at), r.id))
+
+
+def _legacy_match(group: list[GrowthActionCandidate], fingerprint: str
+                  ) -> GrowthActionCandidate | None:  # fmt: skip
+    """古い形の行のうち、今の規則で計算し直した指紋が同じもの (生きている行を先に)。"""
+
+    matches = [r for r in group if is_legacy_key(r.opportunity_key)
+               and stable_candidate_fingerprint(r.snapshot_json or {}) == fingerprint]
+    if not matches:
+        return None
+    return max(matches, key=lambda r: (_is_live(r), r.status != GA_SUPERSEDED,
+                                       ensure_aware(r.last_seen_at), r.id))
+
+
+def _fingerprints_of(row: GrowthActionCandidate) -> set[str]:
+    """この行を指す指紋 (古い形の行なら、今の規則で計算し直した指紋も)。"""
+
+    out = {row.candidate_fingerprint}
+    if is_legacy_key(row.opportunity_key):
+        stable = stable_candidate_fingerprint(row.snapshot_json or {})
+        if stable:
+            out.add(stable)
+    return out
 
 
 def _status_for(availability: str) -> str:
@@ -580,10 +645,20 @@ class GrowthActionReviewService:
         self._history = GrowthActionHistory(session)
 
     def request_review(self, candidate_id: int, *, now: datetime | None = None,
-                       requested_by: str = "human") -> GrowthActionReview:  # fmt: skip
+                       requested_by: str = "human",
+                       expected_candidate_fingerprint: str | None = None
+                       ) -> GrowthActionReview:  # fmt: skip
+        """レビューを依頼する。``expected_candidate_fingerprint`` (まとめ・一覧で見た指紋) が
+        あれば、いまの版と合うときだけ (古い通知からのレビューは断る)。"""
+
         now = ensure_aware(now or datetime.now(UTC))
         self._ready()
         row = self._history.get(candidate_id)
+        if expected_candidate_fingerprint is not None and (
+                expected_candidate_fingerprint not in _fingerprints_of(row)):
+            raise GrowthActionError(
+                f"growth action {row.id} changed since it was shown (fingerprint mismatch); "
+                "list the current candidates again")
         existing = self._history._review_for(row.id)
         if existing is not None and existing.status == GAR_PENDING:
             return existing  # 同じ版に 2 つ目のレビューは作らない (冪等)
@@ -593,9 +668,10 @@ class GrowthActionReviewService:
                 "actionable candidates can be reviewed")
         if self._latest(row).id != row.id:
             raise GrowthActionError(f"growth action {row.id} is not the latest revision")
-        other = self._session.scalars(select(GrowthActionReview).where(
-            GrowthActionReview.opportunity_key == row.opportunity_key,
-            GrowthActionReview.status == GAR_PENDING)).first()  # fmt: skip
+        canonical = canonical_opportunity_key(row.opportunity_key)
+        other = next((r for r in self._session.scalars(select(GrowthActionReview).where(
+            GrowthActionReview.status == GAR_PENDING))
+            if canonical_opportunity_key(r.opportunity_key) == canonical), None)  # fmt: skip
         if other is not None:
             raise GrowthActionError(f"review #{other.id} is already open for this opportunity")
         snapshot = review_snapshot(self._history.entry(row))

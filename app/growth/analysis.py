@@ -394,6 +394,61 @@ class Opportunity:
 
 
 IDENTITY_SCHEMA = "growth-action-identity/1"
+
+
+def evidence_fingerprint_for(source_states: Mapping, material: Iterable[Mapping]) -> str:
+    return _sha({"schema": IDENTITY_SCHEMA,
+                 "source_states": dict(sorted(dict(source_states).items())),
+                 "material": sorted((dict(m) for m in material),
+                                    key=lambda m: json.dumps(m, sort_keys=True,
+                                                             default=str))})  # fmt: skip
+
+
+def candidate_fingerprint_for(identity: Mapping) -> str:
+    return _sha({"schema": IDENTITY_SCHEMA, **{k: identity[k] for k in (
+        "opportunity_key", "evidence_fingerprint", "patterns", "effort", "reversible",
+        "requires_human_approval", "external_write_required", "prerequisites", "blockers")}})
+
+
+# -- 古い形の機会の鍵 (C9-A) ----------------------------------------------------------------------
+#: C9-A より前は、別の切り口の候補の鍵と material に「勧める切り口」が入っていた
+#: (``...:angle=<切り口>``)。勧めはサイトの直近の切り口で変わるので、同じ機会が別の鍵になった。
+#: 今は記事ごとの 1 つの機会。古い行は消さず・書き換えず、読むときに同じ機会として扱う。
+LEGACY_VARIANT_MARKERS: Mapping[str, str] = {"create_threads_alternative_angle": ":angle="}
+#: 古い行の material から除く (今は勧めであって、証拠ではない)。
+LEGACY_VOLATILE_MATERIAL = ("angle",)
+
+
+def canonical_opportunity_key(key: str) -> str:
+    """機会の鍵の今の形 (古い変種つきの鍵なら、変種を外す)。"""
+
+    for action, marker in LEGACY_VARIANT_MARKERS.items():
+        if key.startswith(action + ":") and marker in key:
+            return key.split(marker, 1)[0]
+    return key
+
+
+def is_legacy_key(key: str) -> bool:
+    return canonical_opportunity_key(key) != key
+
+
+def stable_candidate_fingerprint(snapshot: Mapping) -> str | None:
+    """古い行の写しから、今の規則での候補の指紋を計算し直す (比べるためだけ。行は変えない)。"""
+
+    try:
+        material = [{k: v for k, v in dict(m).items() if k not in LEGACY_VOLATILE_MATERIAL}
+                    for m in snapshot.get("material") or ()]  # fmt: skip
+        evidence = evidence_fingerprint_for(snapshot.get("source_states") or {}, material)
+        return candidate_fingerprint_for({
+            "opportunity_key": canonical_opportunity_key(snapshot["opportunity_key"]),
+            "evidence_fingerprint": evidence, "patterns": list(snapshot.get("patterns") or ()),
+            "effort": snapshot.get("effort"), "reversible": snapshot.get("reversible"),
+            "requires_human_approval": snapshot.get("requires_human_approval"),
+            "external_write_required": snapshot.get("external_write_required"),
+            "prerequisites": list(snapshot.get("prerequisites") or ()),
+            "blockers": list(snapshot.get("blockers") or ())})  # fmt: skip
+    except (KeyError, TypeError):
+        return None
 #: 行動ごとに、判断に使う出所 (指紋にはこの出所の状態だけを入れる。ほかの出所の状態が変わっても
 #: その行動の版は変わらない。例: Threads の状態の変化で内部リンクの候補が新しい版にならない)。
 ACTION_EVIDENCE_SOURCES: Mapping[str, tuple[str, ...]] = {
@@ -439,6 +494,9 @@ class GrowthActionCandidate:
     material: tuple[dict, ...] = ()
     #: 出所ごとの状態 (``usable`` など。鮮度は状態として入る。日付は ``freshness`` の表示だけ)。
     source_states: Mapping[str, str] = field(default_factory=dict)
+    #: いま実行するならどうするかの勧め (例: 別の切り口なら、どの切り口か)。**識別・指紋に
+    #: 入れない** (サイトの直近の投稿で変わる弱い好みなので、変わっても同じ機会・同じ版)。
+    recommendation: Mapping = field(default_factory=dict)
 
     @property
     def opportunity_key(self) -> str:
@@ -454,26 +512,26 @@ class GrowthActionCandidate:
         """判断に使った証拠 (``material`` と、この行動に関係する出所の状態) の sha256。
 
         全体の証拠の段階 (``evidence_state``) は表示だけ (関係の無い出所で変わるため入れない)。
+        勧めの値 (``recommendation``) も入れない。
         """
 
-        return _sha({"schema": IDENTITY_SCHEMA,
-                     "source_states": dict(sorted(self.source_states.items())),
-                     "material": sorted((dict(m) for m in self.material),
-                                        key=lambda m: json.dumps(m, sort_keys=True,
-                                                                 default=str))})  # fmt: skip
+        return evidence_fingerprint_for(self.source_states, self.material)
 
     @property
     def candidate_fingerprint(self) -> str:
         """機会 + 証拠 + 行動の意味 (承認・外への書き込み・戻せるか・前提・止める理由)。"""
 
-        return _sha({"schema": IDENTITY_SCHEMA, "opportunity_key": self.opportunity_key,
-                     "evidence_fingerprint": self.evidence_fingerprint,
-                     "patterns": list(self.patterns), "effort": self.effort,
-                     "reversible": self.reversible,
-                     "requires_human_approval": self.requires_human_approval,
-                     "external_write_required": self.external_write_required,
-                     "prerequisites": list(self.prerequisites),
-                     "blockers": list(self.blockers)})  # fmt: skip
+        return candidate_fingerprint_for(self.as_identity())
+
+    def as_identity(self) -> dict:
+        return {"opportunity_key": self.opportunity_key,
+                "evidence_fingerprint": self.evidence_fingerprint,
+                "patterns": list(self.patterns), "effort": self.effort,
+                "reversible": self.reversible,
+                "requires_human_approval": self.requires_human_approval,
+                "external_write_required": self.external_write_required,
+                "prerequisites": list(self.prerequisites),
+                "blockers": list(self.blockers)}  # fmt: skip
 
     @property
     def sort_key(self) -> tuple:
@@ -592,7 +650,8 @@ def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str],
             # 行動の証拠になるのは、この記事の投稿が同じ経過時間の通常の投稿の中で下半分に
             # あるときだけ (上半分なら「まだ試していない切り口がある」という構造の話)。
             weak = threads.state == USABLE and median is not None and median < 0.5
-            # 提案する切り口は 1 つ (変種)。サイト全体の直近 1〜2 本と同じ切り口は後ろへ。
+            # 勧める切り口は 1 つ。サイト全体の直近 1〜2 本と同じ切り口は後ろへ (弱い好み)。
+            # 勧めは機会の識別・証拠に入れない (記事ごとに 1 つの機会)。
             preferred = [a for a in untried if a not in recent_angles] or untried
             angle = preferred[0]
             out.append(Opportunity(
@@ -601,13 +660,14 @@ def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str],
                 f"{len(tried)} angle(s) tried for this article; next untried angle: {angle}"
                 + (f"; reach rank median {median} among equal-age regular posts"
                    if median is not None else ""),
-                {"angles_tried": sorted(tried), "untried_angles": untried, "angle": angle,
-                 "reach_rank_median": median, "threads_evidence": threads.maturity},
+                {"angles_tried": sorted(tried), "untried_angles": untried,
+                 "recommended_angle": angle, "reach_rank_median": median,
+                 "threads_evidence": threads.maturity},
                 "threads",
-                material={"angle": angle, "angles_tried": sorted(tried),
+                material={"angles_tried": sorted(tried),
                           "rank_band": None if median is None
-                          else "below_median" if median < 0.5 else "not_below_median"},
-                variant=f"angle={angle}"))  # fmt: skip
+                          else "below_median" if median < 0.5 else "not_below_median"}))
+            # fmt: skip
     behavioral = [o for o in out if o.basis == "behavioral"]
     if not behavioral and evidence.evidence_state == EVIDENCE_INSUFFICIENT:
         missing = {k: v.reason for k, v in sorted(evidence.sources.items())
@@ -653,12 +713,23 @@ def build_candidates(evidence: GrowthEvidence, opportunities: Iterable[Opportuni
             external_write_required=spec.external_write,
             priority=_priority(evidence, action, items, state, context),
             variant=variants[0] if variants else None,
+            recommendation=_recommendation(items),
             material=tuple({"pattern": o.pattern, "basis": o.basis, **dict(o.material)}
                            for o in sorted(items, key=lambda o: (o.pattern, o.reason))),
             source_states={k: v.state for k, v in sorted(evidence.sources.items())
                            if k in ACTION_EVIDENCE_SOURCES.get(action, ())},
         ))  # fmt: skip
     return out
+
+
+def _recommendation(items: Sequence[Opportunity]) -> dict:
+    for o in items:
+        angle = o.evidence.get("recommended_angle")
+        if angle:
+            return {"angle": angle, "why": "the first untried angle that is not among the "
+                                          "site's most recent 1-2 regular posts (soft "
+                                          "preference; not part of the identity)"}
+    return {}
 
 
 def _candidate_evidence(evidence: GrowthEvidence, items: Sequence[Opportunity]) -> str:

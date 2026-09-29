@@ -47,11 +47,12 @@ ANGLES = ("insight", "common_mistake", "comparison", "question", "beginner_tip")
 
 
 # == 識別 ================================
-def test_the_opportunity_key_is_deterministic_and_includes_the_variant() -> None:
+def test_the_opportunity_key_is_deterministic_and_per_article() -> None:
+    # C9-A: 別の切り口の機会は記事ごとに 1 つ (勧める切り口は鍵に入れない)。
     c = _cands(_article(threads=_threads()), angles=ANGLES)
     alt = c[ga.CREATE_THREADS_ALTERNATIVE_ANGLE]
-    assert alt.opportunity_key == "create_threads_alternative_angle:article:article:1:" \
-                                  "angle=common_mistake"
+    assert alt.opportunity_key == "create_threads_alternative_angle:article:article:1"
+    assert alt.variant is None and alt.recommendation["angle"] == "common_mistake"
     assert c[ga.REVIEW_AFFILIATE_PLACEMENT].opportunity_key == (
         "review_affiliate_placement:article:article:1")  # fmt: skip
 
@@ -80,10 +81,10 @@ def test_meaningful_changes_change_the_fingerprint_but_not_the_opportunity() -> 
     assert low[key].evidence_fingerprint != high[key].evidence_fingerprint
 
 
-def test_the_variant_avoids_the_sites_most_recent_angles() -> None:
+def test_the_recommendation_avoids_the_sites_most_recent_angles() -> None:
     c = _cands(_article(threads=_threads()), angles=ANGLES,
                recent_angles=("common_mistake", "comparison"))
-    assert c[ga.CREATE_THREADS_ALTERNATIVE_ANGLE].variant == "angle=question"
+    assert c[ga.CREATE_THREADS_ALTERNATIVE_ANGLE].recommendation["angle"] == "question"
 
 
 # == 既存の仕事との重なり (Threads) ================================
