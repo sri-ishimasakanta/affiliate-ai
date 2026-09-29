@@ -137,7 +137,7 @@ def test_trending_topics() -> None:
 
 def test_selectors_record_exactly_what_the_pilot_verified() -> None:
     assert sel.SELECTOR_VERIFIED is True
-    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-28-v2"
+    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-29-v3"
     assert set(sel.METRIC_LABELS.values()) == set(sel.VERIFIED_METRICS) == {"likes", "replies"}
     for name in ("views", "quotes", "reposts", "shares"):
         assert name not in sel.METRIC_LABELS.values()

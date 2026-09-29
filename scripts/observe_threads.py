@@ -96,6 +96,7 @@ def _post_summary(item) -> dict:
         "normalization_flags": list(text.normalization_flags),
         "ends_with_thread_marker": bool(re.search(r"\d+\s*/\s*\d+\Z", record.body_text)),
         "starts_with_meta_ai": record.body_text.startswith("meta.ai"),
+        "media_diagnostics": record.media_diagnostics,
     }
 
 

@@ -93,7 +93,7 @@ def test_the_search_limit_counts_accepted_results_only() -> None:
 
 
 def test_surface_verification_is_recorded_per_surface() -> None:
-    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-28-v2"  # 全体の版は変えない
+    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-29-v3"  # 全体の版は変えない
     assert sel.surface_verification(SOURCE_SEARCH)["verified"] is True
     assert "search_tabs_outside_cards" in sel.surface_verification(SOURCE_SEARCH)["verified_fields"]
     # 2026-09-28: トピックの一覧と 1 つのトピックの投稿も確認済み (別の版)。

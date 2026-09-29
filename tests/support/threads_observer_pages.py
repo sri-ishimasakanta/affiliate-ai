@@ -40,8 +40,24 @@ def card(
     link: str | None = None,
     inner: str = "",
     thread_marker: str | None = None,
+    pinned: bool = False,
+    continuation: str | None = None,
+    stats_card: bool = False,
+    meta_ai: bool = False,
+    inline_gifs: int = 0,
+    image_src: str = "https://cdn.example/x.jpg",
+    media_link: bool = False,
+    link_preview_image: bool = False,
 ) -> str:
-    """``thread_marker="1/2"``: 本物の形の続きの投稿の印を、最後の行の本文の span に入れる。"""
+    """``thread_marker="1/2"``: 本物の形の続きの投稿の印を、最後の行の本文の span に入れる。
+
+    2026-09-29 に見た形 (T6.5B.3a):
+    ``pinned`` = 見出しの上の「ピン留め済み」の行・``continuation`` = 指標の列の下の
+    「他1件を見る」の行・``stats_card`` = 本文の後の本物の ``<button>`` の閲覧数のカード・
+    ``meta_ai`` = 最初の行の先頭のアイコンつき ``/@meta.ai`` の札・``inline_gifs`` = 最初の行の
+    中の GIF のスタンプ・``media_link`` = 添付の画像を ``/post/<code>/media`` のリンクで包む・
+    ``link_preview_image`` = 外のリンクの見出しの画像。
+    """
 
     parts = body.split("\n")
     marker = ""
@@ -49,9 +65,14 @@ def card(
         first, second = thread_marker.split("/")
         marker = (f"<div><div><span>{first}</span><div><span>/</span></div>"
                   f"<span>{second}</span></div></div>")  # fmt: skip
+    label = ('<div><span><div><a href="/@meta.ai" role="link" tabindex="0"><span>'
+             '<svg aria-hidden="true"></svg>meta.ai</span></a></div></span></div>'
+             if meta_ai else "")  # fmt: skip
+    gifs = "".join(f'<img alt="" aria-hidden="true" height="24" src="https://media1.giphy.com/{n}.gif">'
+                   for n in range(inline_gifs))  # fmt: skip
     lines = "".join(
-        f'<span dir="auto"><span>{escape(line)}</span>{marker if i == len(parts) - 1 else ""}'
-        "</span>"
+        f'<span dir="auto">{label if i == 0 else ""}<span>{escape(line)}</span>'
+        f'{gifs if i == 0 else ""}{marker if i == len(parts) - 1 else ""}</span>'
         for i, line in enumerate(parts)
     )
     time_html = f'<time datetime="{posted}" title="2026年9月27日">1日</time>' if posted else ""
@@ -61,20 +82,41 @@ def card(
     )  # fmt: skip
     media = ""
     if image:
-        media += '<img alt="写真の説明はありません。" src="https://cdn.example/x.jpg">'
+        # 本物の形: 添付の画像は、画像を開くボタンの中の <picture> (2026-09-29 に確認)。
+        picture = (f'<picture><img alt="写真の説明はありません。" src="{escape(image_src)}">'
+                   "</picture>")  # fmt: skip
+        if media_link:
+            picture = f'<a href="/@{handle}/post/{code}/media" role="link">{picture}</a>'
+        media += f'<div><div role="button"><div>{picture}</div></div></div>'
+    if stats_card:
+        media += ('<div><button><div><div><img alt="" aria-hidden="true" src="https://cdn.example/'
+                  'card.jpg"></div><div><span dir="auto">閲覧数</span><span dir="auto"><span>'
+                  '99万</span></span><div><span dir="auto">30日</span></div><span dir="auto">'
+                  "08/30 - 2026/09/28</span></div></div></button></div>")  # fmt: skip
+    if link_preview_image:
+        media += ('<div><a href="https://l.threads.com/?u=https%3A%2F%2Fexample.invalid" '
+                  'role="link">'
+                  '<div><img alt="" src="https://cdn.example/preview.jpg"></div>'
+                  "<span>example.invalid</span></a></div>")  # fmt: skip
     if video:
         media += "<video></video>"
     link_html = (f'<a href="https://l.threads.com/?u={escape(link)}"><span>{escape(link)}</span></a>'
                  if link else "")  # fmt: skip
+    pinned_html = ('<div><div><div><svg aria-label=""></svg></div><div><span dir="auto">'
+                   "ピン留め済み</span></div></div></div>") if pinned else ""  # fmt: skip
+    continuation_html = (
+        f'<div><div><img alt="{handle}のプロフィール写真" src="p.jpg"></div>'
+        f'<span dir="auto"><span>{escape(continuation)}</span></span></div>'
+    ) if continuation else ""  # fmt: skip
     return (
-        '<div data-pressable-container="true"><div>'
+        f'<div data-pressable-container="true">{pinned_html}<div>'
         f'<a href="/@{handle}"><img alt="{handle}のプロフィール写真" src="p.jpg"></a>'
         f'<a href="/@{handle}"><span dir="auto">{handle}</span></a>'
         f'{topic_html}<span dir="auto"><a href="/@{handle}/post/{code}">{time_html}</a></span>'
         "</div>"
         f"<div>{lines}</div>{media}{link_html}{inner}"
         f"<div>{metric(LIKE, likes)}{metric(REPLY, replies)}{metric(REPOST, reposts)}"
-        f"{metric(SHARE, shares)}</div></div>"
+        f"{metric(SHARE, shares)}</div>{continuation_html}</div>"
     )
 
 

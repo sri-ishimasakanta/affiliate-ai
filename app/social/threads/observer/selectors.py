@@ -14,12 +14,17 @@ from __future__ import annotations
 from urllib.parse import quote
 
 #: collector-3 (T6.5B.1): 続きの投稿の印を DOM で除く・候補の勘定・並びが落ち着くまで待つ。
-COLLECTOR_VERSION = "t6.5b-collector-3"
+#: collector-4 (T6.5B.3a): 本文の範囲 (時刻のリンク〜指標の列) で「ピン留め済み」「他1件を
+#: 見る」を除く・本物の <button> の中を除く・meta.ai の札を DOM で除く・本文の中の画像
+#: (GIF のスタンプ) を添付のメディアにしない。
+COLLECTOR_VERSION = "t6.5b-collector-4"
 #: 本物の画面で確かめた版 (T6.5B パイロット)。形を直したら版を上げる。
 #: v2 (T6.5B.1): 本文の中の続きの投稿の印 (「1/2」の div) を除く・引用した投稿の中の要素を
 #: 外側の投稿として読まない・候補の勘定。For You の dry-run で画面と照らして確認
 #: (2026-09-28、5 件 × 5 回)。
-SELECTOR_VERSION = "threads-web-verified-2026-09-28-v2"
+#: v3 (T6.5B.3a): 本文の範囲・<button>・meta.ai の札・添付のメディアの判定 (2026-09-29 の
+#: Stage 1 の dry-run で見つけた 4 つの形を直した)。
+SELECTOR_VERSION = "threads-web-verified-2026-09-29-v3"
 SELECTOR_VERIFIED = True
 #: パイロットで画面と照らして確かめたもの。**ここに無いものは未確認。**
 VERIFIED_SURFACES = (
@@ -41,7 +46,7 @@ UNVERIFIED_SURFACES = (
 #: 未確認 (``surface_verification`` が ``verified=False`` を返す)。
 SURFACE_VERIFICATION = {
     "for_you": {
-        "version": "threads-web-verified-2026-09-28-v2",
+        "version": "threads-web-verified-2026-09-29-v3",
         "label": "for_you",
         "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
                             "analysis_body", "topic", "likes", "replies", "media_image",

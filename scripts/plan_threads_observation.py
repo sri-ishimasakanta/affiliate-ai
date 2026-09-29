@@ -182,6 +182,8 @@ def _post_rows(result) -> list[dict]:
             "body_lines": record.body_text.count("\n") + 1,
             "text_quality": normalize_body(record.body_text).text_quality,
             "normalization_flags": list(normalize_body(record.body_text).normalization_flags),
+            "media_diagnostics": record.media_diagnostics,
+            "numeric_facts_count": record.features.get("numeric_facts_count"),
         })  # fmt: skip
     return rows
 

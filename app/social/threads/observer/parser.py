@@ -13,6 +13,18 @@
 - **本文** (T6.5B.1): 本文の ``span[dir=auto]`` の中の、続きの投稿の印 (「1/2」) の ``div`` は
   本文ではない (2026-09-28 の画面で確認: ``div > div > [span 数, div > span 区切り, span 数]``)。
   書いた人の「1/2の確率」は本文の文字の span の中にあるので残る。
+- **本文の範囲** (T6.5B.3a、2026-09-29 の画面で確認): 本文は、その投稿の時刻のリンクより **後**、
+  最初の指標のボタン (いいね等) より **前** にある文字だけ。これで、見出しより上の札
+  (「ピン留め済み」・再投稿の見出し) と、指標の列より下の操作 (「他1件を見る」と小さな
+  アイコンの列) は、文字に関係なく入らない。書いた人が本文に同じ言葉を書いても残る。
+- 本物の ``<button>`` の中 (例: 閲覧数のカードを埋め込んだもの) は本文ではない
+  (``role="button"`` と同じ扱い)。
+- 「meta.ai」の札: ``<a role="link" href="/@meta.ai">`` でアイコン (svg) つき・文字が
+  ``meta.ai`` のものだけを除く。ふつうの ``@`` の言及や、本文の中の文字の「meta.ai」は残る。
+- メディア: 添付のメディア (``<picture>`` の中・その投稿の ``/post/<code>/media`` のリンクの中・
+  画像を開くボタンの中) の画像だけを ``image`` にする。本文の span の中の画像 (絵文字・GIF の
+  スタンプ)・外のリンクの見出しの画像・``<button>`` の中の画像 (埋め込みのカード) は添付では
+  ない (数えるだけ)。動画は ``video``。
 """
 
 from __future__ import annotations
@@ -52,6 +64,8 @@ class ExternalPostRecord:
     quotes: int | None
     shares: int | None
     features: dict
+    #: 添付のメディアの判定の出どころ (診断だけ。DB には入れない)。
+    media_diagnostics: dict = field(default_factory=dict)
 
 
 #: まとまりの結果の理由 (安定した ID)。
@@ -184,8 +198,16 @@ def _is_thread_marker(node: Node) -> bool:
     return node.tag == "div" and bool(_THREAD_MARKER.fullmatch(node.text() or ""))
 
 
+def _is_meta_ai_label(node: Node) -> bool:
+    """画面の「meta.ai」の札 (2026-09-29 に DOM で確認: アイコンつきの ``/@meta.ai`` のリンク)。"""
+
+    return (node.tag == "a" and node.attrs.get("href") == "/@meta.ai"
+            and node.attrs.get("role") == "link" and node.find("svg") is not None
+            and node.text().strip() == "meta.ai")  # fmt: skip
+
+
 def _body_text(node: Node) -> str:
-    """本文の span の文字。続きの投稿の印の div は入れない。"""
+    """本文の span の文字。続きの投稿の印の div・button・meta.ai の札は入れない。"""
 
     parts: list[str] = []
     for child in node.children:
@@ -193,16 +215,44 @@ def _body_text(node: Node) -> str:
             parts.append(child)
         elif child.tag == "br":
             parts.append("\n")
-        elif child.tag in ("script", "style") or _is_thread_marker(child):
+        elif (child.tag in ("script", "style", "button") or _is_thread_marker(child)
+              or _is_meta_ai_label(child)):  # fmt: skip
             continue
         else:
             parts.append(_body_text(child))
     return "".join(parts)
 
 
+def _first_action_button(card: Node) -> Node | None:
+    """指標の列の最初のボタン (いいね等のアイコンを含む ``role=button``)。"""
+
+    labels = set(sel.METRIC_LABELS) | set(sel.UNVERIFIED_METRIC_LABELS)
+    for svg in _own(card, "svg"):
+        if _icon_label(svg) in labels:
+            return next((a for a in svg.ancestors() if a.attrs.get("role") == "button"), None)
+    return None
+
+
+def _body_bounds(card: Node) -> tuple[dict[int, int], int, int]:
+    """本文の範囲: 時刻のリンクの後 〜 最初の指標のボタンの前 (文書の順の番号)。"""
+
+    order = {id(n): i for i, n in enumerate(card.elements())}
+    anchor = _post_anchor(card)
+    button = _first_action_button(card)
+    start = order.get(id(anchor), -1) if anchor is not None else -1
+    end = order.get(id(button), len(order)) if button is not None else len(order)
+    return order, start, end
+
+
 def _body(card: Node) -> str:
     lines: list[str] = []
+    order, start, end = _body_bounds(card)
     for span in _own(card, "span", dir="auto"):
+        position = order.get(id(span), -1)
+        if position <= start or position >= end:
+            continue  # 見出しより上の札・指標の列より下の操作は本文ではない
+        if any(a.tag == "button" for a in span.ancestors()):
+            continue  # 本物の <button> の中 (埋め込みのカード) は本文ではない
         if any(a.tag == "a" for a in span.ancestors()):
             continue  # 名前・リンクの文字は本文に入れない
         if span.find("time") is not None:
@@ -217,15 +267,44 @@ def _body(card: Node) -> str:
     return "\n".join(lines)
 
 
-def _media(card: Node) -> str:
+def _media_detail(card: Node) -> tuple[str, dict]:
+    """添付のメディアの種類と、判定の出どころ (診断用。保存はしない)。"""
+
+    diag = {"media_detection_source": "none", "inline_media_ignored_count": 0,
+            "embedded_card_images_ignored": 0, "link_preview_images_ignored": 0}  # fmt: skip
     if _own(card, "video"):
-        return "video"
+        diag["media_detection_source"] = "video"
+        return "video", diag
+    kind = "none"
     for img in _own(card, "img"):
         alt = img.attrs.get("alt", "")
         if "プロフィール写真" in alt or "profile picture" in alt.lower():
             continue
-        return "image"
-    return "none"
+        ancestors = list(img.ancestors())
+        if any(a.tag == "span" and a.attrs.get("dir") == "auto" for a in ancestors):
+            diag["inline_media_ignored_count"] += 1  # 本文の中の絵文字・GIF のスタンプ
+            continue
+        if any(a.tag == "button" for a in ancestors):
+            diag["embedded_card_images_ignored"] += 1  # 埋め込みのカード
+            continue
+        in_picture = any(a.tag == "picture" for a in ancestors[:3])
+        link = next((a for a in ancestors if a.tag == "a"), None)
+        href = link.attrs.get("href", "") if link is not None else ""
+        media_link = "/post/" in href and href.rstrip("/").endswith("/media")
+        if link is not None and not in_picture and not media_link:
+            # 外のリンクの見出しの画像 (l.threads.com 等)。添付のメディアではない。
+            diag["link_preview_images_ignored"] += 1
+            continue
+        in_container = any(a.attrs.get("role") == "button" for a in ancestors)
+        if (in_picture or media_link or in_container) and kind == "none":
+            kind = "image"
+            diag["media_detection_source"] = ("picture" if in_picture else
+                                              "media_link" if media_link else "media_container")
+    return kind, diag
+
+
+def _media(card: Node) -> str:
+    return _media_detail(card)[0]
 
 
 def _post_anchor(card: Node) -> Node | None:
@@ -258,7 +337,7 @@ def _evaluate(card: Node, index: int) -> CardEval:
         a.attrs.get("href", "").startswith(sel.EXTERNAL_LINK_PREFIXES) for a in _own(card, "a")
     )
     metrics = _metric_values(card)
-    media = _media(card)
+    media, media_diag = _media_detail(card)
     features = extract(body, topic=topic, media_type=media, posted_at=posted).as_dict()
     record = ExternalPostRecord(
         external_post_key=key,
@@ -276,6 +355,7 @@ def _evaluate(card: Node, index: int) -> CardEval:
         quotes=None,  # 画面に別に出ない。推測しない。
         shares=metrics["shares"],
         features=features,
+        media_diagnostics=media_diag,
     )
     return CardEval(index, key, handle, CARD_OK, record)
 
