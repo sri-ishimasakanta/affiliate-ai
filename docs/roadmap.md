@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-30 (C10-2).
+Last updated: 2026-09-30 (C10-3).
 
 ---
 
@@ -26,11 +26,15 @@ Last updated: 2026-09-30 (C10-2).
 | C9-C Measurement Feedback Hardening | **COMPLETED** | DEPLOYED (worker-local follow-up measurement, read-only; no migration) |
 | **C9 Growth Engine (A–C)** | **COMPLETED** (closed) | remaining capabilities are placed explicitly below (C9-B limits → C10-D/E) |
 | C10-A Analysis Foundation | **COMPLETED** | DEPLOYED (read-only foundation; commercial_intent v2 backfilled 30 keywords from stored data; no migration, no new external calls) |
-| **C10-2** Content Intelligence + Nightly Discovery + Next Article Orchestrator (C10-B + C10-C + C10-D) | **COMPLETED** (C10-D apply paths DEFERRED) | read-only PLAN DEPLOYED; migration `c1d0e233e180` **PENDING HUMAN**; nightly task registration **PENDING HUMAN**; Google Ads batch refresh (38 terms, 1 call) **PENDING HUMAN** |
+| **C10-2** Content Intelligence + Nightly Discovery + Next Article Orchestrator (C10-B + C10-C + C10-D) | **COMPLETED** | migration `c1d0e233e180` **DEPLOYED** (2026-09-30); nightly task **ENABLED** (`affiliate-ai-nightly-analysis`, daily 03:30 JST); Google Ads batch refresh **DONE once** (38 terms, 1 call; 0 Keywords created) |
 | C10-B Content Intelligence | **COMPLETED** | DEPLOYED (read-only) |
-| C10-C Nightly Analysis | **COMPLETED** (implementation) | PLAN DEPLOYED; `--execute` needs migration `c1d0e233e180` (**PENDING HUMAN**); scheduled task **NOT ENABLED** (registration = human decision) |
-| C10-D Next Article Orchestrator | **COMPLETED** (planning); apply paths **DEFERRED** | DEPLOYED (read-only PLAN; never creates articles) |
-| **C10-3** Site Growth Orchestrator + Operations (C10-E + C10-F) | **NEXT** | — |
+| C10-C Nightly Analysis | **COMPLETED** | DEPLOYED; scheduled task **ENABLED** (daily 03:30 JST, separate from the worker; interactive logon like the other project tasks) |
+| C10-D Next Article Orchestrator | **COMPLETED** (planning; apply paths moved to C10-E) | DEPLOYED (read-only PLAN; never creates articles) |
+| **C10-3** Site Growth Orchestrator + Operations (C10-E + C10-F) | **COMPLETED** | DEPLOYED (read-only orchestration, discovery promotion CLI, health + alerts from the 06:30 monitoring step, `system_status.py`); no migration |
+| C10-E Site Growth Orchestrator | **COMPLETED** | action matrix DEPLOYED; body `text_edit` apply **PENDING HUMAN** (first production apply); meta description write **PENDING HUMAN** (first production write); affiliate placement **DEFERRED → C11** |
+| C10-F Operations | **COMPLETED** | DEPLOYED; Growth digest first email **PENDING HUMAN**; mobile Growth review **DEFERRED** (relay deploy = human) |
+| **C10 Growth platform** | **COMPLETED** (closed; pending activations listed under C10-3) | — |
+| **C11** Affiliate Revenue Attribution | **NEXT** | — |
 
 ---
 
@@ -172,16 +176,16 @@ outcomes (T6.5F/G), attribution of revenue to articles (C11).
 
 | Capability | State | Placed in |
 |---|---|---|
-| `body_update` apply path (text edits through ChangeApplication) | preparation / linkage only | C10-E (moved from C10-D in C10-2; see C10-D) |
-| `affiliate_placement` apply path (placement change requests) | preparation / linkage only (link-mapping substitution stays manual) | C10-E Site Growth Orchestrator (with C11 attribution) |
-| `meta_description` WordPress path (excerpt update) | no WordPress apply path | C10-E (moved from C10-D in C10-2; new write form = human decision) |
+| `body_update` apply path (text edits through ChangeApplication) | implemented in C10-E (`text_edit`), **PENDING HUMAN** first apply | C10-E |
+| `affiliate_placement` apply path (placement change requests) | preparation / linkage only (link-mapping substitution stays manual) | **C11** (deferred in C10-E: no tracking URL / SubID change without attribution) |
+| `meta_description` WordPress path (excerpt update) | implemented in C10-E, **PENDING HUMAN** first production write | C10-E |
 | `create_growth_post` handoff | plan_only (Growth lane owns it) | stays with the Growth lane (T6.3.3) |
-| Growth digest first real email | NOT ENABLED | human decision (C10-F operations) |
-| Mobile Growth Action review | DEFERRED (relay redeploy) | C10-F |
+| Growth digest first real email | NOT ENABLED (readiness re-checked in C10-F) | human decision |
+| Mobile Growth Action review | DEFERRED (CHECK migration + relay redeploy = human) | after C10 (human deployment decision) |
 
 ---
 
-## C10 — Growth platform (PLANNED; declared by the human in T7A: T7 before C10, only after maturity)
+## C10 — Growth platform — COMPLETED (declared by the human in T7A: T7 before C10, only after maturity)
 
 ### C10-A Analysis Foundation — COMPLETED
 
@@ -234,9 +238,11 @@ Keyword, Article, planning request or Growth Action is created; no composite sco
 - compressed at the end into a small number of Growth Actions (existing C9 identity; the human
   still sees the C9-A inbox / digest, not 80 items)
 - cost tiers: local / cached / refresh-required; refreshes are batched per provider and never run
-  by the batch (Google Ads: 38 terms → 1 call, **PENDING HUMAN**)
-- run history + retry-safe idempotency (`nightly:<date>`); schedule plan 03:30 JST daily
-  (`affiliate-ai-nightly-analysis`), **registration PENDING HUMAN**
+  by the batch (Google Ads: 38 terms → 1 call, run once by the human decision on 2026-09-30; 12
+  Keywords + 26 discovery phrases, evidence stored on the candidates, 0 Keywords created)
+- run history + retry-safe idempotency (`nightly:<date>`); scheduled task
+  `affiliate-ai-nightly-analysis` **ENABLED** 2026-09-30 (daily 03:30 JST; first run 43 analysed
+  of 85, 42 prefilter-skipped, 0 deferred, 0.6 s)
 
 ### C10-D Next Article Orchestrator — COMPLETED (planning); apply paths DEFERRED
 - NextArticleCandidate: topic, cluster, content type, cluster role, gap filled, monetization role,
@@ -250,16 +256,39 @@ Keyword, Article, planning request or Growth Action is created; no composite sco
   (a **new** WordPress write form: excerpt update of existing posts; human decision). Deferred so
   the read-only C10-2 core was not blocked.
 
-### C10-3 = C10-E + C10-F — NEXT
+### C10-3 = C10-E + C10-F — COMPLETED
+Detail: [site-growth-operations.md](operations/site-growth-operations.md) (action matrix, discovery
+promotion, health model, `system_status.py`, autonomy classes A–E, automation boundary).
 
-### C10-E Site Growth Orchestrator — PLANNED
-- body text_edit apply path and meta description (excerpt) WordPress path (moved from C10-D)
-- affiliate placement apply path (with C11 attribution)
+### C10-E Site Growth Orchestrator — COMPLETED
+- action matrix for all 10 actions (handoff → downstream approval → execution → effective →
+  measurement) with a deterministic stage per Growth Action; routes through existing services
+- discovery promotion: 3–5 shown, one at a time, fingerprint-bound, overlap / duplicate refused,
+  signals from cached Google Ads evidence; no Article / planning request / approval (production:
+  26 tracked, 0 promoted)
+- body `text_edit` apply (change-request-v2, link / disclosure / drift gates) — **PENDING HUMAN**
+  first production apply (`text_edit_apply_enabled: false`)
+- meta description (excerpt) WordPress write with drift check and read-back — **PENDING HUMAN**
+  first production write (`meta_description_apply_enabled: false`)
+- affiliate placement apply — **DEFERRED → C11**; Growth post stays plan_only; Threads paths use
+  only the existing generation request / approval / publication
 
-### C10-F Operations / Monitoring — PLANNED
-- nightly task registration and monitoring, Growth digest first send (human decisions)
+### C10-F Operations / Monitoring — COMPLETED
+- health model (nightly / worker / data / workflow / db); actionable-only alerts (source
+  `c10_health`, stable fingerprints, 168 h re-notify, acknowledged stays quiet, auto-resolve),
+  recorded by the 06:30 monitoring step and kept out of the daily incident email
+- `scripts/system_status.py` read-only operator summary; nightly task in the project-state
+  scheduler contract; Growth digest readiness re-checked (sending stays disabled)
+- Google Ads refresh = batched backlog (no automatic call); SaaS fact refresh = plan only
+- **PENDING HUMAN**: Growth digest first email; mobile Growth review (relay deploy); switching the
+  nightly task to a stored-password logon if it must run while logged off
 
-## C11 — Affiliate Revenue Attribution — PLANNED
+### C10 closure
+C10 is closed. What remains is human activation, not development: the first body text_edit apply,
+the first meta description write, the first Growth digest email, the mobile review relay deploy,
+and any future Google Ads refresh runs. Affiliate placement apply moves to C11.
+
+## C11 — Affiliate Revenue Attribution — NEXT
 - article-level attribution (needs tracking / provider configuration changes: human decision)
 - readiness assessed in C10-A (`analyze_signal_health.py --section attribution`): per-click
   reference (SubID / clickref) passed back by the ASP, stored on clicks and read by the
@@ -286,5 +315,5 @@ Keyword, Article, planning request or Growth Action is created; no composite sco
   covers T / W / N / T7; adding units needs evidence files and updated project-state tests).
 - Mobile Growth Action review (relay redeploy) — see C9-A.
 - Growth digest scheduled trigger — see C9-A.
-- Apply paths for text edits / affiliate placement change requests and meta description updates
-  (WordPress excerpt) — see C9-B known limits.
+- Affiliate placement change-request apply — C11 (text edit and meta description apply paths were
+  implemented in C10-E and wait for their first human-approved production run).
