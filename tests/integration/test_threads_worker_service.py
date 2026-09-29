@@ -1375,3 +1375,87 @@ def test_the_resident_publication_line_reports_blockers_before_and_after(
     published = session.get(ThreadsPublication, 3)
     assert published.proposal_id == 4
     assert published.trigger == "automatic"
+
+
+# == T6.5: performance feedback evaluation ====================================
+def _feedback_policy(**section):
+    from dataclasses import replace
+
+    from app.social.threads.worker import SUBSYSTEM_PERFORMANCE_FEEDBACK
+
+    base = _disabled_policy()
+    worker = dict(base.raw.get("worker") or {})
+    worker["subsystems"] = {**(worker.get("subsystems") or {}),
+                            SUBSYSTEM_PERFORMANCE_FEEDBACK: section}  # fmt: skip
+    return replace(base, raw={**base.raw, "worker": worker})
+
+
+def test_performance_feedback_is_scheduled_read_only_and_not_used_by_default(
+    session: Session, article: Article
+) -> None:
+    from app.social.threads.worker import SUBSYSTEM_PERFORMANCE_FEEDBACK
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(hours=3))
+    service = _service(session)
+    state = service.build_schedule(_NOW).state(SUBSYSTEM_PERFORMANCE_FEEDBACK)
+    assert (state.enabled, state.next_run_at) == (True, _NOW)
+    before = _counts(session)
+
+    result = service.handlers()[SUBSYSTEM_PERFORMANCE_FEEDBACK](_NOW)
+
+    assert _counts(session) == before
+    assert result.summary["db_writes"] == 0 and result.summary["network_calls"] == 0
+    assert result.summary["mode"] == "neutral"  # 1 本では比べられない
+    assert result.summary["used_in_generation"] is False
+    assert result.summary["changed"] is True
+    assert result.next_run_at == _NOW + timedelta(minutes=360)  # 5 分ごとに作り直さない
+    assert service.performance_feedback.mode == "neutral"
+    assert service._stock_proposal_service(session) is None  # 既定では生成に使わない
+    again = service.handlers()[SUBSYSTEM_PERFORMANCE_FEEDBACK](_NOW + timedelta(minutes=5))
+    assert again.summary["changed"] is False
+
+
+def test_performance_feedback_can_be_disabled_by_policy(session: Session) -> None:
+    from app.social.threads.worker import SUBSYSTEM_PERFORMANCE_FEEDBACK
+
+    service = ThreadsWorkerService(_factory(session), settings=_Settings(),
+                                   threads_service=ThreadsService(
+                                       _Settings(), client=_ExplodingClient()),
+                                   policy=_feedback_policy(enabled=False))  # fmt: skip
+    state = service.build_schedule(_NOW).state(SUBSYSTEM_PERFORMANCE_FEEDBACK)
+    assert (state.enabled, state.next_run_at, state.disabled_reason) == (
+        False, None, "disabled by policy")  # fmt: skip
+
+
+def test_an_insights_import_pulls_the_feedback_forward_with_a_debounce(
+    session: Session, article: Article
+) -> None:
+    from app.social.threads.worker import SUBSYSTEM_PERFORMANCE_FEEDBACK
+
+    _publication(session, _proposal(session, article), published_at=_NOW - timedelta(minutes=40))
+    plan_only = _collecting_service(session, _ReadOnlyThreads())
+    assert plan_only.handlers()[SUBSYSTEM_INSIGHTS_REFRESH](_NOW).wake == {}  # 取り込み無し
+
+    service = _collecting_service(session, _ReadOnlyThreads(), collect_insights=True)
+    first = service.handlers()[SUBSYSTEM_INSIGHTS_REFRESH](_NOW)
+    assert first.wake == {SUBSYSTEM_PERFORMANCE_FEEDBACK: _NOW}  # まだ一度も作っていない
+
+    service.handlers()[SUBSYSTEM_PERFORMANCE_FEEDBACK](_NOW)
+    later = _NOW + timedelta(minutes=45)
+    assert service._feedback_wake_at(later) == _NOW + timedelta(minutes=60)  # 最短間隔
+    assert service._feedback_wake_at(_NOW + timedelta(hours=2)) == _NOW + timedelta(hours=2)
+
+
+def test_feedback_reaches_generation_only_when_the_policy_allows_it(
+    session: Session, article: Article
+) -> None:
+    from app.social.threads.worker import SUBSYSTEM_PERFORMANCE_FEEDBACK
+
+    service = ThreadsWorkerService(_factory(session), settings=_Settings(),
+                                   threads_service=ThreadsService(
+                                       _Settings(), client=_ExplodingClient()),
+                                   policy=_feedback_policy(use_in_generation=True))  # fmt: skip
+    proposals = service._stock_proposal_service(session)
+    assert proposals.performance_feedback(as_of=_NOW).mode == "neutral"  # まだ作っていない
+    service.handlers()[SUBSYSTEM_PERFORMANCE_FEEDBACK](_NOW)
+    assert proposals.performance_feedback(as_of=_NOW) is service.performance_feedback

@@ -28,6 +28,10 @@ from dataclasses import dataclass
 
 from app.social.threads.conversation import HOOK_BRIEFS, HOOKS, WRITING_RULES
 from app.social.threads.guidance import ThreadsGenerationGuidance, render_prompt_sections
+from app.social.threads.performance_analysis import (
+    PerformanceFeedback,
+    render_feedback_sections,
+)
 from app.social.threads.policy import ThreadsStylePolicy
 from app.social.threads.proposal import LINK_MODES, LINK_PLACEHOLDER
 from app.social.threads.quality import QUALITY_RULES
@@ -57,6 +61,8 @@ class ThreadsPromptPackage:
     rendered_prompt: str
     #: この prompt に入れた学習の参考 (T5.5)。無ければ ``None``。
     guidance: ThreadsGenerationGuidance | None = None
+    #: T6.5: 自分の投稿の成績からの補助の参考。無ければ ``None`` (prompt は T6.5 より前のまま)。
+    performance_feedback: PerformanceFeedback | None = None
 
     @property
     def prompt_hash(self) -> str:
@@ -71,6 +77,8 @@ class ThreadsPromptPackage:
             "policy_version": self.policy_version,
             "prompt_hash": self.prompt_hash,
             "learning_guidance": self.guidance.as_dict() if self.guidance else None,
+            "performance_feedback": (self.performance_feedback.provenance()
+                                     if self.performance_feedback else None),
         }
 
 
@@ -86,6 +94,7 @@ def build_prompt(
     requested_link_mode: str | None = None,
     conversation_hook: str | None = None,
     recent_topics: list[str] | None = None,
+    performance_feedback: PerformanceFeedback | None = None,
 ) -> ThreadsPromptPackage:
     """決定的に prompt を組み立てる (外部呼び出しはしない)。
 
@@ -194,6 +203,10 @@ def build_prompt(
             ]
     if guidance is not None:
         lines += [*render_prompt_sections(guidance), ""]
+    # T6.5: 成績からの補助の参考 (中立・参考なしなら何も足さない)。
+    feedback_lines = render_feedback_sections(performance_feedback)
+    if feedback_lines:
+        lines += [*feedback_lines, ""]
     example = {"angle": wanted[0], "link_mode": "article", "body": f"...{LINK_PLACEHOLDER}"}
     if conversation_hook is not None:
         example = {
@@ -221,6 +234,7 @@ def build_prompt(
         policy_version=policy.policy_version,
         rendered_prompt="\n".join(lines),
         guidance=guidance,
+        performance_feedback=performance_feedback,
     )
 
 

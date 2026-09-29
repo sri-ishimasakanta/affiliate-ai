@@ -57,6 +57,7 @@ from app.social.threads.worker import (
     SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_HEALTH,
     SUBSYSTEM_INSIGHTS_REFRESH,
+    SUBSYSTEM_PERFORMANCE_FEEDBACK,
     SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE,
     SUBSYSTEM_PUBLICATION_EVALUATION,
     SUBSYSTEM_QUEUE_OBSERVATION,
@@ -199,6 +200,24 @@ class ThreadsWorkerService:
         self._maintain_growth = maintain_growth_posts
         self._growth_client = growth_client
         self._growth_directory = growth_directory
+        #: T6.5: 最後に作った成績からの補助の参考 (メモリだけ。DB には書かない)。
+        self._performance_feedback = None
+        self._last_feedback_run: datetime | None = None
+
+    # -- performance feedback (T6.5) ---------------------------------------------
+    #: 方針に節が無いときの値 (``threads_operations_policy.json`` の
+    #: ``subsystems.performance_feedback_evaluation`` で変えられる)。
+    FEEDBACK_DEFAULTS = {"enabled": True, "interval_minutes": 360, "min_interval_minutes": 60,
+                         "use_in_generation": False}  # fmt: skip
+
+    def _feedback_config(self) -> dict:
+        return {**self.FEEDBACK_DEFAULTS, **self._policy.subsystem(SUBSYSTEM_PERFORMANCE_FEEDBACK)}
+
+    @property
+    def performance_feedback(self):
+        """最後に作った補助の参考 (まだ無ければ ``None``)。"""
+
+        return self._performance_feedback
 
     @property
     def capabilities(self) -> dict:
@@ -258,6 +277,13 @@ class ThreadsWorkerService:
                 None if self._maintain_growth else "start with --maintain-growth-posts"
             ),
         )
+        feedback = bool(self._feedback_config().get("enabled", True))
+        schedule.register(
+            SUBSYSTEM_PERFORMANCE_FEEDBACK,
+            first_run_at=now if feedback else None,
+            enabled=feedback,
+            disabled_reason=None if feedback else "disabled by policy",
+        )
         flush = self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH)
         enabled = bool(flush.get("enabled", False))
         schedule.register(
@@ -274,6 +300,7 @@ class ThreadsWorkerService:
             SUBSYSTEM_QUEUE_OBSERVATION: self._queue_observation,
             SUBSYSTEM_PUBLICATION_EVALUATION: self._publication_evaluation,
             SUBSYSTEM_INSIGHTS_REFRESH: self._insights_refresh,
+            SUBSYSTEM_PERFORMANCE_FEEDBACK: self._performance_feedback_evaluation,
             SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: self._approval_notification_flush,
             SUBSYSTEM_APPROVAL_SYNC: self._approval_sync,
             SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE: self._proposal_stock_maintenance,
@@ -413,6 +440,65 @@ class ThreadsWorkerService:
             ),
         )
 
+    def _performance_feedback_evaluation(self, now: datetime) -> SubsystemResult:
+        """自分の投稿の成績を分析し、生成への補助の参考を作り直す (T6.5)。**読むだけ。**
+
+        DB に書かない (分析は ``read_only_session``)。Threads に問い合わせない。結果はメモリに
+        持つだけ。生成に使うのは方針の ``use_in_generation`` が真のときだけ (既定は使わない)。
+        """
+
+        from app.services.threads_performance_analysis_service import (
+            ThreadsPerformanceAnalysisService,
+        )
+        from app.social.threads.performance_analysis import supported_values_for
+        from app.social.threads.policy import get_policy as get_style_policy
+
+        self._last_feedback_run = now
+        with self._factory() as session:
+            feedback = ThreadsPerformanceAnalysisService(
+                session, settings=self._settings, timezone=self._tz
+            ).feedback(as_of=now, supported_values=supported_values_for(
+                get_style_policy(), self._measurement))  # fmt: skip
+        previous = self._performance_feedback
+        self._performance_feedback = feedback
+        config = self._feedback_config()
+        return SubsystemResult(
+            next_run_at=now + timedelta(minutes=int(config["interval_minutes"])),
+            summary={
+                "mode": feedback.mode,
+                "checkpoint": feedback.checkpoint,
+                "cohort_n": feedback.cohort_n,
+                "supported": len(feedback.supported),
+                "weak": len(feedback.weak),
+                "insufficient": len(feedback.insufficient),
+                "fingerprint": feedback.fingerprint[:12],
+                "changed": previous is None or previous.fingerprint != feedback.fingerprint,
+                "used_in_generation": bool(config.get("use_in_generation")),
+                "db_writes": 0,
+                "network_calls": 0,
+            },
+        )
+
+    def _feedback_wake_at(self, now: datetime) -> datetime:
+        minimum = timedelta(minutes=int(self._feedback_config()["min_interval_minutes"]))
+        if self._last_feedback_run is None:
+            return now
+        return max(now, self._last_feedback_run + minimum)
+
+    def _stock_proposal_service(self, session):
+        """在庫の保守に使う提案の service。補助の参考は方針で許されたときだけ渡す。"""
+
+        if not self._feedback_config().get("use_in_generation"):
+            return None
+        from app.services.threads_proposal_service import ThreadsProposalService
+        from app.social.threads.performance_analysis import neutral_feedback
+
+        def provide(as_of):
+            return self._performance_feedback or neutral_feedback(
+                as_of.isoformat(), "no performance feedback evaluated yet; neutral")
+
+        return ThreadsProposalService(session, performance_feedback_provider=provide)
+
     def _proposal_stock_maintenance(self, now: datetime) -> SubsystemResult:
         """投稿案の在庫を 1 回保守する (T6)。**承認・却下・公開はしない。**
 
@@ -431,6 +517,7 @@ class ThreadsWorkerService:
                 threads_service=self._threads,
                 policy=self._policy,
                 provider=self._stock_provider,
+                proposal_service=self._stock_proposal_service(session),
                 timezone=self._tz,
                 alert_notifiers=self._alert_notifiers,
             ).maintain(now=now, execute=True)
@@ -729,6 +816,13 @@ class ThreadsWorkerService:
                 "network_calls": calls,
                 "threads_writes": 0,
             },
+            # T6.5: 新しい観測を取り込んだら、成績の参考の作り直しを前倒しする
+            # (最短間隔より早めない。5 分ごとの heartbeat では作り直さない)。
+            wake=(
+                {SUBSYSTEM_PERFORMANCE_FEEDBACK: self._feedback_wake_at(now)}
+                if any(d.get("result") == "imported" for d in refreshed)
+                else {}
+            ),
         )
 
     def _approval_notification_flush(self, now: datetime) -> SubsystemResult:

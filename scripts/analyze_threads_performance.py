@@ -7,6 +7,14 @@
 保存済みの観測だけを使う。DB にも Threads にも書かず、Threads には問い合わせもしない
 (観測を取り直さない)。出力は ``reports/threads_performance_diagnostic_latest.{json,md}``
 (``reports/`` は git 管理外の実行時の成果物)。
+
+T6.5: 投稿ごとの成績・比べる相手 (cohort)・まとまり・生成への補助の参考 (**ファイルに書かない**、
+標準出力だけ):
+
+    uv run python scripts/analyze_threads_performance.py --analysis
+    uv run python scripts/analyze_threads_performance.py --analysis --format json
+    uv run python scripts/analyze_threads_performance.py --analysis --lane regular --angle insight
+    uv run python scripts/analyze_threads_performance.py --analysis --feedback --format json
 """
 
 from __future__ import annotations
@@ -31,6 +39,14 @@ def main(argv=None, *, session_factory=None, settings=None) -> int:
     parser.add_argument("--as-of", dest="as_of", help="分析の時刻 (ISO 8601。既定は現在)")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--json", action="store_true", help="JSON を標準出力にも出す")
+    parser.add_argument("--analysis", action="store_true",
+                        help="T6.5: 投稿ごとの成績と参考 (ファイルに書かない。標準出力だけ)")
+    parser.add_argument("--format", choices=("table", "json"), default="table")
+    parser.add_argument("--feedback", action="store_true", help="生成への補助の参考だけを出す")
+    parser.add_argument("--lane", choices=("regular", "growth", "unknown"))
+    parser.add_argument("--topic", help="実際に送ったトピック (例: AI Threads / unknown)")
+    parser.add_argument("--angle")
+    parser.add_argument("--min-age-hours", type=float, dest="min_age_hours")
     args = parser.parse_args(argv)
 
     if session_factory is None:
@@ -42,6 +58,8 @@ def main(argv=None, *, session_factory=None, settings=None) -> int:
 
         settings = get_settings()
     as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
+    if args.analysis:
+        return _analysis(args, session_factory=session_factory, settings=settings, as_of=as_of)
     with session_factory() as session:
         report = ThreadsPerformanceService(session, settings=settings).report(as_of=as_of)
 
@@ -61,6 +79,108 @@ def main(argv=None, *, session_factory=None, settings=None) -> int:
 
 def _fmt(value) -> str:
     return "—" if value is None else str(value)
+
+
+def _analysis(args, *, session_factory, settings, as_of) -> int:
+    """T6.5 の分析 (読むだけ・ファイルに書かない)。"""
+
+    from app.services.threads_performance_analysis_service import (
+        ThreadsPerformanceAnalysisService,
+    )
+    from app.social.threads.performance_analysis import (
+        build_feedback,
+        filter_posts,
+        supported_values_for,
+    )
+    from app.social.threads.policy import get_measurement_policy, get_policy
+
+    with session_factory() as session:
+        report = ThreadsPerformanceAnalysisService(session, settings=settings).report(
+            as_of=as_of)  # fmt: skip
+        session.rollback()
+    feedback = build_feedback(report, supported_values=supported_values_for(
+        get_policy(), get_measurement_policy()))  # fmt: skip
+    posts = filter_posts(report, lane=args.lane, topic=args.topic, angle=args.angle,
+                         min_age_hours=args.min_age_hours)  # fmt: skip
+    if args.format == "json":
+        payload = (feedback.as_dict() if args.feedback
+                   else {**report, "posts": posts, "feedback": feedback.as_dict()})  # fmt: skip
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        print(render_feedback(feedback) if args.feedback
+              else render_analysis(report, posts, feedback))  # fmt: skip
+    print("read-only: database writes = 0, Threads calls = 0, files written = 0")
+    return 0
+
+
+def render_analysis(report: dict, posts: list[dict], feedback) -> str:
+    s = report["summary"]
+    lines = [
+        f"Threads performance analysis (read-only) — as of {report['as_of_local']}",
+        f"posts {s['total_posts']} (usable insight {s['posts_with_usable_insight']}; "
+        f"regular {s['regular_posts']}, growth {s['growth_posts']})",
+    ]
+    for lane, cohort in report["cohorts"].items():
+        counts = ", ".join(f"{k}={v}" for k, v in cohort["comparable_by_checkpoint"].items())
+        lines.append(f"cohort {lane}: checkpoint {_fmt(cohort['checkpoint'])} "
+                     f"n={cohort['comparable']} ({cohort['evidence']}); comparable by "
+                     f"checkpoint: {counts}")  # fmt: skip
+    for lane, dist in s["distributions"].items():
+        for component, d in dist["components"].items():
+            if d.get("n"):
+                lines.append(f"  {lane} @{dist['checkpoint']} {component}: n={d['n']} "
+                             f"min={d['min']} p25={d['p25']} median={d['median']} "
+                             f"p75={d['p75']} max={d['max']}")  # fmt: skip
+    lines += ["", "| pub | prop | lane | topic | angle | hook | published (JST) | age h | "
+                  "obs age h | views | likes | replies | reposts | quotes | shares | eng/view | "
+                  "reply/view | amp/view | completeness | cohort | reach pct | eng pct | status |",
+              "|" + "---|" * 23]  # fmt: skip
+    for p in posts:
+        m = p["latest_metrics"] or {}
+        d = p["latest_derived"] or {}
+        ev = p.get("evaluation") or {}
+        comps = ev.get("components") or {}
+        obs = p["latest_observation"] or {}
+        lines.append(
+            f"| #{p['publication_id']} | #{_fmt(p['proposal_id'])} | {p['lane']} | "
+            f"{p['threads_topic']} | {p['angle']} | {p['conversation_hook']} | "
+            f"{p['published_at_local'][:16]} | {p['age_hours']:.1f} | "
+            f"{_fmt(obs.get('insight_age_hours'))} | {_fmt(m.get('views'))} | "
+            f"{_fmt(m.get('likes'))} | {_fmt(m.get('replies'))} | {_fmt(m.get('reposts'))} | "
+            f"{_fmt(m.get('quotes'))} | {_fmt(m.get('shares'))} | "
+            f"{_fmt(d.get('engagement_per_view'))} | {_fmt(d.get('conversation_rate'))} | "
+            f"{_fmt(d.get('amplification_rate'))} | {p['completeness']['status']} | "
+            f"{ev.get('lane', p['lane'])}@{_fmt(ev.get('checkpoint'))} | "
+            f"{_fmt((comps.get('reach') or {}).get('percentile_rank'))} | "
+            f"{_fmt((comps.get('engagement') or {}).get('percentile_rank'))} | "
+            f"{ev.get('status')} |"
+        )  # fmt: skip
+    lines += ["", "rates use cumulative latest values (for context); cohort percentiles use "
+                  "equal-age checkpoint values; — = unknown (never 0)"]  # fmt: skip
+    lines += ["", render_feedback(feedback)]
+    lines += [f"warning: {w}" for w in report["warnings"]]
+    return "\n".join(lines)
+
+
+def render_feedback(feedback) -> str:
+    content = feedback.content()
+    lines = [f"feedback: mode={content['mode']} checkpoint={_fmt(content['checkpoint'])} "
+             f"cohort_n={content['cohort_n']} fingerprint={feedback.fingerprint[:12]}"]
+    for title, key in (("currently supported (hypothesis/preliminary)",
+                        "currently_supported_patterns"),
+                       ("weak", "weak_patterns"),
+                       ("context (not used in prompts)", "context_observations")):  # fmt: skip
+        items = content[key]
+        lines.append(f"  {title}: {len(items)}")
+        for item in items:
+            lines.append(f"    - {item.get('statement_ja')}")
+    lines.append(f"  insufficient evidence: {len(content['insufficient_evidence_patterns'])} "
+                 "pattern(s)")  # fmt: skip
+    growth = content["growth_observations"]
+    lines.append(f"  growth: {growth.get('posts', 0)} post(s), {growth.get('evidence')} "
+                 "(never mixed with regular posts)")  # fmt: skip
+    lines += [f"  note: {n}" for n in content["notes"]]
+    return "\n".join(lines)
 
 
 def render_markdown(report: dict) -> str:

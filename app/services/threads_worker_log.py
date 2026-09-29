@@ -147,6 +147,18 @@ class WorkerLogFormatter:
         return {"threads_state": state, "config_issues": ";".join(issues) or None}, level
 
     @staticmethod
+    def _describe_performance_feedback_evaluation(summary: dict):
+        return {
+            "mode": summary.get("mode"),
+            "checkpoint": summary.get("checkpoint"),
+            "cohort_n": summary.get("cohort_n"),
+            "supported": summary.get("supported"),
+            "weak": summary.get("weak"),
+            "changed": summary.get("changed"),
+            "used_in_generation": summary.get("used_in_generation"),
+        }, "INFO"
+
+    @staticmethod
     def _describe_approval_sync(summary: dict):
         applied = summary.get("applied") or 0
         failed = summary.get("failed") or 0

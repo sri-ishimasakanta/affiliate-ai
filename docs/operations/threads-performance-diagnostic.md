@@ -98,3 +98,6 @@ views は Threads が返す **累積値** で、公開からの時間ととも�
 JSON の `checkpoint_summary.<Nh>.classification` (状態・根拠の並び・中央値との比) と
 `publications[].checkpoints` は、「比較できる投稿が 3 本続けて 3h/6h で弱い」のような条件を
 機械で判定できる形にしてある。**いまは監視も通知も作っていない。**
+
+投稿ごとの成績・まとまり・生成への補助の参考 (T6.5) は
+[threads-performance-analysis.md](threads-performance-analysis.md) (`--analysis`)。

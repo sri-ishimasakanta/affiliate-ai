@@ -108,6 +108,8 @@ class PreparedProposals:
 
 #: ``as_of`` を受け取って参考を返す関数 (テストで差し替える)。
 GuidanceProvider = Callable[[datetime], ThreadsGenerationGuidance]
+#: T6.5: ``as_of`` → 成績からの補助の参考 (``PerformanceFeedback``)。
+PerformanceFeedbackProvider = Callable[[datetime], object]
 
 
 class ThreadsProposalService:
@@ -117,10 +119,28 @@ class ThreadsProposalService:
         *,
         policy: ThreadsStylePolicy | None = None,
         guidance_provider: GuidanceProvider | None = None,
+        performance_feedback_provider: PerformanceFeedbackProvider | None = None,
     ) -> None:
         self._session = session
         self._policy = policy or get_policy()
         self._guidance_provider = guidance_provider
+        #: T6.5: 渡されたときだけ使う (既定は使わない: prompt は T6.5 より前のまま)。
+        self._feedback_provider = performance_feedback_provider
+
+    # -- performance feedback (T6.5) -------------------------------------------
+    def performance_feedback(self, *, as_of: datetime | None = None):
+        """成績からの補助の参考。provider が無ければ ``None``。失敗・証拠不足は中立。"""
+
+        if self._feedback_provider is None:
+            return None
+        from app.social.threads.performance_analysis import neutral_feedback
+
+        as_of = ensure_aware(as_of or datetime.now(UTC))
+        try:
+            return self._feedback_provider(as_of)
+        except Exception as exc:  # noqa: BLE001 - 参考が作れなくても生成は止めない
+            return neutral_feedback(as_of.isoformat(),
+                                    f"performance feedback unavailable ({type(exc).__name__})")
 
     # -- learning guidance (T5.5) ----------------------------------------------
     def learning_guidance(self, *, as_of: datetime | None = None) -> ThreadsGenerationGuidance:
@@ -165,6 +185,7 @@ class ThreadsProposalService:
 
         article = self._require_article(article_id)
         guidance = self.learning_guidance(as_of=learning_as_of)
+        feedback = self.performance_feedback(as_of=learning_as_of)
         return build_prompt(
             source_article_id=article.id,
             source_article_title=article.title or "",
@@ -176,6 +197,7 @@ class ThreadsProposalService:
             requested_link_mode=requested_link_mode,
             conversation_hook=conversation_hook,
             recent_topics=recent_topics,
+            performance_feedback=feedback,
         )
 
     # -- proposal -------------------------------------------------------------
@@ -309,6 +331,10 @@ class ThreadsProposalService:
         provenance = self.learning_guidance(as_of=learning_as_of or now).provenance(
             verified_against_prompt=expected_guidance is not None
         )
+        feedback = self.performance_feedback(as_of=learning_as_of or now)
+        if feedback is not None:
+            # T6.5: 使った補助の参考の小さな来歴 (中立でも、使ったかどうかを残す)。
+            provenance = {**provenance, "performance_feedback": feedback.provenance()}
         extra_warnings: list[str] = []
         if generation_brief:
             extra_warnings = list(generation_brief.get("warnings") or [])
