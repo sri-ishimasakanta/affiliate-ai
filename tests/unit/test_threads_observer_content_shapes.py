@@ -182,5 +182,5 @@ def test_media_links_and_link_previews() -> None:
 
 
 def test_versions_record_the_hardening() -> None:
-    assert sel.COLLECTOR_VERSION == "t6.5b-collector-5"  # T6.5B.4 (読み方は collector-4 と同じ)
-    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-29-v3"
+    assert sel.COLLECTOR_VERSION == "t6.5b-collector-6"
+    assert sel.SELECTOR_VERSION == "threads-web-verified-2026-09-29-v4"

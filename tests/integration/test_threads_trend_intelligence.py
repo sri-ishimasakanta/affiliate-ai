@@ -514,7 +514,7 @@ def test_project_state_reports_the_observer_facts(session: Session) -> None:
     assert state["read_only"] is True and state["social_actions"] is False
     assert state["scheduled"] is False and state["fed_back_to_generation"] is False
     assert state["selector_verified"] is True
-    assert state["selector_version"] == sel.SELECTOR_VERSION == "threads-web-verified-2026-09-29-v3"
+    assert state["selector_version"] == sel.SELECTOR_VERSION == "threads-web-verified-2026-09-29-v4"
     session.execute(text("DROP TABLE threads_external_observations"))
     session.commit()
     missing = observer_state(session.connection())

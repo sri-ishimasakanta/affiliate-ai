@@ -20,14 +20,18 @@ from urllib.parse import quote
 #: collector-5 (T6.5B.4): 画面を撮るなら読むたびに見えている画面 (高さ 2700) を撮り、投稿 →
 #: 画面の対応を数える。受け入れた投稿が画面の下にはみ出していれば、上限の中の残りの
 #: スクロールで写しに行く (上限は 3 回のまま)。本文・指標の読み方は collector-4 と同じ。
-COLLECTOR_VERSION = "t6.5b-collector-5"
+#: collector-6 (T6.5B.5): 本文の行の中の ``role=button`` (「翻訳」) を除く・添付のメディアの
+#: 入れ物の中の文字 (動画の上の Instagram の名前の札) を本文にしない。
+COLLECTOR_VERSION = "t6.5b-collector-6"
 #: 本物の画面で確かめた版 (T6.5B パイロット)。形を直したら版を上げる。
 #: v2 (T6.5B.1): 本文の中の続きの投稿の印 (「1/2」の div) を除く・引用した投稿の中の要素を
 #: 外側の投稿として読まない・候補の勘定。For You の dry-run で画面と照らして確認
 #: (2026-09-28、5 件 × 5 回)。
 #: v3 (T6.5B.3a): 本文の範囲・<button>・meta.ai の札・添付のメディアの判定 (2026-09-29 の
 #: Stage 1 の dry-run で見つけた 4 つの形を直した)。
-SELECTOR_VERSION = "threads-web-verified-2026-09-29-v3"
+#: v4 (T6.5B.5): 本文の行の中の操作 (「翻訳」の div[role=button]) と、添付のメディアの入れ物の
+#: 中の札 (動画の上の Instagram の名前) を本文にしない (段階 2 の dry-run で見つけた 2 つの形)。
+SELECTOR_VERSION = "threads-web-verified-2026-09-29-v4"
 SELECTOR_VERIFIED = True
 #: パイロットで画面と照らして確かめたもの。**ここに無いものは未確認。**
 VERIFIED_SURFACES = (
@@ -49,7 +53,7 @@ UNVERIFIED_SURFACES = (
 #: 未確認 (``surface_verification`` が ``verified=False`` を返す)。
 SURFACE_VERIFICATION = {
     "for_you": {
-        "version": "threads-web-verified-2026-09-29-v3",
+        "version": "threads-web-verified-2026-09-29-v4",
         "label": "for_you",
         "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
                             "analysis_body", "topic", "likes", "replies", "media_image",

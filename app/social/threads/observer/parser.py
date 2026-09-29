@@ -207,7 +207,11 @@ def _is_meta_ai_label(node: Node) -> bool:
 
 
 def _body_text(node: Node) -> str:
-    """本文の span の文字。続きの投稿の印の div・button・meta.ai の札は入れない。"""
+    """本文の span の文字。続きの投稿の印の div・button・``role=button``・meta.ai の札は入れない。
+
+    ``role=button`` (T6.5B.5): 本文の行の **中** の操作 (2026-09-29 に DOM で確認: リンクの後ろの
+    「翻訳」の div[role=button])。
+    """
 
     parts: list[str] = []
     for child in node.children:
@@ -216,7 +220,7 @@ def _body_text(node: Node) -> str:
         elif child.tag == "br":
             parts.append("\n")
         elif (child.tag in ("script", "style", "button") or _is_thread_marker(child)
-              or _is_meta_ai_label(child)):  # fmt: skip
+              or child.attrs.get("role") == "button" or _is_meta_ai_label(child)):  # fmt: skip
             continue
         else:
             parts.append(_body_text(child))
@@ -244,8 +248,28 @@ def _body_bounds(card: Node) -> tuple[dict[int, int], int, int]:
     return order, start, end
 
 
+def _media_blocks(card: Node, first: Node) -> list[Node]:
+    """添付のメディア (動画・``<picture>``) の入れ物 (T6.5B.5)。
+
+    メディアの要素から上へ、本文の最初の行を含まない所までが入れ物。入れ物の中の文字は本文では
+    ない (2026-09-29 に DOM で確認: 動画の上に重なる Instagram の「<名前>」の札が
+    ``span[dir=auto]`` で、動画と同じ入れ物の奥にある)。
+    """
+
+    around_first = {id(a) for a in first.ancestors()}
+    blocks = []
+    for media in [*_own(card, "video"), *_own(card, "picture")]:
+        block = media
+        for ancestor in media.ancestors():
+            if ancestor is card or id(ancestor) in around_first:
+                break
+            block = ancestor
+        blocks.append(block)
+    return blocks
+
+
 def _body(card: Node) -> str:
-    lines: list[str] = []
+    candidates: list[Node] = []
     order, start, end = _body_bounds(card)
     for span in _own(card, "span", dir="auto"):
         position = order.get(id(span), -1)
@@ -261,6 +285,12 @@ def _body(card: Node) -> str:
             continue  # いいね等のボタンの中の数は本文ではない
         if any(p.tag == "span" and p.attrs.get("dir") == "auto" for p in span.ancestors()):
             continue  # 入れ子は外側で数える
+        candidates.append(span)
+    blocks = {id(b) for b in _media_blocks(card, candidates[0])} if candidates else set()
+    lines: list[str] = []
+    for span in candidates:
+        if blocks and any(id(a) in blocks for a in span.ancestors()):
+            continue  # 添付のメディアの入れ物の中の札 (動画の上の名前など) は本文ではない
         text = _body_text(span).strip()
         if text and (not lines or lines[-1] != text):
             lines.append(text)

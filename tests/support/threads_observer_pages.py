@@ -48,6 +48,8 @@ def card(
     image_src: str = "https://cdn.example/x.jpg",
     media_link: bool = False,
     link_preview_image: bool = False,
+    translate: bool = False,
+    video_overlay: str | None = None,
 ) -> str:
     """``thread_marker="1/2"``: 本物の形の続きの投稿の印を、最後の行の本文の span に入れる。
 
@@ -57,6 +59,9 @@ def card(
     ``meta_ai`` = 最初の行の先頭のアイコンつき ``/@meta.ai`` の札・``inline_gifs`` = 最初の行の
     中の GIF のスタンプ・``media_link`` = 添付の画像を ``/post/<code>/media`` のリンクで包む・
     ``link_preview_image`` = 外のリンクの見出しの画像。
+
+    T6.5B.5: ``translate`` = 最後の行の中の「翻訳」の ``div[role=button]``・``video_overlay`` =
+    動画の入れ物の奥の名前の札 (Instagram から載せた動画の上の ``span[dir=auto]``)。
     """
 
     parts = body.split("\n")
@@ -70,9 +75,12 @@ def card(
              if meta_ai else "")  # fmt: skip
     gifs = "".join(f'<img alt="" aria-hidden="true" height="24" src="https://media1.giphy.com/{n}.gif">'
                    for n in range(inline_gifs))  # fmt: skip
+    translate_html = ('<div><div role="button" tabindex="0"><span>翻訳</span></div></div>'
+                      if translate else "")  # fmt: skip
     lines = "".join(
         f'<span dir="auto">{label if i == 0 else ""}<span>{escape(line)}</span>'
-        f'{gifs if i == 0 else ""}{marker if i == len(parts) - 1 else ""}</span>'
+        f'{gifs if i == 0 else ""}{marker if i == len(parts) - 1 else ""}'
+        f'{translate_html if i == len(parts) - 1 else ""}</span>'
         for i, line in enumerate(parts)
     )
     time_html = f'<time datetime="{posted}" title="2026年9月27日">1日</time>' if posted else ""
@@ -98,7 +106,11 @@ def card(
                   'role="link">'
                   '<div><img alt="" src="https://cdn.example/preview.jpg"></div>'
                   "<span>example.invalid</span></a></div>")  # fmt: skip
-    if video:
+    if video_overlay is not None:
+        media += ('<div><div><div><div><video></video></div><div><div><svg aria-hidden="true">'
+                  f'</svg><span dir="auto"><span>{escape(video_overlay)}</span></span></div></div>'
+                  "</div></div></div>")  # fmt: skip
+    elif video:
         media += "<video></video>"
     link_html = (f'<a href="https://l.threads.com/?u={escape(link)}"><span>{escape(link)}</span></a>'
                  if link else "")  # fmt: skip
