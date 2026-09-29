@@ -30,6 +30,7 @@ from app.models import (
     NOTIFICATION_APPROVAL_DIGEST,
     NOTIFICATION_APPROVAL_REQUEST,
     NOTIFICATION_DAILY_INCIDENT,
+    NOTIFICATION_GROWTH_ACTION_DIGEST,
     NOTIFICATION_WEEKLY_REPORT,
     NotificationDelivery,
     OperationsAlert,
@@ -290,6 +291,20 @@ class OperationsNotificationService:
             operations_run_id=None,
             now=datetime.now(UTC),
         )
+
+    def send_growth_action_digest(self, *, digest_identity: str, title: str, body: str,
+                                  detail: dict, now: datetime | None = None):  # fmt: skip
+        """Growth Action のまとめを **1 通** で送る (C9-A)。
+
+        ``detail`` には候補の ID・版・指紋 (通知の履歴) だけを入れる。秘密は入れない。
+        同じまとめ (``digest_identity``) は 2 回送らない (dedupe key)。
+        """
+
+        outcome = NotificationOutcome(NOTIFICATION_GROWTH_ACTION_DIGEST)
+        outcome.detail = dict(detail)
+        return self._deliver(outcome, severity="info", title=title, body=body,
+                             dedupe_key=f"growth_action_digest:{digest_identity[:40]}",
+                             operations_run_id=None, now=now or datetime.now(UTC))
 
     # -- internals ------------------------------------------------------------
     def _deliver(

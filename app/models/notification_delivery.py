@@ -51,6 +51,8 @@ NOTIFICATION_TEST = "test"
 NOTIFICATION_APPROVAL_REQUEST = "approval_request"
 #: 複数の承認依頼を 1 通にまとめたもの (T4.2)。決定は提案ごとに独立している。
 NOTIFICATION_APPROVAL_DIGEST = "approval_digest"
+#: C9-A: Growth Action のまとめ (個別のレビューへの案内だけ。承認ではない)。
+NOTIFICATION_GROWTH_ACTION_DIGEST = "growth_action_digest"
 NOTIFICATION_TYPES = (
     NOTIFICATION_DAILY_INCIDENT,
     NOTIFICATION_WEEKLY_REPORT,
@@ -58,6 +60,7 @@ NOTIFICATION_TYPES = (
     NOTIFICATION_TEST,
     NOTIFICATION_APPROVAL_REQUEST,
     NOTIFICATION_APPROVAL_DIGEST,
+    NOTIFICATION_GROWTH_ACTION_DIGEST,
 )
 
 # -- outcomes ------------------------------------------------------------------

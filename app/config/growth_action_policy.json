@@ -1,0 +1,10 @@
+{
+  "policy_version": "growth-action-policy-1",
+  "note": "C9-A Growth Action digest. sending_enabled stays false until a human approves the first real production send; PLAN and fake-transport tests work without it. The digest is weekly, at most max_items individual reviews (never approve-all), and only inside the approval notification window of threads_operations_policy.json.",
+  "digest": {
+    "sending_enabled": false,
+    "max_items": 5,
+    "cadence_days": 7,
+    "respect_approval_notification_window": true
+  }
+}

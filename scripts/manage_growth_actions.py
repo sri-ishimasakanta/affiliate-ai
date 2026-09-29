@@ -70,7 +70,12 @@ def main(argv=None, *, session_factory=None, settings=None) -> int:
     ref.add_argument("--execute", action="store_true")
     rev = sub.add_parser("review")
     rev.add_argument("candidate_id", type=int)
+    rev.add_argument("--fingerprint", default=None,
+                     help="まとめ・一覧で見た候補の指紋 (合わなければ断る)")
     rev.add_argument("--execute", action="store_true")
+    sub.add_parser("digest-plan", help="Growth Action のまとめの PLAN (読むだけ・送らない)")
+    send = sub.add_parser("digest-send", help="まとめを送る (既定は PLAN。本物の送信は方針で無効)")
+    send.add_argument("--execute", action="store_true")
     for name in ("approve", "reject"):
         p = sub.add_parser(name)
         p.add_argument("review_id", type=int)
@@ -119,6 +124,20 @@ def _find(entries: list[dict], target: str) -> dict:
 
 def _run(args, session, settings, as_of) -> int:
     command = args.command
+    if command in ("digest-plan", "digest-send"):
+        from app.services.growth_action_digest_service import GrowthActionDigestService
+
+        service = GrowthActionDigestService(session, settings=settings)
+        if command == "digest-send" and args.execute:
+            if not service._policy.sending_enabled:
+                raise GrowthActionError(
+                    "growth action digest sending is disabled in growth_action_policy.json "
+                    "(the first real production send needs a human decision); nothing was sent")
+            result = service.send(now=as_of, execute=True)
+        else:
+            result = service.plan(now=as_of)
+        _emit(args, result, render_digest(result))
+        return 0
     if command in ("list", "show", "explain", "refresh"):
         box = build_inbox(session, settings=settings, now=as_of, days=args.days)
         entries = box["entries"]
@@ -165,7 +184,8 @@ def _run(args, session, settings, as_of) -> int:
               "re-run with --execute")
         return 0
     if command == "review":
-        review = reviews.request_review(args.candidate_id)
+        review = reviews.request_review(args.candidate_id,
+                                        expected_candidate_fingerprint=args.fingerprint)
         print(f"review #{review.id} pending for growth action {review.candidate_id}; "
               f"fingerprint {review.candidate_fingerprint}")
     elif command == "approve":
@@ -194,9 +214,14 @@ def linkage(session, settings, candidate_id) -> dict:
         conversions_ready,
     )
 
-    out = {"review": None, "conversion": None, "downstream": [], "latest_outcome": None}
+    out = {"review": None, "notification": None, "conversion": None, "downstream": [],
+           "latest_outcome": None}
     if candidate_id is None or not GrowthActionHistory(session).tables_ready():
         return out
+    from app.services.growth_action_digest_service import GrowthActionDigestService
+
+    out["notification"] = GrowthActionDigestService(
+        session, settings=settings).notification_state().get(candidate_id)
     review = session.scalars(select(GrowthActionReview).where(
         GrowthActionReview.candidate_id == candidate_id)).first()  # fmt: skip
     if review is not None:
@@ -227,7 +252,8 @@ def linkage(session, settings, candidate_id) -> dict:
 
 
 def render_linkage(link: dict) -> str:
-    lines = ["", f"review: {_v(link['review'])}"]
+    lines = ["", f"review: {_v(link['review'])}",
+             f"last notified: {_v(link.get('notification'))}"]
     if link["conversion"]:
         c = link["conversion"]
         lines.append(f"conversion #{c['id']}: {c['status']} → {c['downstream_type']} "
@@ -241,6 +267,36 @@ def render_linkage(link: dict) -> str:
         o = link["latest_outcome"]
         lines.append(f"latest outcome: {o['measurement_state']} "
                      f"({o['checkpoint']['name']}: {o['checkpoint']['state']})")
+    return "\n".join(lines)
+
+
+def render_digest(result: dict) -> str:
+    sel = result["selection"]
+    c = sel["counts"]
+    head = ("SENT" if (result.get("delivery") or {}).get("sent") else
+            "EXECUTED (not sent)" if result.get("executed") else "PLAN (not sent)")
+    lines = [f"Growth Action digest {head} — as of {result['as_of']}",
+             f"sending enabled: {result['sending_enabled']}; cadence {result['cadence_days']} "
+             f"day(s); last sent {_v(result['last_sent_at'])}; due {result['due']}; "
+             f"in window {result['in_window']}; would notify {result['would_notify']}",
+             "waiting for: " + ("; ".join(result["waiting_for"]) or "nothing"),
+             f"eligible {c['eligible']}, selected {c['selected']} (max {sel['limit']}); excluded: "
+             + ", ".join(f"{k}={v}" for k, v in c["excluded_by_reason"].items()),
+             "diversity: " + ", ".join(f"{k}={v}" for k, v in
+                                       sel["diversity"]["action_types_selected"].items()),
+             "order: " + " → ".join(sel["ordering"]) + " (no single score)", ""]  # fmt: skip
+    for i, item in enumerate(sel["selected"], 1):
+        comps = ", ".join(f"{k}={v}" for k, v in item["components"].items())
+        lines += [f"{i}. [{item['id']}] {item['action_type']} {item['subject_id']} "
+                  f"[{item['evidence_state']}]", f"   components: {comps}",
+                  f"   why selected: {item['selection_reason']}",
+                  f"   ahead of the next: {_v(item['why_before_next'])}",
+                  f"   review: manage_growth_actions.py review {item['id']} --fingerprint "
+                  f"{item['candidate_fingerprint']} --execute"]  # fmt: skip
+        if item.get("recommendation", {}).get("angle"):
+            lines.append(f"   recommendation: angle {item['recommendation']['angle']}")
+    if not sel["selected"]:
+        lines.append("(nothing to review)")
     return "\n".join(lines)
 
 
