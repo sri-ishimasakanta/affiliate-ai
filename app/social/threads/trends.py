@@ -14,8 +14,20 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from statistics import median
 
+#: 記述の証拠の目安 (T6.5B.2、``threads_observation_policy.json`` の evidence_thresholds と同じ)。
+#: どれも **原因の証拠ではない**。
+#: - 外の投稿の使える数が 30 未満 → 傾向を判断できない (insufficient evidence)
+#: - まとまりの本数が 10 未満 → 形として述べない (insufficient sample)
+#: - 10 以上 → 候補の形 (candidate pattern) だけ
+#: - 30 以上 → より強い記述ができる (それでも原因ではない)
+EXTERNAL_MIN_USABLE_POSTS = 30
+GROUP_CANDIDATE_MIN = 10
+GROUP_STRONGER_MIN = 30
+EVIDENCE_INSUFFICIENT_SAMPLE = "insufficient_sample"
+EVIDENCE_CANDIDATE_PATTERN = "candidate_pattern"
+EVIDENCE_STRONGER_DESCRIPTIVE = "stronger_descriptive"
 #: 1 つのまとまりの中央値を「参考」と言える最小の本数。これ未満は small_sample。
-MIN_GROUP_SAMPLE = 5
+MIN_GROUP_SAMPLE = GROUP_CANDIDATE_MIN
 #: 投稿者の基準を作る最小の本数 (その投稿を除いた、ほかの投稿の数)。
 MIN_AUTHOR_SAMPLE = 5
 #: 基準のこの倍以上 → 「伸びた候補」。
@@ -34,6 +46,16 @@ DESCRIPTIVE_NOTE = (
     "descriptive only: medians of what was observed. not a cause, not a ranking, "
     "and nothing here changes generation or publishing"
 )
+
+
+def group_evidence(n: int) -> str:
+    """まとまりの本数 → 記述の証拠の段階 (原因ではない)。"""
+
+    if n >= GROUP_STRONGER_MIN:
+        return EVIDENCE_STRONGER_DESCRIPTIVE
+    if n >= GROUP_CANDIDATE_MIN:
+        return EVIDENCE_CANDIDATE_PATTERN
+    return EVIDENCE_INSUFFICIENT_SAMPLE
 
 
 def median_or_none(values: Iterable[int | float | None]) -> float | None:
@@ -67,6 +89,7 @@ def group_summary(
             "median": medians,
             "observed": observed,
             "small_sample": len(members) < min_sample,
+            "evidence": group_evidence(len(members)),
         }
     return out
 
@@ -172,7 +195,10 @@ def author_breakouts(
 __all__ = [
     "BREAKOUT_ABOVE", "BREAKOUT_CANDIDATE", "BREAKOUT_NO_BASELINE", "BREAKOUT_NO_METRIC",
     "BREAKOUT_TYPICAL", "BREAKOUT_ZERO_BASELINE", "DESCRIPTIVE_NOTE", "MIN_AUTHOR_SAMPLE",
-    "MIN_GROUP_SAMPLE", "author_baseline", "author_breakouts", "breakout_ratio",
+    "MIN_GROUP_SAMPLE", "EXTERNAL_MIN_USABLE_POSTS", "GROUP_CANDIDATE_MIN",
+    "GROUP_STRONGER_MIN", "EVIDENCE_CANDIDATE_PATTERN", "EVIDENCE_INSUFFICIENT_SAMPLE",
+    "EVIDENCE_STRONGER_DESCRIPTIVE", "group_evidence",
+    "author_baseline", "author_breakouts", "breakout_ratio",
     "INSUFFICIENT_SAMPLE", "OBSERVED_HIGHER", "OBSERVED_LOWER", "classify_breakout",
     "group_summary", "median_or_none", "observed_extremes",
 ]  # fmt: skip

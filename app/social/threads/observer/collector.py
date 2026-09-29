@@ -1,6 +1,6 @@
 """外の Threads の観察を 1 回行う (T6.5B、読むだけ・件数の上限つき)。
 
-- 出どころ (for_you / trending_topic / search / custom_feed / known_account) ごとに上限。
+- 出どころ (for_you / topic_for_you / search / custom_feed / known_account) ごとに上限。
   1 回の実行の合計にも上限。スクロールは決まった回数まで (無限にスクロールしない)。
 - ログインの画面なら、そこで止めて ``login_required`` (人がログインする)。
 - 画面の形が違えば (DOM drift)、そこで止めて ``dom_unrecognized``。その実行で集めたものは
@@ -427,7 +427,7 @@ def _trending(page, result, limits, plan, shot_dir):
                          "outcome": OUTCOME_BY_REASON[reason], "reason": reason,
                          "followed": False, "posts": None})  # fmt: skip
     by_outcome = Counter(e["outcome"] for e in sequence)
-    surface = sel.surface_verification("trending_list")
+    surface = sel.surface_verification("topic_for_you_list")
     result.topic_accounting = {
         "surface_selector_version": surface["version"],
         "surface_verified": surface["verified"],

@@ -551,7 +551,12 @@ def _md_threads(threads: dict) -> list[str]:
             f"{_fmt(observer.get('posts'))}, observations {_fmt(observer.get('observations'))}; "
             f"surfaces verified {_fmt(observer.get('surfaces_verified'))}; topic list = "
             f"{observer.get('topic_list_semantics')}; global trending "
-            f"{observer.get('global_trending')}",
+            f"{observer.get('global_trending')}; collection policy "
+            f"{(observer.get('collection_policy') or {}).get('version')} (unique "
+            f"{(observer.get('collection_policy') or {}).get('unique_soft_min')}/"
+            f"{(observer.get('collection_policy') or {}).get('unique_target')}/"
+            f"{(observer.get('collection_policy') or {}).get('unique_hard_max')}; rollout stage "
+            f"{(observer.get('collection_policy') or {}).get('rollout_stage')})",
             f"- stock: {_fmt(threads.get('stock'))}",
             f"- performance diagnostic: {perf.get('status')} "
             f"(generated {_fmt(perf.get('generated_at'))}); "

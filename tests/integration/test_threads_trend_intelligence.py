@@ -261,7 +261,7 @@ def test_run_row_and_trending_topics(session: Session) -> None:
     assert run.status == RUN_SUCCEEDED
     assert run.collector_version == sel.COLLECTOR_VERSION
     assert run.selector_version == sel.SELECTOR_VERSION
-    assert run.source_types_json == ["trending_topic"]
+    assert run.source_types_json == ["topic_for_you"]
     assert run.item_limit == sel.LIMITS["run_total"]
     topics = {t.topic_name: t for t in session.scalars(select(ThreadsTrendingTopic))}
     assert topics["副業"].observations == 2 and topics["副業"].sample_post_count == 4
@@ -390,11 +390,12 @@ def test_analyze_cli_is_read_only(factory, capsys) -> None:
 
 
 def test_own_link_and_growth_separation_and_extremes(session: Session, article: Article) -> None:
-    for i in range(5):
+    # T6.5B.2: まとまりを比べるのは 10 本以上 (10 未満は形として述べない)。
+    for i in range(10):
         _own(session, article, f"l{i}", f"記事の紹介 {i}。\nhttps://bizfluxlab.com/a/",
              topic="AI Threads", metrics={"views": 10 + i, "likes": 0, "replies": 0,
                                           "reposts": 0, "quotes": 0, "shares": 0})  # fmt: skip
-    for i in range(5):
+    for i in range(10):
         _own(session, article, f"n{i}", f"リンクなしの投稿 {i}。", topic="AI Threads",
              metrics={"views": 30 + i, "likes": 1, "replies": 1, "reposts": 0, "quotes": 0,
                       "shares": 0})  # fmt: skip
@@ -407,10 +408,12 @@ def test_own_link_and_growth_separation_and_extremes(session: Session, article: 
     assert rows[0]["source_article_id"] == article.id and rows[-1]["source_article_id"] is None
     baselines = own_baselines(rows)
     links = baselines["dimensions"]["has_url"]
-    assert (links["True"]["n"], links["False"]["n"]) == (5, 6)
-    assert links["True"]["median"]["views"] == 12.0
+    assert (links["True"]["n"], links["False"]["n"]) == (10, 11)
+    assert links["True"]["median"]["views"] == 14.5
+    assert links["True"]["evidence"] == "candidate_pattern"
     kinds = baselines["dimensions"]["content_kind"]
-    assert kinds["article"]["n"] == 10 and kinds["account_growth"]["n"] == 1
+    assert kinds["article"]["n"] == 20 and kinds["account_growth"]["n"] == 1
+    assert kinds["account_growth"]["evidence"] == "insufficient_sample"
     assert kinds["account_growth"]["small_sample"] is True
     extremes = baselines["observed_extremes"]["has_url"]["views"]
     assert extremes["observed higher median"]["group"] == "False"

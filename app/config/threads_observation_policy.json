@@ -1,0 +1,167 @@
+{
+  "policy_version": "threads-observation-policy-1",
+  "note": "T6.5B.2 collection strategy for the read-only Threads observer. Planning targets, not guarantees: a source that yields fewer safe posts is NOT back-filled. Unique posts are counted once across sources; every discovery is kept as its own append-only observation (provenance). Not scheduled (no Windows task); a stored run of any size needs an explicit human decision at the current rollout stage.",
+  "unique_posts": {
+    "soft_min": 50,
+    "target": 90,
+    "hard_max": 100
+  },
+  "sources": {
+    "for_you": {
+      "target": 25
+    },
+    "search": {
+      "target": 20,
+      "queries_per_day": 4,
+      "query_pool_version": "threads-search-queries-1",
+      "query_pool": [
+        "生成AI",
+        "AI自動化",
+        "AI副業",
+        "ブログ",
+        "Threads運用"
+      ]
+    },
+    "topic_for_you": {
+      "target": 15,
+      "max_topics": 3,
+      "max_posts_per_topic": 5,
+      "topic_list_max": 5
+    },
+    "known_account": {
+      "target": 30,
+      "max_accounts": 3,
+      "max_posts_per_account": 10
+    }
+  },
+  "not_collected": {
+    "custom_feed": "unavailable for this account (no user-created feed link; 2026-09-29)",
+    "global_trending": "unverified / unavailable (the /search chip row is topic_for_you, not a global ranking)"
+  },
+  "page_limits": {
+    "max_scrolls_per_page": 3,
+    "max_accepted_per_page": 25,
+    "max_pages_per_run": 15,
+    "max_search_queries_per_day": 5,
+    "max_topic_pages_per_day": 3,
+    "max_known_accounts_per_day": 3
+  },
+  "repeat_observation": {
+    "enabled": false,
+    "budget": 0,
+    "future_budget_range": [
+      10,
+      20
+    ],
+    "counts_toward_unique": false,
+    "note": "designed only; candidate selection belongs to T6.5C/E"
+  },
+  "evidence_thresholds": {
+    "external_min_usable_posts": 30,
+    "group_candidate_pattern_min": 10,
+    "group_stronger_descriptive_min": 30,
+    "author_baseline_min_other_posts": 5
+  },
+  "rollout": {
+    "current_stage": 0,
+    "stages": [
+      {
+        "stage": 0,
+        "name": "5-post surface validation",
+        "unique_posts": 5,
+        "status": "complete"
+      },
+      {
+        "stage": 1,
+        "name": "integrated multi-surface stored pilot",
+        "unique_posts": 30,
+        "status": "requires_approval"
+      },
+      {
+        "stage": 2,
+        "name": "50 unique/day",
+        "unique_posts": 50,
+        "status": "planned"
+      },
+      {
+        "stage": 3,
+        "name": "80-90 unique/day normal operation",
+        "unique_posts": 90,
+        "status": "planned"
+      },
+      {
+        "stage": 4,
+        "name": "up to the hard max when justified",
+        "unique_posts": 100,
+        "status": "planned"
+      }
+    ],
+    "rule": "move one stage at a time, only after the previous stage's stored data passed a data-quality review"
+  },
+  "exclude_authors": [
+    "bizfluxlab"
+  ],
+  "allocations": {
+    "1": {
+      "for_you": 8,
+      "search": {
+        "queries": 2,
+        "posts_per_query": 4
+      },
+      "topic_for_you": {
+        "topics": 1,
+        "posts_per_topic": 5
+      },
+      "known_account": {
+        "accounts": 1,
+        "posts_per_account": 5
+      }
+    },
+    "2": {
+      "for_you": 15,
+      "search": {
+        "queries": 3,
+        "posts_per_query": 4
+      },
+      "topic_for_you": {
+        "topics": 2,
+        "posts_per_topic": 4
+      },
+      "known_account": {
+        "accounts": 3,
+        "posts_per_account": 5
+      }
+    },
+    "3": {
+      "for_you": 25,
+      "search": {
+        "queries": 4,
+        "posts_per_query": 5
+      },
+      "topic_for_you": {
+        "topics": 3,
+        "posts_per_topic": 5
+      },
+      "known_account": {
+        "accounts": 3,
+        "posts_per_account": 10
+      }
+    },
+    "4": {
+      "for_you": 25,
+      "search": {
+        "queries": 4,
+        "posts_per_query": 6
+      },
+      "topic_for_you": {
+        "topics": 3,
+        "posts_per_topic": 7
+      },
+      "known_account": {
+        "accounts": 3,
+        "posts_per_account": 10
+      }
+    }
+  },
+  "allocations_note": "stage 3 = the normal target (for_you 25 + search 20 + topic_for_you 15 + known_account 30 = 90). Every stage's total must stay within its stage cap and the hard max."
+}

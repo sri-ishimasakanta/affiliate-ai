@@ -134,7 +134,7 @@ def test_the_t7_completion_criteria_hold(tmp_path) -> None:
     order = [findings.action_sort_key(a) for a in live["next_actions"]]
     assert order == sorted(order)
     md = render_markdown(live)
-    for fact in ("25/25", "2cfa0ccb2059", "**T6.5B** active"):
+    for fact in ("25/25", "2cfa0ccb2059", "**T6.5B.2** active"):
         assert fact in md
     offline_ctx, _, _ = _context(tmp_path / "offline", offline=True, factory=_refuse)
     offline = build_report(offline_ctx)
@@ -234,7 +234,7 @@ def test_compare_sees_the_t7_transition_and_the_resolved_note(tmp_path) -> None:
     ctx.now = NOW + timedelta(minutes=2)  # 時刻・heartbeat だけの違いは無視される
     new = build_report(ctx)
     diff = compare.compare(old, new)
-    assert diff["facts"]["current_phase"] == {"old": "T7B", "new": "T6.5B"}
+    assert diff["facts"]["current_phase"] == {"old": "T7B", "new": "T6.5B.2"}
     assert diff["facts"]["next_phase"] == {"old": None, "new": "T6.5C"}
     assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "T6.4"}
     assert "config-note-threads-autopublish" in diff["drift"]["removed"]

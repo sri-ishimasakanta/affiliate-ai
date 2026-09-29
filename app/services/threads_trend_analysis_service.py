@@ -40,9 +40,11 @@ from app.social.threads.observer.normalize import (
 from app.social.threads.trends import (
     BREAKOUT_CANDIDATE,
     DESCRIPTIVE_NOTE,
+    EXTERNAL_MIN_USABLE_POSTS,
     MIN_AUTHOR_SAMPLE,
     MIN_GROUP_SAMPLE,
     author_breakouts,
+    group_evidence,
 )
 
 SCHEMA_VERSION = "threads-trend-intelligence/1"
@@ -51,7 +53,7 @@ PATTERN_FEATURES = ("cta_class", "structure_class", "char_bucket", "media_type",
 TOP_N = 10
 JST = ZoneInfo("Asia/Tokyo")
 #: 外の投稿の傾向を「言える」と表示する最小の本数 (表示の目安。原因の証拠の基準ではない)。
-EXTERNAL_MIN_POSTS_FOR_PATTERNS = 30
+EXTERNAL_MIN_POSTS_FOR_PATTERNS = EXTERNAL_MIN_USABLE_POSTS
 EVIDENCE_INSUFFICIENT = "insufficient_evidence"
 EVIDENCE_DESCRIPTIVE = "descriptive_only"
 INSUFFICIENT_EVIDENCE_JA = (
@@ -187,7 +189,10 @@ def _patterns(rows: list[dict], keys: set[str]) -> dict:
             str(r["features"].get(feature)) for r in rows if r["external_post_key"] in keys
         )
         out[feature] = {"all": dict(sorted(everyone.items())),
-                        "candidate_breakouts": dict(sorted(chosen.items()))}  # fmt: skip
+                        "candidate_breakouts": dict(sorted(chosen.items())),
+                        # 値ごとの記述の証拠の段階 (10 未満は形として述べない)。
+                        "evidence": {value: group_evidence(n)
+                                     for value, n in sorted(everyone.items())}}  # fmt: skip
     return out
 
 

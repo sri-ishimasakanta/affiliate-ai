@@ -128,7 +128,7 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
         "high",
     )
     assert facts["make_tracked_articles"]["value"] == [1, 10, 11]
-    assert facts["current_phase"]["value"] == "T6.5B"  # 手動の読むだけのパイロット待ち
+    assert facts["current_phase"]["value"] == "T6.5B.2"  # 観察の集め方 (計画だけ)
     assert facts["next_phase"]["value"] == "T6.5C"
     assert facts["last_completed_phase"]["value"] == "T6.4"
 
@@ -503,9 +503,10 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
 # == roadmap / decisions ============================================================
 def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
     roadmap = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    assert roadmap["declared_current_phase"] == "T6.5B"
+    assert roadmap["declared_current_phase"] == "T6.5B.2"
     # T6.3.3b は Growth のトピックの本番の確認待ち、T6.5A-B は手動のパイロット待ち。
-    assert roadmap["active"] == ["T6.3.3b", "T6.5A", "T6.5B"]
+    assert roadmap["active"] == ["T6.3.3b", "T6.5A", "T6.5B.2"]
+    assert "T6.5B" in roadmap["completed"]  # 外の画面の確認は完了 (限りつき)
     assert {"T7A", "T7B", "T7", "N0", "T6.3.1", "T6.3.1a", "T6.3.2", "T6.3.3", "T6.4"} <= set(
         roadmap["completed"]
     )

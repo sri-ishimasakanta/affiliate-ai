@@ -75,7 +75,7 @@ def test_group_summary_marks_small_samples_and_ignores_missing_values() -> None:
     rows = [{"kind": "a", "likes": 1}, {"kind": "a", "likes": None}, {"kind": None, "likes": 4}]
     summary = group_summary(rows, "kind", ["likes"])
     assert summary["a"] == {"n": 2, "median": {"likes": 1.0}, "observed": {"likes": 1},
-                            "small_sample": True}  # fmt: skip
+                            "small_sample": True, "evidence": "insufficient_sample"}  # fmt: skip
     assert summary["unknown"]["n"] == 1
     assert median_or_none([None, None]) is None
     assert median_or_none([True, 2]) == 2.0  # bool は数に入れない

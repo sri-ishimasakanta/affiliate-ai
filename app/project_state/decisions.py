@@ -448,6 +448,27 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-observation-collection-strategy-t65b2",
+        "area": "threads/analytics",
+        "decision": (
+            "T6.5B.2: 外の観察は重複を除いた投稿で 1 日 最低 50・通常 90・上限 100 を目安にする。"
+            "足りない分は埋めない。段階を 1 つずつ上げ、各段階は人が許可する"
+        ),
+        "rationale": (
+            "5 件の確認だけでは分析に足りない。一方、数を追って安全の規則を弱めると、壊れた値が"
+            "混ざる。目安と上限を方針のファイルに置き、計画は決まった規則で作る"
+        ),
+        "evidence": ["docs/operations/threads-trend-intelligence.md"],
+        "phrase": "**安全は数より先**",
+        "resulting_state": (
+            "方針 threads-observation-policy-1・読むだけの計画のコマンド・試験済みの実行の仕組み。"
+            "本番ではまだ実行していない (段階 0 まで完了)"
+        ),
+        "follow_up": (
+            "段階 1: 約 20〜30 件の複数の画面の保存つきの試験 (人の許可が要る)"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (

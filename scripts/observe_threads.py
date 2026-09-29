@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None, *, session_factory=None, page_factory=No
         session_factory = SessionLocal
     if not args.dry_run:
         # 画面ごとに確かめてからでないと保存しない (確かめていない画面は --dry-run だけ)。
-        surfaces = [*plan.source_types(), *(["trending_list"] if plan.trending else [])]
+        surfaces = [*plan.source_types(), *(["topic_for_you_list"] if plan.trending else [])]
         unverified = [s for s in surfaces if not sel.surface_verification(s)["verified"]]
         if unverified:
             print(f"refusing to store: surface(s) not verified: {', '.join(unverified)}; "

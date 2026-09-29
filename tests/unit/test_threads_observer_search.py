@@ -99,7 +99,7 @@ def test_surface_verification_is_recorded_per_surface() -> None:
     # 2026-09-28: トピックの一覧と 1 つのトピックの投稿も確認済み (別の版)。
     assert sel.surface_verification(SOURCE_TRENDING_TOPIC)["version"] == (
         "threads-topic-posts-verified-2026-09-28-v1")  # fmt: skip
-    assert sel.surface_verification("trending_list")["version"] == (
+    assert sel.surface_verification("topic_for_you_list")["version"] == (
         "threads-topic-list-verified-2026-09-28-v1")  # fmt: skip
     for other in ("custom_feed",):
         assert sel.surface_verification(other) == {"version": None, "verified": False,

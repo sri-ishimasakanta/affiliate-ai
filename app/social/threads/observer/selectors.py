@@ -42,6 +42,7 @@ UNVERIFIED_SURFACES = (
 SURFACE_VERIFICATION = {
     "for_you": {
         "version": "threads-web-verified-2026-09-28-v2",
+        "label": "for_you",
         "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
                             "analysis_body", "topic", "likes", "replies", "media_image",
                             "candidate_accounting"),
@@ -52,6 +53,7 @@ SURFACE_VERIFICATION = {
     #: まとまりの外。検索語は本文の中の普通の文字 (強調の印は無い)。
     "search": {
         "version": "threads-search-verified-2026-09-28-v1",
+        "label": "search_default",
         "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
                             "analysis_body", "topic", "likes", "replies", "candidate_accounting",
                             "search_tabs_outside_cards", "query_text_not_highlighted"),
@@ -61,8 +63,9 @@ SURFACE_VERIFICATION = {
     #: トピックの一覧 = 検索の最初の画面 (``/search``、語なし) の「おすすめのトピック」
     #: (``serp_type=search_nullstate_topic_for_you``)。**Threads は「トレンド」と表示して
     #: いない** (このアカウント向け。世の中の順位ではない)。数も分類も表示されない。
-    "trending_list": {
+    "topic_for_you_list": {
         "version": "threads-topic-list-verified-2026-09-28-v1",
+        "label": "topic_for_you_list",
         "verified_fields": ("topic_name", "topic_query", "serp_type", "rank_on_screen",
                             "candidate_accounting", "sidebar_communities_excluded",
                             "account_suggestions_excluded"),
@@ -71,8 +74,9 @@ SURFACE_VERIFICATION = {
     },
     #: 一覧のトピックのリンク先 = そのトピックの語の検索結果 (「上位検索結果」)。投稿の
     #: まとまりの形は For You・検索と同じ。ページのトピックは投稿に写さない。
-    "trending_topic": {
+    "topic_for_you": {
         "version": "threads-topic-posts-verified-2026-09-28-v1",
+        "label": "topic_for_you_posts",
         "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
                             "analysis_body", "post_topic", "likes", "replies", "media_image",
                             "candidate_accounting", "page_topic_not_copied_to_posts"),
@@ -85,6 +89,7 @@ SURFACE_VERIFICATION = {
     #: 見ているアカウント (source_query) と、投稿のまとまりに出ている投稿者は別のもの。
     "known_account": {
         "version": "threads-known-account-verified-2026-09-29-v1",
+        "label": "known_account_threads",
         "verified_fields": ("card", "author_handle", "permalink", "post_timestamp", "body",
                             "analysis_body", "post_topic", "likes", "replies",
                             "candidate_accounting", "profile_header_outside_cards",

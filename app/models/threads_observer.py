@@ -29,7 +29,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 SOURCE_FOR_YOU = "for_you"
-SOURCE_TRENDING_TOPIC = "trending_topic"
+#: T6.5B.2: トピックの一覧 (検索の最初の画面の「おすすめのトピック」) から読んだ投稿。
+#: このアカウント向けの一覧であって、世の中のトレンドではない (値も ``topic_for_you``)。
+#: ``SOURCE_TRENDING_TOPIC`` は古い名前 (同じ値)。本番にこの値の行はまだ無い (2026-09-29)。
+SOURCE_TOPIC_FOR_YOU = "topic_for_you"
+SOURCE_TRENDING_TOPIC = SOURCE_TOPIC_FOR_YOU
 SOURCE_SEARCH = "search"
 SOURCE_CUSTOM_FEED = "custom_feed"
 SOURCE_KNOWN_ACCOUNT = "known_account"

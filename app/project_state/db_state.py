@@ -299,6 +299,28 @@ OBSERVER_TABLES = ("threads_observer_runs", "threads_external_posts",
                    "threads_external_observations", "threads_trending_topics")  # fmt: skip
 
 
+def _collection_policy() -> dict:
+    """T6.5B.2 の観察の集め方 (方針のファイル。読むだけ)。"""
+
+    try:
+        from app.social.threads.observer.planning import load_policy
+
+        policy = load_policy()
+    except Exception as exc:  # noqa: BLE001 - 読めないときは読めなかったとだけ言う
+        return {"collection_policy": {"available": False, "reason": type(exc).__name__}}
+    unique = policy["unique_posts"]
+    return {"collection_policy": {
+        "available": True,
+        "version": policy["policy_version"],
+        "unique_soft_min": unique["soft_min"],
+        "unique_target": unique["target"],
+        "unique_hard_max": unique["hard_max"],
+        "rollout_stage": policy["rollout"]["current_stage"],
+        "next_stage_requires_approval": True,
+        "repeat_observation_enabled": policy["repeat_observation"]["enabled"],
+    }}  # fmt: skip
+
+
 def observer_state(conn) -> dict:
     """T6.5B の外の観察 (読むだけ)。表が無い DB (migration 2cfa0ccb2059 の前) では数えない。"""
 
@@ -321,6 +343,7 @@ def observer_state(conn) -> dict:
         "topic_list_semantics": "topic_for_you (personalized topic suggestions for this account)",
         "global_trending": "unverified",
         "surfaces_verified": sorted(sel.SURFACE_VERIFICATION),
+        **_collection_policy(),
     }
     if not present:
         return base
