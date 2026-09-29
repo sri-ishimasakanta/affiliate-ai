@@ -208,7 +208,7 @@ def test_result_carries_v1_weights_and_metadata() -> None:
     assert result.cpc_weight == 0.30
     assert result.ad_competition_weight == 0.10
     assert result.normalizer_name == NORMALIZER_NAME == "commercial_intent"
-    assert result.normalizer_version == NORMALIZER_VERSION == "v1"
+    assert result.normalizer_version == NORMALIZER_VERSION == "v2"  # C10-A
     assert result.currency_assumption == CURRENCY_ASSUMPTION == "JPY"
 
 
@@ -256,3 +256,59 @@ def test_calculate_result_is_rounded_to_two_decimals() -> None:
             competition_index=33,
         ).score
         assert round(score, 2) == score
+
+
+# -- V2 (C10-A): 値の有無の規則 --------------------------------------------------------
+def test_v2_zero_bid_and_unspecified_competition_are_missing_not_zero() -> None:
+    # 本番の実データの形: competition UNSPECIFIED / competition_index 0 / 入札 0 (proto3 の既定値)。
+    result = calculate_commercial_intent(
+        keyword="生成AI 法人 導入", low_top_of_page_bid_micros=0, competition_index=0,
+        competition="UNSPECIFIED", high_top_of_page_bid_micros=0)
+    assert result.cpc_score is None and result.ad_competition_score is None
+    assert result.score == 85.0  # query intent (b2b) だけ。0 点で引き下げない
+    assert result.market_evidence_state == "missing"
+    assert result.quality_flags == ("zero_bid_treated_as_missing",
+                                    "competition_unspecified_index_ignored")
+    assert result.evidence_coverage == 0.6 and result.market_evidence_available is False
+
+
+def test_v2_known_competition_keeps_a_real_zero_index() -> None:
+    result = calculate_commercial_intent(
+        keyword="AI 議事録", low_top_of_page_bid_micros=_yen(250), competition_index=0,
+        competition="LOW")
+    assert result.ad_competition_score == 0.0 and result.market_evidence_state == "available"
+
+
+def test_v2_outliers_are_capped_and_inverted_ranges_flagged() -> None:
+    capped = calculate_commercial_intent(
+        keyword="AI ツール", low_top_of_page_bid_micros=_yen(1_000_000), competition_index=50,
+        competition="HIGH")
+    assert "bid_outlier_capped" in capped.quality_flags and 0 <= capped.score <= 100
+    assert capped.cpc_score == 100.0
+    inverted = calculate_commercial_intent(
+        keyword="AI ツール", low_top_of_page_bid_micros=_yen(500), competition_index=50,
+        competition="HIGH", high_top_of_page_bid_micros=_yen(100))
+    assert "bid_range_inverted" in inverted.quality_flags
+    assert inverted.cpc_score == calculate_commercial_intent(
+        keyword="AI ツール", low_top_of_page_bid_micros=_yen(500), competition_index=50,
+        competition="HIGH").cpc_score  # score は low の値のまま
+
+
+def test_v2_partial_market_evidence_and_bounds() -> None:
+    partial = calculate_commercial_intent(
+        keyword="AI 比較", low_top_of_page_bid_micros=_yen(300), competition_index=0,
+        competition="UNSPECIFIED")
+    assert partial.market_evidence_state == "partial" and partial.ad_competition_score is None
+    for micros in (None, 0, _yen(1), _yen(250), _yen(10**7)):
+        for competition, index in (("LOW", 0), ("HIGH", 100), ("UNSPECIFIED", 0), (None, None)):
+            score = calculate_commercial_intent(
+                keyword="料金 比較", low_top_of_page_bid_micros=micros,
+                competition_index=index, competition=competition).score
+            assert 0.0 <= score <= 100.0
+
+
+def test_v2_search_volume_is_not_an_input() -> None:
+    import inspect
+
+    params = inspect.signature(calculate_commercial_intent).parameters
+    assert not [p for p in params if "search" in p or "volume" in p]

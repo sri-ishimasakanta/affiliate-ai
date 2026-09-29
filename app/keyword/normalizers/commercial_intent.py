@@ -24,6 +24,19 @@ CPC / competition_index が取得できない keyword では、その要素を�
 query intent は keyword から常に得られるため available weight は通常 0.60 以上。
 
 前提: 日本市場・JPY の Google Ads アカウント (V1 calibration)。
+
+**V2 (C10-A)**: 重みと calibration は V1 のまま。Google Ads の値が「有る」とみなす規則だけを
+足した (``market_evidence``):
+
+- Google Ads は推定の無い項目を proto3 の既定値 **0** で返す (実データで確認: competition
+  ``UNSPECIFIED`` / competition_index 0 / 入札 0 の組)。入札 0 は「上位掲載の入札の推定が無い」
+  であって「商業的な価値が 0」ではない → **入札が 0 以下なら欠測** (0 点で減点しない)。
+- competition が ``UNSPECIFIED`` / ``UNKNOWN`` / 無しなら competition_index は既定値 → **欠測**。
+  competition が LOW / MEDIUM / HIGH なら competition_index は (0 でも) 実際の値。
+- 外れ値: 入札が ``BID_OUTLIER_CAP_JPY`` を超えたら上限で打ち切る (CPC の曲線はそこで既に
+  ほぼ 100)。high < low の逆転は記録だけ (score には low を使う)。
+- 検索量は使わない (検索量が多いだけで commercial_intent は上がらない)。
+- どの判断も ``quality_flags`` と ``market_evidence_state`` (available / partial / missing) に残す。
 """
 
 from __future__ import annotations
@@ -32,7 +45,7 @@ import math
 from dataclasses import dataclass
 
 NORMALIZER_NAME = "commercial_intent"
-NORMALIZER_VERSION = "v1"
+NORMALIZER_VERSION = "v2"
 
 # V1 は日本市場・JPY アカウント前提。CPC を円換算して calibration する。
 CURRENCY_ASSUMPTION = "JPY"
@@ -45,6 +58,16 @@ AD_COMPETITION_WEIGHT = 0.10
 # Low CPC Score の calibration 定数 (JPY)。low_bid(円) がこの値のとき cpc_score ≈ 63。
 # 実データ 30 件を比較して決めた V1 値。散らばった magic number にしない。
 CPC_CALIBRATION_JPY = 250.0
+
+# V2: 入札の外れ値の上限 (JPY)。CPC の曲線は 250 円で約 63・1,000 円で約 98 なので、これより上は
+# 打ち切っても score は変わらない (記録のため)。
+BID_OUTLIER_CAP_JPY = 20_000.0
+# V2: competition_index を既定値 (推定無し) とみなす competition の値。
+UNSPECIFIED_COMPETITION = frozenset({"UNSPECIFIED", "UNKNOWN", ""})
+
+MARKET_AVAILABLE = "available"
+MARKET_PARTIAL = "partial"
+MARKET_MISSING = "missing"
 
 _SCORE_MIN = 0.0
 _SCORE_MAX = 100.0
@@ -97,6 +120,61 @@ class CommercialIntentResult:
     normalizer_name: str
     normalizer_version: str
     currency_assumption: str
+    #: V2: 市場の証拠 (入札・広告の競争) がそろっているか (available / partial / missing)。
+    market_evidence_state: str = MARKET_MISSING
+    #: V2: 入力の判断の記録 (例: ``zero_bid_treated_as_missing``)。
+    quality_flags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MarketEvidence:
+    """Google Ads の値のうち、証拠として使う値 (使わないものは None) と判断の記録。"""
+
+    low_top_of_page_bid_micros: int | None
+    competition_index: int | None
+    quality_flags: tuple[str, ...]
+
+    @property
+    def state(self) -> str:
+        present = sum(v is not None for v in (self.low_top_of_page_bid_micros,
+                                              self.competition_index))
+        return (MARKET_AVAILABLE if present == 2 else MARKET_PARTIAL if present
+                else MARKET_MISSING)
+
+
+_UNGIVEN = object()
+
+
+def market_evidence(*, low_top_of_page_bid_micros: int | None,
+                    competition_index: int | None, competition=_UNGIVEN,
+                    high_top_of_page_bid_micros: int | None = None) -> MarketEvidence:
+    """V2 の「値が有る」の規則 (決定論的)。
+
+    ``competition`` を渡さない呼び出し (V1 の形) では competition_index をそのまま使う。
+    """
+
+    flags: list[str] = []
+    low = low_top_of_page_bid_micros
+    if low is None:
+        flags.append("bid_missing")
+    elif low <= 0:
+        flags.append("zero_bid_treated_as_missing")
+        low = None
+    elif low / _MICROS_PER_CURRENCY_UNIT > BID_OUTLIER_CAP_JPY:
+        flags.append("bid_outlier_capped")
+        low = int(BID_OUTLIER_CAP_JPY * _MICROS_PER_CURRENCY_UNIT)
+    high = high_top_of_page_bid_micros
+    if low is not None and high is not None and 0 < high < low_top_of_page_bid_micros:
+        flags.append("bid_range_inverted")
+    index = competition_index
+    if competition is not _UNGIVEN and (competition is None or str(competition).upper()
+                                        in UNSPECIFIED_COMPETITION):
+        if index is not None:
+            flags.append("competition_unspecified_index_ignored")
+        index = None
+    elif index is None:
+        flags.append("competition_index_missing")
+    return MarketEvidence(low, index, tuple(flags))
 
 
 def _normalize_keyword(keyword: str) -> str:
@@ -227,15 +305,25 @@ def calculate_commercial_intent(
     keyword: str,
     low_top_of_page_bid_micros: int | None,
     competition_index: int | None,
+    competition=_UNGIVEN,
+    high_top_of_page_bid_micros: int | None = None,
 ) -> CommercialIntentResult:
     """keyword 文字列 + Google Ads 指標から commercial_intent (0〜100) を算出する。
 
     query intent は keyword から常に得られる。CPC / competition_index が欠測でも
-    query intent だけで score を出す (weight 再正規化)。
+    query intent だけで score を出す (weight 再正規化)。V2: 値の有無は ``market_evidence``
+    の規則で決める (入札 0・competition UNSPECIFIED は欠測。0 点にしない)。
     """
 
-    return score_commercial_intent(
+    from dataclasses import replace
+
+    market = market_evidence(low_top_of_page_bid_micros=low_top_of_page_bid_micros,
+                             competition_index=competition_index, competition=competition,
+                             high_top_of_page_bid_micros=high_top_of_page_bid_micros)
+    result = score_commercial_intent(
         query_intent=classify_query_intent(keyword),
-        cpc_score=normalize_cpc_score(low_top_of_page_bid_micros),
-        ad_competition_score=normalize_ad_competition_score(competition_index),
+        cpc_score=normalize_cpc_score(market.low_top_of_page_bid_micros),
+        ad_competition_score=normalize_ad_competition_score(market.competition_index),
     )
+    return replace(result, market_evidence_state=market.state,
+                   quality_flags=market.quality_flags)

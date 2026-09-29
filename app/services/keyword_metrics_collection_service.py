@@ -206,6 +206,9 @@ def _build_commercial_intent_raw_data(
         "available_weight": result.available_weight,
         "evidence_coverage": result.evidence_coverage,
         "market_evidence_available": result.market_evidence_available,
+        # V2: 値の有無の判断 (入札 0・competition UNSPECIFIED は欠測。0 点にしない)
+        "market_evidence_state": result.market_evidence_state,
+        "quality_flags": list(result.quality_flags),
         # Google Ads 生指標 (保存のみ。high bid は V1 score に不使用)
         "low_top_of_page_bid_micros": metrics.low_top_of_page_bid_micros,
         "high_top_of_page_bid_micros": metrics.high_top_of_page_bid_micros,
@@ -490,6 +493,8 @@ class KeywordMetricsCollectionService:
                     keyword=keyword_text,
                     low_top_of_page_bid_micros=metrics.low_top_of_page_bid_micros,
                     competition_index=metrics.competition_index,
+                    competition=metrics.competition,
+                    high_top_of_page_bid_micros=metrics.high_top_of_page_bid_micros,
                 )
                 entity = self._signals.create(
                     keyword_id=keyword_id,
@@ -563,6 +568,8 @@ class KeywordMetricsCollectionService:
             keyword=keyword.keyword,
             low_top_of_page_bid_micros=metrics.low_top_of_page_bid_micros,
             competition_index=metrics.competition_index,
+            competition=metrics.competition,
+            high_top_of_page_bid_micros=metrics.high_top_of_page_bid_micros,
         )
         raw_data = _build_commercial_intent_raw_data(
             metrics, result, settings=self._settings

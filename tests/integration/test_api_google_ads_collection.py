@@ -291,8 +291,8 @@ def test_commercial_intent_returns_201_and_signal_body(
     assert raw["market_evidence_available"] is True
     assert raw["evidence_coverage"] == 1.0
     assert raw["currency_assumption"] == "JPY"
-    assert raw["normalizer_version"] == "v1"
-    assert raw["normalizer"] == {"name": "commercial_intent", "version": "v1"}
+    assert raw["normalizer_version"] == "v2"  # C10-A: 値の有無の規則 (入札 0 は欠測)
+    assert raw["normalizer"] == {"name": "commercial_intent", "version": "v2"}
     # 広告 competition は raw_data に残すが competition_ease には流用しない
     assert raw["competition_index"] == 90
     assert body["source_reference"]

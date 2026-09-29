@@ -117,8 +117,10 @@ def test_collect_creates_commercial_intent_signal(session: Session) -> None:
     assert raw["geo_target_id"] == 2392
     assert raw["language_id"] == 1005
     assert raw["currency_assumption"] == "JPY"
-    assert raw["normalizer_version"] == "v1"
-    assert raw["normalizer"] == {"name": "commercial_intent", "version": "v1"}
+    assert raw["normalizer_version"] == "v2"  # C10-A: 値の有無の規則 (入札 0 は欠測)
+    assert raw["normalizer"] == {"name": "commercial_intent", "version": "v2"}
+    assert raw["market_evidence_state"] in ("available", "partial", "missing")
+    assert isinstance(raw["quality_flags"], list)
 
     # period は search_demand collector と同じく monthly volumes の最古〜最新月
     assert _naive(read.period_start) == datetime(2024, 11, 1)
