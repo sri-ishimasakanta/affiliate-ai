@@ -519,8 +519,12 @@ class OperationsRunner:
         days = int(self._policy.gate("candidates", "window_days", 30))
         key = f"ops-seo-{profile}-{effective_date.isoformat()}"
         with self._session_factory() as session:
+            from app.services.index_state_service import IndexStateService
+
             service = SeoImprovementCandidateService(session, settings=self._settings)
-            report = service.evaluate(days=days)
+            # C10-2: 保存済みの索引の状態 (URL Inspection をした最新の確認) を C6 に渡す。
+            report = service.evaluate(days=days,
+                                      indexability=IndexStateService(session).as_c6_indexability())
             run = service.persist(report, idempotency_key=key)
             return StepOutcome(
                 step_name=STEP_SEO_CANDIDATES,

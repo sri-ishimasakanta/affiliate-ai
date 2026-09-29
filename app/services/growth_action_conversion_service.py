@@ -675,7 +675,10 @@ class GrowthActionConversionService:
         from app.services.seo_improvement_candidate_service import SeoImprovementCandidateService
 
         service = SeoImprovementCandidateService(self._session, settings=self._settings)
-        report = service.evaluate(now=now)
+        from app.services.index_state_service import IndexStateService
+
+        report = service.evaluate(
+            now=now, indexability=IndexStateService(self._session).as_c6_indexability(now=now))
         produced = any(
             c.get("candidate_type") == "INTERNAL_LINK_OPPORTUNITY"
             and (c.get("evidence") or {}).get("target_article_id") == target

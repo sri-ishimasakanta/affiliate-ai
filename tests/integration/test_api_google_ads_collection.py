@@ -124,7 +124,7 @@ def test_collect_returns_201_and_signal_body(collector_api: UseCollector) -> Non
     assert body["provider"] == "google_ads"
     assert body["normalized_value"] == 60.01
     assert body["raw_data"]["avg_monthly_searches"] == 1000
-    assert body["raw_data"]["normalizer"] == {"name": "search_demand", "version": "v1"}
+    assert body["raw_data"]["normalizer"] == {"name": "search_demand", "version": "v2"}
     assert body["raw_data"]["geo_target_id"] == 2392
     assert body["source_reference"]
 

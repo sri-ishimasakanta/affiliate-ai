@@ -56,4 +56,48 @@ def test_deterministic() -> None:
 
 def test_version_metadata_constants() -> None:
     assert NORMALIZER_NAME == "search_demand"
-    assert NORMALIZER_VERSION == "v1"
+    assert NORMALIZER_VERSION == "v2"  # C10-2: 検索量の有無の規則
+
+
+# -- V2 (C10-2): 本当の 0 と欠測を分ける --------------------------------------------------
+def test_v2_zero_average_without_history_is_missing_not_zero() -> None:
+    from app.keyword.normalizers.search_demand import (
+        MISSING,
+        normalize_search_demand_v2,
+        search_volume_evidence,
+    )
+
+    # 本番の実データの形: 平均 0 / 月ごとの履歴が空 (Google Ads の既定値)。
+    assert search_volume_evidence(0, []) == MISSING
+    assert normalize_search_demand_v2(0, []) is None
+    assert search_volume_evidence(None, [10, 20]) == MISSING
+
+
+def test_v2_a_real_zero_needs_enough_zero_months() -> None:
+    from app.keyword.normalizers.search_demand import (
+        INSUFFICIENT,
+        MIN_ZERO_MONTHS,
+        OBSERVED,
+        OBSERVED_ZERO,
+        normalize_search_demand_v2,
+        search_volume_evidence,
+    )
+
+    assert search_volume_evidence(0, [0] * MIN_ZERO_MONTHS) == OBSERVED_ZERO
+    assert normalize_search_demand_v2(0, [0] * 12) == 0.0
+    assert search_volume_evidence(0, [0, 0]) == INSUFFICIENT
+    assert normalize_search_demand_v2(0, [0, 0]) is None
+    assert search_volume_evidence(0, [0, 10, 0]) == OBSERVED  # 丸めで平均 0
+    assert search_volume_evidence(100, []) == OBSERVED
+    assert normalize_search_demand_v2(100, []) == normalize_search_demand(100)
+
+
+def test_v2_stored_v1_zero_rows_are_read_as_missing() -> None:
+    from app.keyword.normalizers.search_demand import is_missing_search_demand
+
+    assert is_missing_search_demand({"avg_monthly_searches": 0, "monthly_search_volumes": []})
+    assert not is_missing_search_demand({"avg_monthly_searches": 0, "monthly_search_volumes": [
+        {"year": 2026, "month": m, "monthly_searches": 0} for m in range(1, 13)]})
+    assert not is_missing_search_demand({"avg_monthly_searches": 320,
+                                         "monthly_search_volumes": []})
+    assert not is_missing_search_demand(None) and not is_missing_search_demand({})

@@ -92,9 +92,13 @@ class KeywordScoringService:
 
         latest: dict[str, KeywordSignal] = {}
         missing: list[str] = []
+        from app.keyword.normalizers.search_demand import is_missing_search_demand
+
         for component in COMPONENT_NAMES:
             signal = self._signals.get_latest(keyword_id, component)
-            if signal is None:
+            if signal is None or (component == "search_demand"
+                                  and is_missing_search_demand(signal.raw_data)):
+                # C10-2: 平均 0 + 履歴無しの保存済みの 0.0 は欠測 (0 点で score を作らない)。
                 missing.append(component)
             else:
                 latest[component] = signal

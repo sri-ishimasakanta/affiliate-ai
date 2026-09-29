@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -19,6 +20,7 @@ from app.analysis import sources as src
 from app.article.fact_freshness import ensure_aware
 from app.models import OperationsStepRun
 from app.seo.index_state import IndexObservation, observation_from_row
+from app.seo.indexability import GSC_UNKNOWN
 
 STEP = "check_indexability"
 
@@ -76,4 +78,42 @@ class IndexStateService:
         return out, meta
 
 
-__all__ = ["IndexStateService"]
+    def as_c6_indexability(self, *, now: datetime | None = None) -> C6Indexability:
+        """C6 (``SeoImprovementCandidateService.evaluate(indexability=...)``) の入力の形。
+
+        外に問い合わせない (保存済みの確認だけ)。調べていない・古い記事は ``GSC_UNKNOWN``
+        (分からないと言う。索引されていない、とは言わない)。``generated_at`` は URL Inspection を
+        した最新の確認の時刻 (無ければ ``now``)。
+        """
+
+        now = ensure_aware(now or datetime.now(UTC))
+        observations, meta = self.latest(now=now)
+        rows = []
+        for aid, o in sorted(observations.items()):
+            state = o.raw_status.get("google_index_state") if (
+                o.inspected and o.freshness_state == src.FRESH) else GSC_UNKNOWN
+            rows.append(C6IndexRow(article_id=aid, live_state=o.site_checks.get("live_state"),
+                                   sitemap_state=o.site_checks.get("sitemap_state"),
+                                   google_index_state=state or GSC_UNKNOWN))
+        at = meta.get("latest_inspected_at")
+        return C6Indexability(articles=tuple(rows),
+                              generated_at=datetime.fromisoformat(at) if at else now,
+                              source="saved check_indexability (no external call)")
+
+
+@dataclass(frozen=True)
+class C6IndexRow:
+    article_id: int
+    live_state: str | None
+    sitemap_state: str | None
+    google_index_state: str
+
+
+@dataclass(frozen=True)
+class C6Indexability:
+    articles: tuple[C6IndexRow, ...]
+    generated_at: datetime
+    source: str
+
+
+__all__ = ["C6IndexRow", "C6Indexability", "IndexStateService"]

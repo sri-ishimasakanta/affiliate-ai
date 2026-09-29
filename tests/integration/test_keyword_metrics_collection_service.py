@@ -104,7 +104,8 @@ def test_collect_creates_search_demand_signal(session: Session) -> None:
     assert raw["high_top_of_page_bid_micros"] == 900_000
     assert raw["geo_target_id"] == 2392
     assert raw["language_id"] == 1005
-    assert raw["normalizer"] == {"name": "search_demand", "version": "v1"}
+    assert raw["normalizer"] == {"name": "search_demand", "version": "v2"}  # C10-2
+    assert raw["search_volume_evidence"] == "observed"
     assert raw["monthly_search_volumes"][0] == {
         "year": 2024,
         "month": 11,

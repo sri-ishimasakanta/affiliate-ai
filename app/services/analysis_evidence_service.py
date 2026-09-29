@@ -63,6 +63,17 @@ class AnalysisEvidenceService:
                 observed, now=now, stale_after_days=stale_days) == src.STALE:
             state, reason = ec.STALE, f"older than {stale_days} days"
         flags = tuple(raw.get("quality_flags") or ())
+        if name == "search_demand":
+            from app.keyword.normalizers.search_demand import is_missing_search_demand
+
+            if is_missing_search_demand(raw):
+                return ec.ComponentEvidence(
+                    name, ec.MISSING, source, access, provider=row.provider,
+                    observed_at=observed.isoformat(), version=version,
+                    reason="Google Ads returned no search volume evidence (average 0 and no "
+                           "monthly history); the stored 0.0 is not a real zero",
+                    quality_flags=("stored_zero_is_missing",),
+                    provenance=f"keyword_signals:{row.id}")
         if name == "commercial_intent" and raw.get("market_evidence_state") == "missing":
             flags = flags + ("market_evidence_missing_query_intent_only",)
         return ec.ComponentEvidence(

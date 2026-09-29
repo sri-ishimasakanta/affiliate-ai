@@ -176,7 +176,17 @@ def _build_raw_data(
         "geo_target_id": settings.google_ads_geo_target_id,
         "language_id": settings.google_ads_language_id,
         "normalizer": {"name": NORMALIZER_NAME, "version": NORMALIZER_VERSION},
+        # V2: 検索量の値の有無 (observed / observed_zero / missing / insufficient)
+        "search_volume_evidence": _search_volume_state(metrics),
     }
+
+
+def _search_volume_state(metrics: GoogleAdsKeywordMetrics) -> str:
+    from app.keyword.normalizers.search_demand import search_volume_evidence
+
+    return search_volume_evidence(
+        metrics.avg_monthly_searches,
+        [v.monthly_searches for v in metrics.monthly_search_volumes or ()])
 
 
 def _build_commercial_intent_raw_data(
@@ -284,8 +294,10 @@ class KeywordMetricsCollectionService:
         metrics = _match_metrics(
             metrics_list, keyword.keyword, allow_single_result_fallback=True
         )
-        if metrics is None or metrics.avg_monthly_searches is None:
-            # 対象 keyword が無い / 有効な historical metrics が無い。0 点は作らない。
+        if metrics is None or metrics.avg_monthly_searches is None or (
+                _search_volume_state(metrics) in ("missing", "insufficient")):
+            # 対象 keyword が無い / 有効な historical metrics が無い (平均 0 + 履歴無しを含む)。
+            # 0 点は作らない。
             raise ExternalProviderDataError(
                 _PROVIDER,
                 f"no Google Ads historical metrics for keyword {keyword.keyword!r}",
@@ -469,6 +481,9 @@ class KeywordMetricsCollectionService:
                 skipped["search_demand"] = (
                     "no_metrics" if metrics is None else "no_avg_monthly_searches"
                 )
+            elif _search_volume_state(metrics) in ("missing", "insufficient"):
+                # V2: 平均 0 + 履歴無し (Google Ads の既定値) は欠測。0 点の signal を作らない。
+                skipped["search_demand"] = "no_search_volume_evidence"
             else:
                 entity = self._signals.create(
                     keyword_id=keyword_id,

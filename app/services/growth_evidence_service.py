@@ -93,7 +93,11 @@ class GrowthEvidenceService:
         freshness, freshness_detail = self._freshness(now)
         measurement = ArticleMeasurementReportService(self._session, settings=self._settings).build(
             days=days, now=now)  # fmt: skip
+        from app.services.index_state_service import IndexStateService
+
+        indexability = IndexStateService(self._session).as_c6_indexability(now=now)
         seo = SeoImprovementCandidateService(self._session, settings=self._settings).evaluate(
+            indexability=indexability,
             days=days, now=now)  # fmt: skip
         revenue = RevenueOptimizationCandidateService(
             self._session, settings=self._settings).evaluate(days=days, now=now)  # fmt: skip

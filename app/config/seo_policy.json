@@ -11,7 +11,7 @@
   "evaluation": {
     "minimum_article_age_days": 14,
     "search_data_lag_days": 3,
-    "inspection_max_age_days": 7
+    "inspection_max_age_days": 8
   },
   "indexing": {
     "followup_after_days": 14
