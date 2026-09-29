@@ -50,8 +50,10 @@ def build_report(bundle: dict, *, now: datetime, angles: tuple[str, ...] | None 
     for item in evidence:
         context = bundle["keyword_context"].get(item.keyword_id, {}) if (
             item.subject_type == "keyword") else {}  # fmt: skip
-        candidates += ga.build_candidates(item, ga.classify(item, angles=angles),
-                                          context=context)  # fmt: skip
+        candidates += ga.build_candidates(
+            item, ga.classify(item, angles=angles,
+                              recent_angles=bundle.get("recent_regular_angles") or ()),
+            context=context)  # fmt: skip
     candidates += ga.site_candidates(data_quality=bundle["data_quality"],
                                      growth_plan=bundle["growth_plan"],
                                      freshness=bundle["freshness"])  # fmt: skip
@@ -111,6 +113,7 @@ def build_report(bundle: dict, *, now: datetime, angles: tuple[str, ...] | None 
         "unattributed_commissions": bundle["unattributed_commissions"],
         "index_observed_at": bundle["index_observed_at"],
         "growth_plan": bundle["growth_plan"],
+        "recent_regular_angles": bundle.get("recent_regular_angles") or [],
         "summary": summary,
         "evidence": [e.as_dict() for e in evidence],
         "candidates": [c.as_dict() for c in ordered],

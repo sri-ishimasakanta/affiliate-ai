@@ -248,9 +248,12 @@ def test_the_report_is_deterministic_and_worker_ready(session, seeded) -> None:
     assert a["fingerprint"] == b["fingerprint"]
     assert a["candidates"] == b["candidates"]
     assert a["next_evaluation_at"] == (_NOW + timedelta(hours=24)).isoformat()
-    from app.social.threads.worker import SUBSYSTEM_ORDER
+    from app.services.threads_worker_service import ThreadsWorkerService
+    from app.social.threads.worker import SUBSYSTEM_GROWTH_OPPORTUNITY, SUBSYSTEM_ORDER
 
-    assert not any("growth_opportunit" in name for name in SUBSYSTEM_ORDER)  # まだ登録しない
+    assert SUBSYSTEM_GROWTH_OPPORTUNITY in SUBSYSTEM_ORDER
+    # 登録はするが、既定は無効 (本番ではまだ動かさない)。
+    assert ThreadsWorkerService.GROWTH_OPPORTUNITY_DEFAULTS["enabled"] is False
 
 
 def test_filters_narrow_the_display(session, seeded) -> None:

@@ -109,6 +109,10 @@ class GrowthEvidenceService:
         article_rows = [self._article_row(a, now, updates, rev_rows.get(a.id), keywords)
                         for a in articles]  # fmt: skip
         threads_posts = self._threads_posts(now) if self._include_threads else {}
+        recent_posts = sorted((p for posts in threads_posts.values() for p in posts),
+                              key=lambda p: p.get("published_at") or "", reverse=True)
+        # サイト全体の直近 1〜2 本の通常の投稿の切り口 (既存の弱い好みと同じく避ける)。
+        recent_regular_angles = [p.get("angle") for p in recent_posts[:2] if p.get("angle")]
         growth_plan = self._growth_plan(now) if self._include_growth_lane else None
 
         evidence: list[ga.GrowthEvidence] = []
@@ -206,6 +210,8 @@ class GrowthEvidenceService:
             "keyword_context": keyword_context,
             "data_quality": data_quality,
             "growth_plan": growth_plan,
+            "recent_regular_angles": recent_regular_angles,
+            "open_regular_proposals": {aid: list(ids) for aid, ids in open_props.items()},
             "engine_notes": {"seo": list(seo.notes), "revenue": list(revenue.notes)},
         }
 

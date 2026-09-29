@@ -55,6 +55,7 @@ from app.social.threads.worker import (
     SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
     SUBSYSTEM_APPROVAL_SYNC,
+    SUBSYSTEM_GROWTH_OPPORTUNITY,
     SUBSYSTEM_HEALTH,
     SUBSYSTEM_INSIGHTS_REFRESH,
     SUBSYSTEM_PERFORMANCE_FEEDBACK,
@@ -203,6 +204,81 @@ class ThreadsWorkerService:
         #: T6.5: 最後に作った成績からの補助の参考 (メモリだけ。DB には書かない)。
         self._performance_feedback = None
         self._last_feedback_run: datetime | None = None
+        #: C9: 最後に重い評価をした時刻・そのときの印・候補の指紋 (メモリだけ)。
+        self._last_growth_evaluation: datetime | None = None
+        self._growth_signature: str | None = None
+        self._growth_fingerprint: str | None = None
+
+    # -- growth opportunities (C9) -----------------------------------------------
+    #: 既定は **無効** (本番ではまだ使わない)。方針の ``subsystems.growth_opportunity_evaluation``。
+    GROWTH_OPPORTUNITY_DEFAULTS = {"enabled": False, "interval_minutes": 1440,
+                                   "check_interval_minutes": 60, "min_interval_minutes": 360,
+                                   "write_history": True}  # fmt: skip
+
+    def _growth_opportunity_config(self) -> dict:
+        return {**self.GROWTH_OPPORTUNITY_DEFAULTS,
+                **self._policy.subsystem(SUBSYSTEM_GROWTH_OPPORTUNITY)}
+
+    def _growth_signature_now(self, session) -> str:
+        """軽い点検の印: 取り込みの成功の時刻と、新しい行の印 (重い評価はしない)。"""
+
+        import hashlib
+
+        from sqlalchemy import func, select
+
+        from app.models import ChangeRequest, KeywordScore, ThreadsPostProposal
+        from app.services.operations_source_health_service import collect_source_freshness
+
+        freshness = {k: v.last_successful_import_at.isoformat()
+                     if v.last_successful_import_at else None
+                     for k, v in collect_source_freshness(session).items()}  # fmt: skip
+        marks = [session.scalar(select(func.max(model.id))) for model in (
+            ThreadsPublication, ThreadsPostProposal, ChangeRequest, KeywordScore)]
+        blob = repr((sorted(freshness.items()), marks))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _growth_opportunity_evaluation(self, now: datetime) -> SubsystemResult:
+        """成長の候補を評価して、C9 の履歴の表だけを更新する。**外に書かない・何も実行しない。**"""
+
+        from app.services.growth_action_service import (
+            GrowthActionHistory,
+            build_inbox,
+            history_tables_ready,
+        )
+
+        config = self._growth_opportunity_config()
+        check = timedelta(minutes=int(config["check_interval_minutes"]))
+        interval = timedelta(minutes=int(config["interval_minutes"]))
+        minimum = timedelta(minutes=int(config["min_interval_minutes"]))
+        with self._factory() as session:
+            if not history_tables_ready(session):
+                session.rollback()
+                return SubsystemResult(next_run_at=now + interval, summary={
+                    "evaluated": False, "reason": "history tables missing (migration "
+                    "74bfaf6c9c9f not applied)", "db_writes": 0, "external_writes": 0})
+            signature = self._growth_signature_now(session)
+            last = self._last_growth_evaluation
+            due = last is None or now - last >= interval
+            changed = signature != self._growth_signature
+            if not due and not (changed and now - last >= minimum):
+                session.rollback()
+                return SubsystemResult(next_run_at=now + check, summary={
+                    "evaluated": False, "reason": "signature unchanged" if not changed
+                    else "signature changed; waiting for the minimum interval",
+                    "db_writes": 0, "external_writes": 0})  # fmt: skip
+            box = build_inbox(session, settings=self._settings, now=now)
+            written = None
+            if config.get("write_history", True):
+                written = GrowthActionHistory(session).apply_refresh(box["plan"], now=now)
+            self._last_growth_evaluation = now
+            self._growth_signature = signature
+            self._growth_fingerprint = box["report"]["fingerprint"]
+            counts = box["plan"].counts()
+        return SubsystemResult(next_run_at=now + check, summary={
+            "evaluated": True, "trigger": "interval" if due else "signature_changed",
+            "fingerprint": (self._growth_fingerprint or "")[:12], "counts": counts,
+            "created": len((written or {}).get("created") or []),
+            "db_writes": "growth_action_* only" if written else 0, "external_writes": 0})
 
     # -- performance feedback (T6.5) ---------------------------------------------
     #: 方針に節が無いときの値 (``threads_operations_policy.json`` の
@@ -284,6 +360,13 @@ class ThreadsWorkerService:
             enabled=feedback,
             disabled_reason=None if feedback else "disabled by policy",
         )
+        growth = bool(self._growth_opportunity_config().get("enabled", False))
+        schedule.register(
+            SUBSYSTEM_GROWTH_OPPORTUNITY,
+            first_run_at=now if growth else None,
+            enabled=growth,
+            disabled_reason=None if growth else "disabled by policy (C9 not enabled yet)",
+        )
         flush = self._policy.subsystem(SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH)
         enabled = bool(flush.get("enabled", False))
         schedule.register(
@@ -301,6 +384,7 @@ class ThreadsWorkerService:
             SUBSYSTEM_PUBLICATION_EVALUATION: self._publication_evaluation,
             SUBSYSTEM_INSIGHTS_REFRESH: self._insights_refresh,
             SUBSYSTEM_PERFORMANCE_FEEDBACK: self._performance_feedback_evaluation,
+            SUBSYSTEM_GROWTH_OPPORTUNITY: self._growth_opportunity_evaluation,
             SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH: self._approval_notification_flush,
             SUBSYSTEM_APPROVAL_SYNC: self._approval_sync,
             SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE: self._proposal_stock_maintenance,

@@ -147,6 +147,16 @@ class WorkerLogFormatter:
         return {"threads_state": state, "config_issues": ";".join(issues) or None}, level
 
     @staticmethod
+    def _describe_growth_opportunity_evaluation(summary: dict):
+        return {
+            "evaluated": summary.get("evaluated"),
+            "trigger": summary.get("trigger"),
+            "reason": summary.get("reason"),
+            "created": summary.get("created"),
+            "fingerprint": summary.get("fingerprint"),
+        }, "INFO"
+
+    @staticmethod
     def _describe_performance_feedback_evaluation(summary: dict):
         return {
             "mode": summary.get("mode"),

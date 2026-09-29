@@ -123,6 +123,11 @@ from app.models.ga4_import_run import (
     ga4_import_transition_allowed,
 )
 from app.models.ga4_page_daily import Ga4PageDaily
+from app.models.growth_action import (
+    GrowthActionCandidate,
+    GrowthActionEvent,
+    GrowthActionReview,
+)
 from app.models.keyword import Keyword
 from app.models.keyword_score import KeywordScore
 from app.models.keyword_score_signal import KeywordScoreSignal
@@ -517,6 +522,9 @@ __all__ = [
     "WP_RUN_PREPARED",
     "WP_RUN_STATUSES",
     "WP_RUN_TERMINAL_STATUSES",
+    "GrowthActionCandidate",
+    "GrowthActionEvent",
+    "GrowthActionReview",
     "WordPressContentUpdateReconciliation",
     "WordPressContentUpdateRun",
     "WordPressDraftRun",

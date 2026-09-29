@@ -386,6 +386,34 @@ class Opportunity:
     evidence: Mapping = field(default_factory=dict)
     source_engine: str | None = None
     source_priority: str | None = None
+    #: 判断に意味のある、時間が経つだけでは変わらない値 (``evidence_fingerprint`` に入る)。
+    #: 経過日数・views・順位の値そのもの・data-through の日付は入れない (表示の ``evidence`` だけ)。
+    material: Mapping = field(default_factory=dict)
+    #: 同じ対象・同じ行動の中の別の機会 (例: Threads の切り口)。
+    variant: str | None = None
+
+
+IDENTITY_SCHEMA = "growth-action-identity/1"
+#: 行動ごとに、判断に使う出所 (指紋にはこの出所の状態だけを入れる。ほかの出所の状態が変わっても
+#: その行動の版は変わらない。例: Threads の状態の変化で内部リンクの候補が新しい版にならない)。
+ACTION_EVIDENCE_SOURCES: Mapping[str, tuple[str, ...]] = {
+    CREATE_NEW_ARTICLE: ("keyword", "seo"),
+    UPDATE_EXISTING_ARTICLE: ("seo", "ga4", "index"),
+    IMPROVE_SEARCH_SNIPPET: ("seo", "ga4", "index"),
+    REVIEW_INTERNAL_LINKS: ("seo", "ga4", "index"),
+    REVIEW_AFFILIATE_PLACEMENT: ("affiliate", "seo", "ga4", "commission"),
+    CREATE_REGULAR_THREADS_POST: ("threads",),
+    CREATE_THREADS_ALTERNATIVE_ANGLE: ("threads",),
+    CREATE_GROWTH_POST: (),
+    WAIT_FOR_MORE_DATA: BEHAVIORAL_SOURCES,
+    INVESTIGATE_DATA_QUALITY: (),
+}
+
+
+def _sha(payload) -> str:
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                      default=str)  # fmt: skip
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -407,6 +435,45 @@ class GrowthActionCandidate:
     requires_human_approval: bool
     external_write_required: str | None
     priority: Mapping[str, Mapping]
+    variant: str | None = None
+    material: tuple[dict, ...] = ()
+    #: 出所ごとの状態 (``usable`` など。鮮度は状態として入る。日付は ``freshness`` の表示だけ)。
+    source_states: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def opportunity_key(self) -> str:
+        """同じ機会 (同じ対象・同じ行動・同じ変種)。証拠が変わっても同じ。"""
+
+        parts = [self.action_type, self.subject_type, self.subject_id]
+        if self.variant:
+            parts.append(self.variant)
+        return ":".join(parts)
+
+    @property
+    def evidence_fingerprint(self) -> str:
+        """判断に使った証拠 (``material`` と、この行動に関係する出所の状態) の sha256。
+
+        全体の証拠の段階 (``evidence_state``) は表示だけ (関係の無い出所で変わるため入れない)。
+        """
+
+        return _sha({"schema": IDENTITY_SCHEMA,
+                     "source_states": dict(sorted(self.source_states.items())),
+                     "material": sorted((dict(m) for m in self.material),
+                                        key=lambda m: json.dumps(m, sort_keys=True,
+                                                                 default=str))})  # fmt: skip
+
+    @property
+    def candidate_fingerprint(self) -> str:
+        """機会 + 証拠 + 行動の意味 (承認・外への書き込み・戻せるか・前提・止める理由)。"""
+
+        return _sha({"schema": IDENTITY_SCHEMA, "opportunity_key": self.opportunity_key,
+                     "evidence_fingerprint": self.evidence_fingerprint,
+                     "patterns": list(self.patterns), "effort": self.effort,
+                     "reversible": self.reversible,
+                     "requires_human_approval": self.requires_human_approval,
+                     "external_write_required": self.external_write_required,
+                     "prerequisites": list(self.prerequisites),
+                     "blockers": list(self.blockers)})  # fmt: skip
 
     @property
     def sort_key(self) -> tuple:
@@ -419,14 +486,36 @@ class GrowthActionCandidate:
 
     def as_dict(self) -> dict:
         out = asdict(self)
+        out["opportunity_key"] = self.opportunity_key
+        out["evidence_fingerprint"] = self.evidence_fingerprint
+        out["candidate_fingerprint"] = self.candidate_fingerprint
         out["priority_order"] = ["evidence_strength", "potential_opportunity",
                                  "monetization_relevance", "effort (lower first)",
                                  "recency_urgency"]  # fmt: skip
         return out
 
 
-def classify(evidence: GrowthEvidence, *, angles: Sequence[str] = ()) -> list[Opportunity]:
-    """観測できる状況を型に分ける (決定的)。原因は言わない。"""
+#: 既存のエンジンの候補の証拠のうち、時間が経つだけでは変わらない識別の値。
+_STABLE_ENGINE_KEYS = ("target_article_id", "relation", "query", "affiliate_program_id", "scope",
+                       "affiliate_target_id")  # fmt: skip
+
+
+def _engine_material(engine: str, c: Mapping) -> dict:
+    evidence = c.get("evidence") or {}
+    return {"engine": engine, "candidate_type": c.get("candidate_type"),
+            "reason_code": c.get("reason_code"), "priority": c.get("priority"),
+            **{k: evidence.get(k) for k in _STABLE_ENGINE_KEYS if evidence.get(k) is not None},
+            **({"affiliate_program_id": c.get("affiliate_program_id")}
+               if c.get("affiliate_program_id") is not None else {})}  # fmt: skip
+
+
+def classify(evidence: GrowthEvidence, *, angles: Sequence[str] = (),
+             recent_angles: Sequence[str] = ()) -> list[Opportunity]:  # fmt: skip
+    """観測できる状況を型に分ける (決定的)。原因は言わない。
+
+    ``recent_angles``: サイト全体の直近 1〜2 本の通常の投稿の切り口 (別の切り口を選ぶとき、
+    既存の弱い好みと同じく避ける)。
+    """
 
     out: list[Opportunity] = []
     if evidence.subject_type == "article" and evidence.article.get("status") != "published":
@@ -441,7 +530,8 @@ def classify(evidence: GrowthEvidence, *, angles: Sequence[str] = ()) -> list[Op
             pattern, action = NEW_CONTENT, CREATE_NEW_ARTICLE
         out.append(Opportunity(pattern, action, basis,
                                f"C6 {c.get('candidate_type')} ({c.get('reason_code')})",
-                               _compact(c.get("evidence")), "seo", c.get("priority")))
+                               _compact(c.get("evidence")), "seo", c.get("priority"),
+                               material=_engine_material("seo", c)))
     for c in evidence.existing_candidates.get("revenue", ()):
         mapped = REVENUE_MAP.get(c.get("candidate_type"))
         if mapped is None:
@@ -449,9 +539,10 @@ def classify(evidence: GrowthEvidence, *, angles: Sequence[str] = ()) -> list[Op
         pattern, action, basis = mapped
         out.append(Opportunity(pattern, action, basis,
                                f"C7 {c.get('candidate_type')} ({c.get('reason_code')})",
-                               _compact(c.get("evidence")), "revenue", c.get("priority")))
+                               _compact(c.get("evidence")), "revenue", c.get("priority"),
+                               material=_engine_material("revenue", c)))
     if evidence.subject_type == "article":
-        out += _article_patterns(evidence, angles)
+        out += _article_patterns(evidence, angles, recent_angles)
     if evidence.subject_type == "keyword":
         score = evidence.sources.get("keyword")
         if score is not None and score.state in (USABLE, STALE):
@@ -459,11 +550,14 @@ def classify(evidence: GrowthEvidence, *, angles: Sequence[str] = ()) -> list[Op
                 NEW_CONTENT, CREATE_NEW_ARTICLE, "structural",
                 "a scored keyword has no article yet",
                 {"opportunity_score": score.metrics.get("total_score"),
-                 "score_age_state": score.state}, "keyword"))  # fmt: skip
+                 "score_age_state": score.state}, "keyword",
+                material={"score_id": score.metrics.get("score_id"),
+                          "score_state": score.state}))  # fmt: skip
     return out
 
 
-def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str]) -> list[Opportunity]:
+def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str],
+                      recent_angles: Sequence[str] = ()) -> list[Opportunity]:  # fmt: skip
     out: list[Opportunity] = []
     article = evidence.article
     affiliate = evidence.sources.get("affiliate")
@@ -474,7 +568,8 @@ def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str]) -> list[O
             "(instrumentation clicks excluded)",
             {"clean_clicks": affiliate.metrics.get("clean_clicks"),
              "excluded_instrumentation_clicks":
-                 affiliate.metrics.get("excluded_instrumentation_clicks")}, "affiliate"))
+                 affiliate.metrics.get("excluded_instrumentation_clicks")}, "affiliate",
+            material={"clean_clicks": affiliate.metrics.get("clean_clicks")}))
     threads = evidence.sources.get("threads")
     if article.get("status") == "published" and threads is not None:
         publications = threads.metrics.get("publications") or 0
@@ -485,7 +580,9 @@ def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str]) -> list[O
                 THREADS_REPROMOTION, CREATE_REGULAR_THREADS_POST, "structural",
                 "no regular Threads post for this article" if publications == 0 else
                 f"the last regular Threads post is {round(latest_age / 24, 1)} day(s) old",
-                {"publications": publications, "latest_age_hours": latest_age}, "threads"))
+                {"publications": publications, "latest_age_hours": latest_age}, "threads",
+                material={"publications": publications,
+                          "trigger": "no_post" if publications == 0 else "window_passed"}))
         tried = set(threads.metrics.get("angles_tried") or ())
         untried = [a for a in angles if a not in tried]
         if (publications and untried and (threads.metrics.get("oldest_age_hours") or 0)
@@ -495,21 +592,29 @@ def _article_patterns(evidence: GrowthEvidence, angles: Sequence[str]) -> list[O
             # 行動の証拠になるのは、この記事の投稿が同じ経過時間の通常の投稿の中で下半分に
             # あるときだけ (上半分なら「まだ試していない切り口がある」という構造の話)。
             weak = threads.state == USABLE and median is not None and median < 0.5
+            # 提案する切り口は 1 つ (変種)。サイト全体の直近 1〜2 本と同じ切り口は後ろへ。
+            preferred = [a for a in untried if a not in recent_angles] or untried
+            angle = preferred[0]
             out.append(Opportunity(
                 THREADS_ALTERNATIVE_ANGLE, CREATE_THREADS_ALTERNATIVE_ANGLE,
                 "behavioral" if weak else "structural",
-                f"{len(tried)} angle(s) tried for this article; untried: {', '.join(untried)}"
+                f"{len(tried)} angle(s) tried for this article; next untried angle: {angle}"
                 + (f"; reach rank median {median} among equal-age regular posts"
                    if median is not None else ""),
-                {"angles_tried": sorted(tried), "untried_angles": untried,
+                {"angles_tried": sorted(tried), "untried_angles": untried, "angle": angle,
                  "reach_rank_median": median, "threads_evidence": threads.maturity},
-                "threads"))  # fmt: skip
+                "threads",
+                material={"angle": angle, "angles_tried": sorted(tried),
+                          "rank_band": None if median is None
+                          else "below_median" if median < 0.5 else "not_below_median"},
+                variant=f"angle={angle}"))  # fmt: skip
     behavioral = [o for o in out if o.basis == "behavioral"]
     if not behavioral and evidence.evidence_state == EVIDENCE_INSUFFICIENT:
         missing = {k: v.reason for k, v in sorted(evidence.sources.items())
                    if k in BEHAVIORAL_SOURCES and v.state != USABLE}
         out.append(Opportunity(INSUFFICIENT_EVIDENCE, WAIT_FOR_MORE_DATA, "data_quality",
-                               "no reader-behaviour source is usable yet", missing, None))
+                               "no reader-behaviour source is usable yet", missing, None,
+                               material={k: evidence.sources[k].state for k in sorted(missing)}))
     return out
 
 
@@ -524,6 +629,7 @@ def build_candidates(evidence: GrowthEvidence, opportunities: Iterable[Opportuni
     out = []
     for action, items in sorted(grouped.items()):
         spec = ACTIONS[action]
+        variants = sorted({o.variant for o in items if o.variant})
         state = _candidate_evidence(evidence, items)
         blockers, prerequisites = _blockers(evidence, action, items, context)
         out.append(GrowthActionCandidate(
@@ -546,6 +652,11 @@ def build_candidates(evidence: GrowthEvidence, opportunities: Iterable[Opportuni
             requires_human_approval=spec.requires_human_approval,
             external_write_required=spec.external_write,
             priority=_priority(evidence, action, items, state, context),
+            variant=variants[0] if variants else None,
+            material=tuple({"pattern": o.pattern, "basis": o.basis, **dict(o.material)}
+                           for o in sorted(items, key=lambda o: (o.pattern, o.reason))),
+            source_states={k: v.state for k, v in sorted(evidence.sources.items())
+                           if k in ACTION_EVIDENCE_SOURCES.get(action, ())},
         ))  # fmt: skip
     return out
 
@@ -677,15 +788,21 @@ def site_candidates(*, data_quality: Sequence[dict], growth_plan: Mapping | None
                                f"{c.get('candidate_type') or 'measurement'} "
                                f"({c.get('reason_code') or c.get('finding')})",
                                _compact(c.get("evidence")), c.get("engine"),
-                               c.get("priority") if mapped else None))
+                               c.get("priority") if mapped else None,
+                               material={"candidate_type": c.get("candidate_type"),
+                                         "reason_code": c.get("reason_code"),
+                                         "finding": c.get("finding")}))
     for source, state in sorted(freshness.items()):
         if state == STALE:
             ops.append(Opportunity(DATA_QUALITY, INVESTIGATE_DATA_QUALITY, "data_quality",
-                                   f"{source} imports are stale", {"source": source}, "freshness"))
+                                   f"{source} imports are stale", {"source": source}, "freshness",
+                                   material={"stale_source": source}))
     if growth_plan and growth_plan.get("due"):
         ops.append(Opportunity(GROWTH_LANE, CREATE_GROWTH_POST, "structural",
                                "today's Growth Post is due and not created yet",
-                               {"date_jst": growth_plan.get("date_jst")}, "growth"))
+                               {"date_jst": growth_plan.get("date_jst")}, "growth",
+                               material={"date_jst": growth_plan.get("date_jst")},
+                               variant=f"date={growth_plan.get('date_jst')}"))
     site = GrowthEvidence(subject_type="site", subject_id="site")
     return build_candidates(site, ops)
 

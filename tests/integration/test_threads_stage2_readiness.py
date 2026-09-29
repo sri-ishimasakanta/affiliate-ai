@@ -191,7 +191,12 @@ def test_no_migration_was_added() -> None:
 
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
-    assert ScriptDirectory.from_config(config).get_current_head() == HEAD
+    script = ScriptDirectory.from_config(config)
+    # T6.5B の段階 2 の準備は migration を足していない: 観察の表 (HEAD) より後にあるのは、
+    # C9 Batch 2 の Growth Action の履歴の表 (74bfaf6c9c9f) だけ。
+    later = [r.revision for r in script.walk_revisions(base=HEAD, head="heads")
+             if r.revision != HEAD]
+    assert later == ["74bfaf6c9c9f"]
 
 
 # -- 保存の門 (段階 2 以上) ----------------------------------------------------------------------

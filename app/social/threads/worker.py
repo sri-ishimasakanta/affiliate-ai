@@ -49,6 +49,10 @@ SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE = "account_growth_maintenance"
 #: 自分の投稿の成績の分析と、生成への補助の参考を作り直す (T6.5)。**読むだけ** (DB に書かない・
 #: Threads に問い合わせない)。低頻度。観測を取り込んだ直後に前倒しする (最短間隔より早めない)。
 SUBSYSTEM_PERFORMANCE_FEEDBACK = "performance_feedback_evaluation"
+#: C9: 成長の証拠と Growth Action の候補の評価。書くのは C9 の履歴の表だけ (外に書かない)。
+#: 既定は無効。軽い点検 (取り込みの時刻と新しい行の印) を 1 時間ごと、重い評価は 24 時間ごとか、
+#: 印が変わったとき (最短間隔より早めない)。
+SUBSYSTEM_GROWTH_OPPORTUNITY = "growth_opportunity_evaluation"
 #: 同じ時刻に期限が来たときの実行順。決定を取り込み、queue を観測してから公開を評価する。
 SUBSYSTEM_ORDER = (
     SUBSYSTEM_HEALTH,
@@ -60,6 +64,7 @@ SUBSYSTEM_ORDER = (
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
     SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE,
     SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
+    SUBSYSTEM_GROWTH_OPPORTUNITY,
 )
 
 #: T6.3.3a: Growth Post は記事の 1 回 1 本の枠の外。自分の枠で 1 回 1 本まで (1 日 1 本は別に守る)。
@@ -395,6 +400,7 @@ __all__ = [
     "SUBSYSTEM_INSIGHTS_REFRESH",
     "SUBSYSTEM_ORDER",
     "SUBSYSTEM_PERFORMANCE_FEEDBACK",
+    "SUBSYSTEM_GROWTH_OPPORTUNITY",
     "SUBSYSTEM_PROPOSAL_STOCK_MAINTENANCE",
     "SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE",
     "SUBSYSTEM_PUBLICATION_EVALUATION",
