@@ -26,8 +26,27 @@ VIEWPORT = {"width": 1280, "height": 2700}
 
 #: 投稿のまとまり (いちばん外側だけ) の、画面の中の位置と、そのまとまり自身の投稿のリンク
 #: (時刻を含むリンクを先に)。**読むだけ** (DOM を変えない・押さない)。
+#: ``visible`` (T6.5B.5): まとまりの横の中央で、いちばん上に描かれている要素がそのまとまりの
+#: 中である縦の範囲 (``elementFromPoint`` で上下から 4px ずつ確かめる)。上に固定された見出し
+#: (「おすすめ」・検索窓) に隠れた部分は入らない。見えなければ ``null``。
 _LAYOUT_JS = """() => {
   const sel = 'div[data-pressable-container="true"]';
+  const H = window.innerHeight;
+  const visible = (el, r) => {
+    const x = Math.min(Math.max(r.left + r.width / 2, 0), window.innerWidth - 1);
+    const lo = Math.max(r.top, 0), hi = Math.min(r.bottom, H);
+    if (hi <= lo) return null;
+    const mine = (y) => {
+      const t = document.elementFromPoint(x, y);
+      return !!t && el.contains(t);
+    };
+    let top = null;
+    for (let y = Math.ceil(lo); y < hi; y += 4) { if (mine(y)) { top = y; break; } }
+    if (top === null) return null;
+    let bottom = top + 1;
+    for (let y = Math.ceil(hi) - 1; y > top; y -= 4) { if (mine(y)) { bottom = y + 1; break; } }
+    return [top, Math.min(bottom, hi)];
+  };
   const cards = [];
   for (const el of document.querySelectorAll(sel)) {
     if (el.parentElement && el.parentElement.closest(sel)) continue;
@@ -38,7 +57,7 @@ _LAYOUT_JS = """() => {
       .map((a) => a.getAttribute('href'));
     if (!hrefs.length) continue;
     const r = el.getBoundingClientRect();
-    cards.push({top: r.top, bottom: r.bottom, hrefs});
+    cards.push({top: r.top, bottom: r.bottom, hrefs, visible: visible(el, r)});
   }
   return {viewport: {width: window.innerWidth, height: window.innerHeight}, cards};
 }"""

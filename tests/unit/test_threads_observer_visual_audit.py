@@ -255,3 +255,54 @@ def test_the_visual_audit_does_not_import_a_browser() -> None:
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          cwd=Path(__file__).resolve().parents[2], check=True)  # fmt: skip
     assert out.stdout.strip() == "False"
+
+
+# -- 上に固定された見出しに隠れた部分 (T6.5B.5) ------------------------------------------------
+
+
+def _raw(*cards: tuple[str, float, float, tuple[float, float] | None]) -> Layout:
+    """``(code, top, bottom, visible)``。visible = 実際に描かれて見えていた範囲 (画面の座標)。"""
+
+    return layout_from({"viewport": {"height": H}, "cards": [
+        {"top": t, "bottom": b, "hrefs": [f"/@a/post/{c}"], "visible": list(v) if v else None}
+        for c, t, b, v in cards]})  # fmt: skip
+
+
+def test_a_card_hidden_under_a_sticky_header_is_not_in_the_frame() -> None:
+    # 2026-09-29 の段階 2 の dry-run: スクロールの後、For You の「おすすめ」の見出し (上 75px)
+    # の下に前の投稿のまとまりがあった。位置は画面の中でも、見えていない。
+    layout = _raw(("OYS", -34, 74, None), ("YOC", 74, 250, (75, 250)))
+    ledger = VisualLedger("for_you", None)
+    ledger.add_frame("for_you/frame-001.png", kind=FRAME_SCROLL, scroll=1,
+                     before=layout, after=layout)  # fmt: skip
+    assert ledger.evidence("threads:OYS") == {"audit_frames": [],
+                                              "visual_evidence_available": False}  # fmt: skip
+    assert ledger.evidence("threads:YOC")["audit_frames"] == ["for_you/frame-001.png"]
+    assert ledger.frames[0]["cards_visible"] == 1
+
+
+def test_a_hidden_strip_does_not_complete_the_coverage() -> None:
+    ledger = VisualLedger("for_you", None)
+    first = _raw(("A", 700, 1200, (700, 1000)))  # 上の 300px が写った
+    ledger.add_frame("f/frame-000.png", kind=FRAME_INITIAL, scroll=0, before=first, after=first)
+    # 位置だけなら 280〜500 が写ったことになり覆われるが、上の 75px は見出しに隠れていた。
+    second = _raw(("A", -280, 220, (75, 220)))
+    ledger.add_frame("f/frame-001.png", kind=FRAME_SCROLL, scroll=1, before=second, after=second)
+    assert ledger.evidence("threads:A")["visual_evidence_available"] is False
+    assert ledger.summary(["threads:A"])["partial_only"] == ["threads:A"]
+    # 同じ形で見出しが無ければ (見えていた範囲 = 画面の中の全部) 覆われる。
+    open_view = VisualLedger("for_you", None)
+    open_view.add_frame("f/frame-000.png", kind=FRAME_INITIAL, scroll=0, before=first,
+                        after=first)  # fmt: skip
+    clear = _raw(("A", -280, 220, (0, 220)))
+    open_view.add_frame("f/frame-001.png", kind=FRAME_SCROLL, scroll=1, before=clear,
+                        after=clear)  # fmt: skip
+    assert open_view.evidence("threads:A")["visual_evidence_available"] is True
+
+
+def test_the_visible_range_is_parsed_and_old_layouts_still_work() -> None:
+    layout = _raw(("A", 0, 100, (10, 90)), ("B", 100, 200, None))
+    assert layout.visible == {"threads:A": (10.0, 90.0), "threads:B": None}
+    assert layout_from({"viewport": {"height": 900}, "cards": [
+        {"top": 0, "bottom": 10, "hrefs": ["/@a/post/K"]}]}).visible is None  # fmt: skip
+    assert "elementFromPoint" in driver._LAYOUT_JS

@@ -27,7 +27,8 @@ from pathlib import Path
 
 from app.social.threads.observer import selectors as sel
 
-AUDIT_VERSION = "t6.5b-visual-audit-1"
+#: -2 (T6.5B.5): 上に固定された見出しに隠れた部分を「写っていた」にしない (``visible``)。
+AUDIT_VERSION = "t6.5b-visual-audit-2"
 
 FRAME_INITIAL = "initial"
 FRAME_SCROLL = "scroll"
@@ -58,6 +59,9 @@ class Layout:
 
     viewport_height: float
     boxes: dict[str, tuple[float, float]]
+    #: 実際に描かれて見えていた縦の範囲 (画面の中の座標)。``None`` = 隠れていた。キーが無い
+    #: (古い形のページ) なら、位置だけから数える。
+    visible: dict[str, tuple[float, float] | None] | None = None
 
 
 def layout_from(raw: dict | None) -> Layout | None:
@@ -72,6 +76,7 @@ def layout_from(raw: dict | None) -> Layout | None:
     except (KeyError, TypeError, ValueError):
         return None
     boxes: dict[str, tuple[float, float]] = {}
+    shown: dict[str, tuple[float, float] | None] = {}
     ambiguous: set[str] = set()
     for card in cards:
         key = next((f"threads:{m.group(2)}" for m in (_PERMALINK.match(h or "")
@@ -82,9 +87,13 @@ def layout_from(raw: dict | None) -> Layout | None:
         if key in boxes:
             ambiguous.add(key)
         boxes[key] = (float(card["top"]), float(card["bottom"]))
+        if "visible" in card:
+            part = card["visible"]
+            shown[key] = (float(part[0]), float(part[1])) if part else None
     for key in ambiguous:
         boxes.pop(key)
-    return Layout(height, boxes)
+        shown.pop(key, None)
+    return Layout(height, boxes, shown if shown else None)
 
 
 def _stable_boxes(before: Layout | None, after: Layout | None) -> dict[str, tuple[float, float]]:
@@ -104,6 +113,19 @@ def _visible(top: float, bottom: float, height: float) -> tuple[float, float] | 
 
     start, end = max(0.0, -top), min(bottom - top, height - top)
     return (start, end) if end > start else None
+
+
+def _visible_part(layout: Layout, key: str, top: float, bottom: float
+                  ) -> tuple[float, float] | None:  # fmt: skip
+    """写っていた部分 (まとまりの中の座標)。描かれて見えていた範囲があれば、それだけ。"""
+
+    if layout.visible is not None and key in layout.visible:
+        shown = layout.visible[key]
+        if shown is None:
+            return None  # 位置は画面の中でも、上に重なった見出し等に隠れていた
+        start, end = max(0.0, shown[0] - top), min(bottom - top, shown[1] - top)
+        return (start, end) if end > start else None
+    return _visible(top, bottom, layout.viewport_height)
 
 
 def _covers(intervals: list[tuple[float, float]], length: float) -> bool:
@@ -130,7 +152,7 @@ class VisualLedger:
         stable = _stable_boxes(before, after)
         visible = 0
         for key, (top, bottom) in stable.items():
-            part = _visible(top, bottom, after.viewport_height)
+            part = _visible_part(after, key, top, bottom)
             if part is not None:
                 visible += 1
                 self._seen.setdefault(key, []).append((file, bottom - top, part))
