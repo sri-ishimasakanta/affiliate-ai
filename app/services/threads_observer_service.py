@@ -35,8 +35,13 @@ EXTRACTION_PARTIAL = "partial_metrics"
 _VISIBLE_METRICS = sel.VERIFIED_METRICS
 
 
-def record_run(session: Session, result: CollectionResult) -> ThreadsObserverRun:
-    """1 回の観察を保存する (1 回の commit)。"""
+def record_run(session: Session, result: CollectionResult, *,
+               extra_artifacts: dict | None = None) -> ThreadsObserverRun:  # fmt: skip
+    """1 回の観察を保存する (1 回の commit)。
+
+    ``extra_artifacts`` (T6.5B.3): 計画の実行の記録 (方針の版・段階・計画・手順ごとの結果・
+    出どころ) を実行の ``artifacts_json`` に足す。
+    """
 
     run = ThreadsObserverRun(
         started_at=to_storage_utc(result.started_at),
@@ -53,7 +58,8 @@ def record_run(session: Session, result: CollectionResult) -> ThreadsObserverRun
             {"screenshots": dict(result.screenshots), "pages_opened": result.pages_opened,
              "scrolls": result.scrolls,
              # T6.5B.1: 候補ごとの結果と理由 (勘定が合うか)。件数の上限の意味は collector。
-             "candidate_accounting": result.accounting_summary()}
+             "candidate_accounting": result.accounting_summary(),
+             **(extra_artifacts or {})}
         ),  # fmt: skip
     )
     session.add(run)

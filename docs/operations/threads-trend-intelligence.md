@@ -558,6 +558,20 @@ uv run python scripts/plan_threads_observation.py --date 2026-09-30 --json
 ブラウザを開かない・Threads に問い合わせない・DB に書かない (投稿者の候補は読むだけ)・
 スケジュールを作らない。
 
+**実行 (T6.5B.3)**: `--execute` に `--dry-run` (保存しない) か `--store` (本番の DB に保存) の
+どちらかを必ず付ける (既定の書き込みは無い)。ブラウザを開く前に確かめること: 段階 (保存は
+方針の今の段階の次まで)・すべての画面が確認済み・custom_feed / global_trending が無い・計画の数が
+段階の上限と 100 以内・ページ / スクロール / 語 / アカウントの上限・専用のプロファイル・
+`PLAYWRIGHT_BROWSERS_PATH`・`--store` なら DB の revision と観察の表。どれかが合わなければ
+ブラウザを開かない (終了コード 3)。実行後、ログイン / 画面の形 / 勘定で止まった手順があれば
+保存しない (終了コード 4)。保存した実行の `artifacts_json` には、計画 (`observation_plan`)・
+手順ごとの結果 (`orchestration`)・出どころ (`provenance`) が残る。
+
+```
+uv run python scripts/plan_threads_observation.py --stage 1 --execute --dry-run --headed --screenshots --show-posts
+uv run python scripts/plan_threads_observation.py --stage 1 --execute --store --headed --screenshots --show-posts
+```
+
 ### 同じ投稿の再観測 (設計だけ)
 
 重複を除いた新しい投稿の予算とは **別の予算** (将来 10〜20 件 / 日)。再観測は重複を除いた数に
