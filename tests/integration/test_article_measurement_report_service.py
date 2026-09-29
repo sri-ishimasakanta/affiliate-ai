@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -49,7 +50,10 @@ from app.services.article_measurement_report_service import (
 _BASE = "https://bizfluxlab.com"
 _PROPERTY = "sc-domain:bizfluxlab.com"
 _GA4 = "987654321"
-_TODAY = datetime.now(UTC).date()
+#: 試験の「今」は固定する (壁の時計に頼らない)。以前は読み込み時の日付を使っていたので、
+#: 試験が 00:00 UTC (09:00 JST) をまたぐと、報告の「今日」とずれて落ちた。
+_NOW = datetime(2026, 9, 20, 3, 0, tzinfo=UTC)
+_TODAY = _NOW.date()
 
 
 class _Settings:
@@ -77,7 +81,7 @@ def _seed_articles(session: Session, slugs=("make-how-to", "rpa-tools")) -> list
             body="x",
             status="published",
             published_url=f"{_BASE}/{slug}/",
-            published_at=datetime.now(UTC) - timedelta(days=5),
+            published_at=_NOW - timedelta(days=5),
             article_type="how_to",
             monetization_mode="affiliate" if index == 1 else "supporting",
         )
@@ -156,9 +160,9 @@ def _ga4_page(session: Session, run, *, path: str, scope="all", sessions=0, **ov
     session.commit()
 
 
-def _build(session: Session, *, settings=None, days: int = 30):
+def _build(session: Session, *, settings=None, days: int = 30, now: datetime = _NOW):
     return ArticleMeasurementReportService(session, settings=settings or _Settings()).build(
-        days=days
+        days=days, now=now
     )
 
 
@@ -307,7 +311,7 @@ def _affiliate_click(session: Session, *, article_id: int, token="tok") -> None:
         AffiliateOutboundClick(
             source_click_id=1,
             token=token,
-            clicked_at=datetime.now(UTC),
+            clicked_at=_NOW,
             source_import_run_id=run.id,
         )
     )
@@ -368,9 +372,9 @@ def test_commission_is_reported_at_program_level_only(session: Session) -> None:
             provider_status="approved",
             commission_amount=Decimal("12.50"),
             currency="USD",
-            occurred_at=datetime.now(UTC),
-            first_seen_at=datetime.now(UTC),
-            last_seen_at=datetime.now(UTC),
+            occurred_at=_NOW,
+            first_seen_at=_NOW,
+            last_seen_at=_NOW,
             source_import_run_id=import_run.id,
         )
     )
@@ -438,7 +442,7 @@ def test_unattributed_click_tokens_are_reported(session: Session) -> None:
         AffiliateOutboundClick(
             source_click_id=1,
             token="tok-unknown",
-            clicked_at=datetime.now(UTC),
+            clicked_at=_NOW,
             source_import_run_id=run.id,
         )
     )
@@ -461,3 +465,23 @@ def test_window_bounds_are_reported(session: Session) -> None:
     assert report.window_end == _TODAY
     assert report.window_start == _TODAY - timedelta(days=6)
     assert isinstance(report.window_start, date)
+
+
+@pytest.mark.parametrize(
+    ("now", "expected_end"),
+    [
+        (datetime(2026, 9, 28, 23, 59, 59, tzinfo=UTC), date(2026, 9, 28)),  # 08:59:59 JST
+        (datetime(2026, 9, 29, 0, 0, 0, tzinfo=UTC), date(2026, 9, 29)),  # 09:00:00 JST
+        (datetime(2026, 9, 29, 0, 0, 1, tzinfo=UTC), date(2026, 9, 29)),
+    ],
+)
+def test_the_window_follows_the_injected_time_across_the_utc_midnight(
+    session: Session, now: datetime, expected_end: date
+) -> None:
+    """00:00 UTC (09:00 JST) をまたいでも、窓は渡した「今」だけで決まる (壁の時計を読まない)。"""
+
+    _seed_articles(session)
+    report = _build(session, days=7, now=now)
+    assert report.window_end == expected_end
+    assert report.window_start == expected_end - timedelta(days=6)
+    assert report.generated_at == now
