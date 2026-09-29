@@ -200,6 +200,7 @@ class ContentIntelligenceService:
             next_articles.append(item)
             candidates.append(self._candidate_row(item, "keyword", a, components, affiliate,
                                                   subject_readiness))
+        cached_ads = self._cached_discovery_ads()
         for d in discovery:
             if not d.is_new:
                 continue
@@ -208,9 +209,8 @@ class ContentIntelligenceService:
             affiliate = self._affiliate(d.phrase, catalog)
             filled = [g.gap_key for g in gaps if cluster and g.cluster_id == cluster.cluster_id
                       and (g.expected_role == rec.role or g.gap_type == gp.GAP_NO_ARTICLE)]
-            components = {name: ec.ComponentEvidence(name, ec.MISSING, source, access,
-                                                     reason="not a Keyword yet").as_dict()
-                          for name, (source, access) in ec.KEYWORD_COMPONENTS.items()}
+            components = self._discovery_components(d.phrase_key, cached_ads.get(d.phrase_key),
+                                                    now)
             subject_readiness = self._facts_for(affiliate, facts)
             item = na.build_candidate(
                 topic=d.phrase, keyword_id=None, discovery_key=d.phrase_key,
@@ -238,6 +238,53 @@ class ContentIntelligenceService:
                    "external data is read from storage only; refreshes are planned, not run"])
 
     # -- 部品 ---------------------------------------------------------------------------------
+    def _cached_discovery_ads(self) -> dict[str, dict]:
+        """発見の候補に保存した Google Ads の証拠 (表が無ければ空)。"""
+
+        from app.models.content_discovery import ContentDiscoveryCandidate
+        from app.services.nightly_analysis_service import tables_ready
+
+        if not tables_ready(self._session):
+            return {}
+        return {r.phrase_key: (r.evidence_json or {})["google_ads"]
+                for r in self._session.scalars(select(ContentDiscoveryCandidate))
+                if (r.evidence_json or {}).get("google_ads")}
+
+    @staticmethod
+    def _discovery_components(key: str, ads: dict | None, now: datetime) -> dict:
+        """発見の候補の成分 (Keyword ではない)。保存した Google Ads の証拠があれば使う。"""
+
+        from app.analysis import evidence_contract as ec
+        from app.analysis import sources as src
+
+        out = {}
+        stale = False
+        if ads and ads.get("observed_at"):
+            stale = src.age_state(datetime.fromisoformat(ads["observed_at"]), now=now,
+                                  stale_after_days=src.source_definition("google_ads").get(
+                                      "stale_after_days")) == src.STALE
+        for name, (source, access) in ec.KEYWORD_COMPONENTS.items():
+            if source == "google_ads" and ads:
+                value = ads.get(name) if name != "trend" else None
+                if not ads.get("returned"):
+                    state, reason = ec.INSUFFICIENT, "Google Ads returned no metrics"
+                elif stale:
+                    state, reason = ec.STALE, "stored Google Ads evidence is stale"
+                elif value is None:
+                    state = ec.INSUFFICIENT  # 取った上で値が無い: 取り直しの対象にしない
+                    reason = ("no search volume evidence" if name == "search_demand" else
+                              "trend is derived for Keywords only")
+                else:
+                    state, reason = ec.USABLE, None
+                out[name] = ec.ComponentEvidence(
+                    name, state, source, access, value=value, provider="google_ads",
+                    observed_at=ads.get("observed_at"), reason=reason,
+                    provenance=f"content_discovery_candidates[{key}].google_ads").as_dict()
+            else:
+                out[name] = ec.ComponentEvidence(name, ec.MISSING, source, access,
+                                                 reason="not a Keyword yet").as_dict()
+        return out
+
     def _catalog(self):
         from app.services.content_queue_service import ContentQueueService
 

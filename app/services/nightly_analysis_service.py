@@ -182,7 +182,8 @@ class NightlyAnalysisService:
         per_call = int(ads.get("max_keywords_per_call") or 1000)
         existing = list(ci.refresh.get("google_ads", {}).get("keywords_without_stored_metrics")
                         or [])
-        discovered = sorted({i.topic for i in analyzed if i.keyword_id is None})
+        discovered = sorted({i.topic for i in analyzed if i.keyword_id is None
+                             and "google_ads" in i.external_refresh})
         total = len(existing) + len(discovered)
         return {"google_ads": {
             "existing_keywords_without_stored_metrics": existing,
@@ -279,7 +280,11 @@ class NightlyAnalysisService:
             row.status, row.duplicate_state = status, d["duplicate_state"]
             row.duplicate_ref_json, row.cluster_key = d["duplicate_of"], d["cluster_key"]
             row.cluster_basis, row.sources_json = d["cluster_basis"], d["sources"]
-            row.evidence_json, row.refresh_needs_json = d["evidence"], list(d["refresh_needs"])
+            # 取り直した Google Ads の証拠は残す (夜の分析は外の証拠を上書きしない)。
+            ads = (row.evidence_json or {}).get("google_ads")
+            row.evidence_json = {**d["evidence"], **({"google_ads": ads} if ads else {})}
+            row.refresh_needs_json = [n for n in d["refresh_needs"]
+                                      if not (ads and n == "google_ads")]
             row.last_seen_at, row.last_run_id, row.updated_at = now, run.id, now
             row.keyword_id = keyword_id or row.keyword_id
             written["updated"] += 1

@@ -397,6 +397,20 @@ class KeywordMetricsCollectionService:
         configured / 通信エラー) は bulk 全体の失敗として呼び出し側へ伝播する。
         """
 
+        results, _phrases = self.collect_google_ads_signals_bulk_with_phrases(requests, ())
+        return results
+
+    def collect_google_ads_signals_bulk_with_phrases(
+        self,
+        requests: Sequence[tuple[int, Collection[str]]],
+        phrases: Sequence[str],
+    ) -> tuple[list[BulkKeywordSignals], dict[str, GoogleAdsKeywordMetrics | None]]:
+        """C10-2: 同じ **1 回** の bulk fetch に、Keyword ではない語 (発見の候補) も入れる。
+
+        Keyword の行は作らない。Keyword の分は :meth:`collect_google_ads_signals_bulk` と同じ
+        signal を作り、語の分は照合した指標をそのまま返す (保存は呼ぶ側。Keyword にしない)。
+        """
+
         planned: list[tuple[Any, frozenset[str]]] = []
         for keyword_id, components in requests:
             wanted = frozenset(components) & frozenset(GOOGLE_ADS_BUNDLE_COMPONENTS)
@@ -407,19 +421,29 @@ class KeywordMetricsCollectionService:
                 raise EntityNotFoundError(_KEYWORD_ENTITY, keyword_id)
             planned.append((keyword, wanted))
 
-        if not planned:
-            return []
+        keyword_texts = {compact_keyword_match_key(k.keyword) for k, _ in planned}
+        extra = [p for p in dict.fromkeys(phrases)
+                 if p and compact_keyword_match_key(p) not in keyword_texts]
+        if not planned and not extra:
+            return [], {}
 
         observed_at = datetime.now(UTC)
         metrics_list = self._provider.fetch_historical_metrics(
-            [keyword.keyword for keyword, _ in planned]
+            [keyword.keyword for keyword, _ in planned] + extra
         )
 
         # requested 側で compact key が衝突する keyword は、空白無視の照合を許すと
         # 応答 1 行を複数 keyword へ誤割当しかねない。その keyword は完全一致だけに絞る。
         requested_compact_counts = Counter(
-            compact_keyword_match_key(keyword.keyword) for keyword, _ in planned
+            [compact_keyword_match_key(keyword.keyword) for keyword, _ in planned]
+            + [compact_keyword_match_key(p) for p in extra]
         )
+        phrase_metrics = {
+            p: _match_metrics(metrics_list, p, allow_single_result_fallback=False,
+                              allow_whitespace_insensitive_match=(
+                                  requested_compact_counts[compact_keyword_match_key(p)] == 1))
+            for p in extra
+        }
 
         results: list[BulkKeywordSignals] = []
         for keyword, wanted in planned:
@@ -459,7 +483,7 @@ class KeywordMetricsCollectionService:
                     skipped=skipped,
                 )
             )
-        return results
+        return results, phrase_metrics
 
     def _bundle_one(
         self,
