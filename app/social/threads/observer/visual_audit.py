@@ -28,7 +28,8 @@ from pathlib import Path
 from app.social.threads.observer import selectors as sel
 
 #: -2 (T6.5B.5): 上に固定された見出しに隠れた部分を「写っていた」にしない (``visible``)。
-AUDIT_VERSION = "t6.5b-visual-audit-2"
+#: -3 (T6.5B.5): まとまりの上端・下端の数 px (区切りの線・枠) は ``EDGE_TOLERANCE_PX`` まで許す。
+AUDIT_VERSION = "t6.5b-visual-audit-3"
 
 FRAME_INITIAL = "initial"
 FRAME_SCROLL = "scroll"
@@ -47,6 +48,10 @@ CROSSCHECKS = (CROSSCHECK_MATCHED, CROSSCHECK_MISMATCH, CROSSCHECK_NOT_REVIEWED)
 
 #: 撮る前後で同じ位置とみなす差 (px)。
 POSITION_TOLERANCE_PX = 2.0
+#: まとまりの **自分の上端・下端** で、描かれた範囲が欠けてよい幅 (px)。まとまりの間の区切りの
+#: 線 (1px) が上に重なる・座標の端数、の分 (2026-09-29 の本物の画面: 全体が見えるまとまりで
+#: 1〜4px)。見出しに隠れた部分 (約 72px) や、まとまりの途中の抜けは許さない。
+EDGE_TOLERANCE_PX = 4.0
 
 REVIEWS_PATH = Path(__file__).resolve().parents[3] / "config" / "threads_observation_reviews.json"
 
@@ -129,12 +134,20 @@ def _visible_part(layout: Layout, key: str, top: float, bottom: float
 
 
 def _covers(intervals: list[tuple[float, float]], length: float) -> bool:
-    reach = 0.0
+    """写っていた部分を合わせて、まとまり全体 (上端〜下端) が覆われたか。
+
+    上端・下端は ``EDGE_TOLERANCE_PX`` まで、途中の抜けは ``POSITION_TOLERANCE_PX`` まで。
+    """
+
+    reach = None
     for start, end in sorted(intervals):
-        if start > reach + POSITION_TOLERANCE_PX:
+        if reach is None:
+            if start > EDGE_TOLERANCE_PX:
+                return False
+        elif start > reach + POSITION_TOLERANCE_PX:
             return False
-        reach = max(reach, end)
-    return reach >= length - POSITION_TOLERANCE_PX
+        reach = end if reach is None else max(reach, end)
+    return reach is not None and reach >= length - EDGE_TOLERANCE_PX
 
 
 class VisualLedger:
@@ -302,7 +315,8 @@ def run_report(run_id: int, accepted_keys: list[str], artifacts: dict | None,
 
 __all__ = [
     "AUDIT_VERSION", "CROSSCHECKS", "CROSSCHECK_MATCHED", "CROSSCHECK_MISMATCH",
-    "CROSSCHECK_NOT_REVIEWED", "FRAME_FINAL_CHECK", "FRAME_INITIAL", "FRAME_SCROLL", "Layout",
+    "CROSSCHECK_NOT_REVIEWED", "EDGE_TOLERANCE_PX", "FRAME_FINAL_CHECK", "FRAME_INITIAL",
+    "FRAME_SCROLL", "Layout",
     "POSITION_TOLERANCE_PX", "REVIEWS_PATH", "VISUAL_EVIDENCE_AVAILABLE",
     "VISUAL_EVIDENCE_MISSING", "VISUAL_VERIFIED", "VisualLedger", "coverage", "layout_from",
     "load_reviews", "merge_run", "review_statuses", "run_report", "run_review", "visual_status",

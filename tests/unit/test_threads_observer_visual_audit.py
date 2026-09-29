@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -306,3 +307,59 @@ def test_the_visible_range_is_parsed_and_old_layouts_still_work() -> None:
     assert layout_from({"viewport": {"height": 900}, "cards": [
         {"top": 0, "bottom": 10, "hrefs": ["/@a/post/K"]}]}).visible is None  # fmt: skip
     assert "elementFromPoint" in driver._LAYOUT_JS
+
+
+# -- まとまりの端の数 px (T6.5B.5 の 3 回目) ----------------------------------------------------
+
+FRAMES = Path(__file__).resolve().parents[1] / "fixtures" / "threads_observer" / (
+    "visual_frames_2026-09-29_stage2.json"
+)
+
+
+def _replay(data: dict) -> VisualLedger:
+    ledger = VisualLedger("for_you", None)
+    for frame in data["frames"]:
+        layout = layout_from({"viewport": {"height": frame["viewport_height"]}, "cards": [
+            {"top": c["box"][0], "bottom": c["box"][1],
+             "hrefs": [f"/@a/post/{c['key'].split(':')[1]}"], "visible": c["visible"]}
+            for c in frame["cards"]]})  # fmt: skip
+        ledger.add_frame(frame["file"], kind=frame["kind"], scroll=frame["scroll"],
+                         before=layout, after=layout)  # fmt: skip
+    return ledger
+
+
+def test_the_live_for_you_frames_give_full_evidence_for_every_accepted_post() -> None:
+    # 2026-09-29 の本物の形: 全体が見えるまとまりの描かれた範囲が、端で 1〜4px 欠けていた
+    # (区切りの線・4px の粗さ)。欠けを許さないと 15 件中 13 件が「一部だけ」になった。
+    data = json.loads(FRAMES.read_text(encoding="utf-8"))
+    summary = _replay(data).summary(data["accepted"])
+    assert summary["accepted_posts"] == 15
+    assert summary["coverage_pct"] == 100.0 and summary["partial_only"] == []
+
+
+def test_the_live_sticky_header_strip_still_does_not_count() -> None:
+    data = json.loads(FRAMES.read_text(encoding="utf-8"))
+    ledger = _replay(data)
+    # frame-001: 位置は -373〜90 だが、見出しの下から 72〜86 だけが描かれていた。
+    seen = ledger._seen["threads:VF05"]
+    [(_, height, part)] = [s for s in seen if s[0].endswith("frame-001.png")]
+    assert height == 463.0 and part[0] > 440  # 隠れた 373+72 px は写っていたことにしない
+
+
+@pytest.mark.parametrize(("top_loss", "bottom_loss", "covered"),
+                         [(0, 0, True), (1, 4, True), (4, 4, True), (0, 6, False), (6, 0, False)])
+def test_small_edge_losses_are_tolerated_but_not_more(top_loss, bottom_loss, covered) -> None:
+    layout = _raw(("E", 100, 500, (100 + top_loss, 500 - bottom_loss)))
+    ledger = VisualLedger("for_you", None)
+    ledger.add_frame("f/frame-000.png", kind=FRAME_INITIAL, scroll=0, before=layout, after=layout)
+    assert ledger.evidence("threads:E")["visual_evidence_available"] is covered
+
+
+def test_a_gap_in_the_middle_is_still_not_tolerated() -> None:
+    ledger = VisualLedger("for_you", None)
+    first = _raw(("G", 700, 1200, (700, 1000)))  # 0〜300
+    second = _raw(("G", -310, 190, (0, 190)))  # 310〜500 (途中の 10px が抜ける)
+    for n, layout in enumerate((first, second)):
+        ledger.add_frame(f"f/frame-00{n}.png", kind=FRAME_SCROLL, scroll=n, before=layout,
+                         after=layout)  # fmt: skip
+    assert ledger.evidence("threads:G")["visual_evidence_available"] is False

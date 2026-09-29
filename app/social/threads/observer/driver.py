@@ -28,7 +28,8 @@ VIEWPORT = {"width": 1280, "height": 2700}
 #: (時刻を含むリンクを先に)。**読むだけ** (DOM を変えない・押さない)。
 #: ``visible`` (T6.5B.5): まとまりの横の中央で、いちばん上に描かれている要素がそのまとまりの
 #: 中である縦の範囲 (``elementFromPoint`` で上下から 4px ずつ確かめる)。上に固定された見出し
-#: (「おすすめ」・検索窓) に隠れた部分は入らない。見えなければ ``null``。
+#: (「おすすめ」・検索窓) に隠れた部分は入らない。見えなければ ``null``。4px ずつ見つけた端を
+#: 1px まで詰める (T6.5B.5 の 3 回目: 4px の粗さで、全体が見えるまとまりが数 px 欠けた)。
 _LAYOUT_JS = """() => {
   const sel = 'div[data-pressable-container="true"]';
   const H = window.innerHeight;
@@ -43,8 +44,10 @@ _LAYOUT_JS = """() => {
     let top = null;
     for (let y = Math.ceil(lo); y < hi; y += 4) { if (mine(y)) { top = y; break; } }
     if (top === null) return null;
+    while (top - 1 >= Math.ceil(lo) && mine(top - 1)) top -= 1;  // 1px まで詰める
     let bottom = top + 1;
     for (let y = Math.ceil(hi) - 1; y > top; y -= 4) { if (mine(y)) { bottom = y + 1; break; } }
+    while (bottom < hi && mine(bottom)) bottom += 1;  // 1px まで詰める
     return [top, Math.min(bottom, hi)];
   };
   const cards = [];

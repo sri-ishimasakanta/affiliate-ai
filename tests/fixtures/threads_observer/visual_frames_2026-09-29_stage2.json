@@ -1,0 +1,461 @@
+{
+ "note": "Synthetic regression fixture (T6.5B.5): real card geometry of the For You frames of the 2026-09-29 Stage-2 live dry run (1280x2700 viewport, sticky header ~72px after scroll). Post keys renamed; no text. box = card rect, visible = painted range from the coarse (4px) elementFromPoint scan of visual audit -2.",
+ "accepted": [
+  "threads:VF00",
+  "threads:VF01",
+  "threads:VF02",
+  "threads:VF03",
+  "threads:VF04",
+  "threads:VF05",
+  "threads:VF06",
+  "threads:VF07",
+  "threads:VF08",
+  "threads:VF09",
+  "threads:VF10",
+  "threads:VF11",
+  "threads:VF12",
+  "threads:VF13",
+  "threads:VF14"
+ ],
+ "frames": [
+  {
+   "file": "for_you/frame-000.png",
+   "kind": "initial",
+   "scroll": 0,
+   "viewport_height": 2700.0,
+   "cards": [
+    {
+     "key": "threads:VF00",
+     "box": [
+      149.0,
+      591.0
+     ],
+     "visible": [
+      149.0,
+      591.0
+     ]
+    },
+    {
+     "key": "threads:VF01",
+     "box": [
+      591.0,
+      938.0
+     ],
+     "visible": [
+      591.0,
+      938.0
+     ]
+    },
+    {
+     "key": "threads:VF02",
+     "box": [
+      938.0,
+      1362.0
+     ],
+     "visible": [
+      938.0,
+      1362.0
+     ]
+    },
+    {
+     "key": "threads:VF03",
+     "box": [
+      1362.0,
+      1897.71875
+     ],
+     "visible": [
+      1362.0,
+      1894.0
+     ]
+    },
+    {
+     "key": "threads:VF04",
+     "box": [
+      1897.71875,
+      2026.71875
+     ],
+     "visible": [
+      1898.0,
+      2023.0
+     ]
+    },
+    {
+     "key": "threads:VF05",
+     "box": [
+      2026.71875,
+      2489.71875
+     ],
+     "visible": [
+      2027.0,
+      2486.0
+     ]
+    },
+    {
+     "key": "threads:VF06",
+     "box": [
+      2489.71875,
+      2825.71875
+     ],
+     "visible": [
+      2490.0,
+      2700.0
+     ]
+    },
+    {
+     "key": "threads:VF07",
+     "box": [
+      2825.71875,
+      3371.71875
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF08",
+     "box": [
+      3371.71875,
+      3552.71875
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF09",
+     "box": [
+      3552.71875,
+      3660.71875
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF10",
+     "box": [
+      3660.71875,
+      3893.71875
+     ],
+     "visible": null
+    }
+   ]
+  },
+  {
+   "file": "for_you/frame-001.png",
+   "kind": "scroll",
+   "scroll": 1,
+   "viewport_height": 2700.0,
+   "cards": [
+    {
+     "key": "threads:VF03",
+     "box": [
+      -1038.0,
+      -502.28125
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF04",
+     "box": [
+      -502.28125,
+      -373.28125
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF05",
+     "box": [
+      -373.28125,
+      89.71875
+     ],
+     "visible": [
+      72.0,
+      86.0
+     ]
+    },
+    {
+     "key": "threads:VF06",
+     "box": [
+      89.71875,
+      425.71875
+     ],
+     "visible": [
+      90.0,
+      422.0
+     ]
+    },
+    {
+     "key": "threads:VF07",
+     "box": [
+      425.71875,
+      971.71875
+     ],
+     "visible": [
+      426.0,
+      968.0
+     ]
+    },
+    {
+     "key": "threads:VF08",
+     "box": [
+      971.71875,
+      1152.71875
+     ],
+     "visible": [
+      972.0,
+      1149.0
+     ]
+    },
+    {
+     "key": "threads:VF09",
+     "box": [
+      1152.71875,
+      1260.71875
+     ],
+     "visible": [
+      1153.0,
+      1257.0
+     ]
+    },
+    {
+     "key": "threads:VF10",
+     "box": [
+      1260.71875,
+      1493.71875
+     ],
+     "visible": [
+      1261.0,
+      1490.0
+     ]
+    },
+    {
+     "key": "threads:VF11",
+     "box": [
+      1493.71875,
+      1819.71875
+     ],
+     "visible": [
+      1494.0,
+      1816.0
+     ]
+    },
+    {
+     "key": "threads:VF12",
+     "box": [
+      1819.71875,
+      2021.71875
+     ],
+     "visible": [
+      1820.0,
+      2018.0
+     ]
+    },
+    {
+     "key": "threads:VF13",
+     "box": [
+      2021.71875,
+      2202.71875
+     ],
+     "visible": [
+      2022.0,
+      2199.0
+     ]
+    },
+    {
+     "key": "threads:VF14",
+     "box": [
+      2202.71875,
+      2352.71875
+     ],
+     "visible": [
+      2203.0,
+      2349.0
+     ]
+    },
+    {
+     "key": "threads:VF15",
+     "box": [
+      2352.71875,
+      2932.015625
+     ],
+     "visible": [
+      2353.0,
+      2700.0
+     ]
+    },
+    {
+     "key": "threads:VF16",
+     "box": [
+      2932.015625,
+      3475.015625
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF17",
+     "box": [
+      3475.015625,
+      3864.015625
+     ],
+     "visible": null
+    }
+   ]
+  },
+  {
+   "file": "for_you/frame-002.png",
+   "kind": "final_check",
+   "scroll": 1,
+   "viewport_height": 2700.0,
+   "cards": [
+    {
+     "key": "threads:VF03",
+     "box": [
+      -1038.0,
+      -502.28125
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF04",
+     "box": [
+      -502.28125,
+      -373.28125
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF05",
+     "box": [
+      -373.28125,
+      89.71875
+     ],
+     "visible": [
+      72.0,
+      86.0
+     ]
+    },
+    {
+     "key": "threads:VF06",
+     "box": [
+      89.71875,
+      425.71875
+     ],
+     "visible": [
+      90.0,
+      422.0
+     ]
+    },
+    {
+     "key": "threads:VF07",
+     "box": [
+      425.71875,
+      971.71875
+     ],
+     "visible": [
+      426.0,
+      968.0
+     ]
+    },
+    {
+     "key": "threads:VF08",
+     "box": [
+      971.71875,
+      1152.71875
+     ],
+     "visible": [
+      972.0,
+      1149.0
+     ]
+    },
+    {
+     "key": "threads:VF09",
+     "box": [
+      1152.71875,
+      1260.71875
+     ],
+     "visible": [
+      1153.0,
+      1257.0
+     ]
+    },
+    {
+     "key": "threads:VF10",
+     "box": [
+      1260.71875,
+      1493.71875
+     ],
+     "visible": [
+      1261.0,
+      1490.0
+     ]
+    },
+    {
+     "key": "threads:VF11",
+     "box": [
+      1493.71875,
+      1819.71875
+     ],
+     "visible": [
+      1494.0,
+      1816.0
+     ]
+    },
+    {
+     "key": "threads:VF12",
+     "box": [
+      1819.71875,
+      2021.71875
+     ],
+     "visible": [
+      1820.0,
+      2018.0
+     ]
+    },
+    {
+     "key": "threads:VF13",
+     "box": [
+      2021.71875,
+      2202.71875
+     ],
+     "visible": [
+      2022.0,
+      2199.0
+     ]
+    },
+    {
+     "key": "threads:VF14",
+     "box": [
+      2202.71875,
+      2352.71875
+     ],
+     "visible": [
+      2203.0,
+      2349.0
+     ]
+    },
+    {
+     "key": "threads:VF15",
+     "box": [
+      2352.71875,
+      2932.015625
+     ],
+     "visible": [
+      2353.0,
+      2700.0
+     ]
+    },
+    {
+     "key": "threads:VF16",
+     "box": [
+      2932.015625,
+      3475.015625
+     ],
+     "visible": null
+    },
+    {
+     "key": "threads:VF17",
+     "box": [
+      3475.015625,
+      3864.015625
+     ],
+     "visible": null
+    }
+   ]
+  }
+ ]
+}
