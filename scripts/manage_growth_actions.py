@@ -12,11 +12,25 @@
     uv run python scripts/manage_growth_actions.py reject <review_id> --fingerprint <sha> \\
         --reason "..." --execute
     uv run python scripts/manage_growth_actions.py dismiss <id> --reason "..." --execute
+    # C9-B: 変換で作った手元の依頼 (Threads の生成・記事の計画・変更の準備)
+    uv run python scripts/manage_growth_actions.py handoff list [--workflow W] [--status S]
+    uv run python scripts/manage_growth_actions.py handoff show <request_id>
+    uv run python scripts/manage_growth_actions.py handoff approve-plan <request_id> --execute
+    uv run python scripts/manage_growth_actions.py handoff reject-plan <request_id> \
+        --reason "..." --execute
+    uv run python scripts/manage_growth_actions.py handoff materialize <request_id> \
+        --article-id <id> --execute
+    uv run python scripts/manage_growth_actions.py handoff prepare <request_id> \
+        --downstream-type change_request|editorial_revision|link_mapping --downstream-id <id> \
+        --execute
+    uv run python scripts/manage_growth_actions.py handoff close <request_id> --reason "..." \
+        --execute
 
 書くのは ``--execute`` のときの C9 の 3 つの表 (``growth_action_*``) だけ。**承認は次の段階へ
 進めてよいという許可だけ** で、WordPress・Threads・公開・アフィリエイトの設定・メール・外の API に
 触れない。履歴の表が無い DB (migration 前) では、``list`` / ``show`` / ``explain`` / ``refresh``
-(PLAN) だけが動く。
+(PLAN) だけが動く。``handoff`` の書き込みは ``growth_handoff_requests`` だけ (記事を作らない・
+変更を作らない・生成しない。先の承認・適用・公開は、その流れの独自のまま)。
 """
 
 from __future__ import annotations
@@ -33,6 +47,7 @@ from app.growth.analysis import ACTION_TYPES, EVIDENCE_STATES  # noqa: E402
 from app.growth.conversion import plan_conversion  # noqa: E402
 from app.growth.inbox import group_by_action  # noqa: E402
 from app.models.growth_action import GA_STATUSES  # noqa: E402
+from app.models.growth_handoff import GH_STATUSES, GH_WORKFLOWS  # noqa: E402
 from app.services.growth_action_service import (  # noqa: E402
     GrowthActionError,
     GrowthActionHistory,
@@ -86,6 +101,23 @@ def main(argv=None, *, session_factory=None, settings=None) -> int:
     dis.add_argument("candidate_id", type=int)
     dis.add_argument("--reason", required=True)
     dis.add_argument("--execute", action="store_true")
+    hand = sub.add_parser("handoff", help="C9-B の手元の依頼 (既定は読むだけ)")
+    hsub = hand.add_subparsers(dest="handoff_command", required=True)
+    hl = hsub.add_parser("list")
+    hl.add_argument("--workflow", choices=GH_WORKFLOWS, default=None)
+    hl.add_argument("--status", choices=GH_STATUSES, default=None)
+    hsub.add_parser("show").add_argument("request_id", type=int)
+    for name in ("approve-plan", "reject-plan", "materialize", "prepare", "close"):
+        hp = hsub.add_parser(name)
+        hp.add_argument("request_id", type=int)
+        hp.add_argument("--reason", default=None)
+        hp.add_argument("--execute", action="store_true")
+        if name == "materialize":
+            hp.add_argument("--article-id", type=int, required=True, dest="article_id")
+        if name == "prepare":
+            hp.add_argument("--downstream-type", required=True, dest="downstream_type",
+                            choices=("change_request", "editorial_revision", "link_mapping"))
+            hp.add_argument("--downstream-id", type=int, required=True, dest="downstream_id")
     args = parser.parse_args(argv)
 
     if session_factory is None:
@@ -97,10 +129,12 @@ def main(argv=None, *, session_factory=None, settings=None) -> int:
 
         settings = get_settings()
     as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
+    from app.services.growth_handoff_service import GrowthHandoffError
+
     with session_factory() as session:
         try:
             code = _run(args, session, settings, as_of)
-        except GrowthActionError as exc:
+        except (GrowthActionError, GrowthHandoffError) as exc:
             session.rollback()
             print(f"refused: {exc.reason}")
             code = 2
@@ -169,6 +203,8 @@ def _run(args, session, settings, as_of) -> int:
             _emit(args, {**entry, "conversion": conversion, "linkage": link},
                   render_explain(entry, conversion) + render_linkage(link))  # fmt: skip
         return 0
+    if command == "handoff":
+        return _handoff(args, session, as_of)
     history = GrowthActionHistory(session)
     reviews = GrowthActionReviewService(session)
     if command == "history":
@@ -200,6 +236,84 @@ def _run(args, session, settings, as_of) -> int:
         row = reviews.dismiss(args.candidate_id, reason=args.reason)
         print(f"growth action {row.id} dismissed")
     return 0
+
+
+def _handoff(args, session, as_of) -> int:
+    """C9-B の手元の依頼を見る・人の判断を記録する (書くのは growth_handoff_requests だけ)。"""
+
+    from datetime import UTC
+
+    from app.services.growth_handoff_service import (
+        HANDOFF_REVISION,
+        GrowthHandoffService,
+        handoff_ready,
+    )
+
+    if not handoff_ready(session):
+        raise GrowthActionError(f"growth handoff request table is missing (migration "
+                                f"{HANDOFF_REVISION} is not applied)")
+    service = GrowthHandoffService(session)
+    command = args.handoff_command
+    if command == "list":
+        rows = [service.observe(r) for r in service.list(workflow=args.workflow,
+                                                          status=args.status)]
+        _emit(args, {"requests": rows}, "\n".join(render_handoff(r) for r in rows)
+              or "(no handoff requests)")
+        return 0
+    if command == "show":
+        row = service.get(args.request_id)
+        payload = {**service.observe(row), "frozen": row.frozen_json,
+                   "frozen_hash": row.frozen_hash,
+                   "source_growth_action_id": row.source_growth_action_id,
+                   "source_review_id": row.source_review_id,
+                   "resolution_note": row.resolution_note, "decided_by": row.decided_by}
+        _emit(args, payload, render_handoff(payload) + "\n"
+              + json.dumps(row.frozen_json, ensure_ascii=False, indent=2, default=str))
+        return 0
+    if not args.execute:
+        print(f"PLAN: handoff {command} would write only growth_handoff_requests; "
+              "re-run with --execute")
+        return 0
+    now = as_of or datetime.now(UTC)
+    if command == "approve-plan":
+        service.decide_planning(args.request_id, approve=True, now=now, reason=args.reason)
+        meaning = ("approved (permission only: create the article in the existing plan flow, "
+                   "then link it with handoff materialize)")
+    elif command == "reject-plan":
+        service.decide_planning(args.request_id, approve=False, now=now, reason=args.reason)
+        meaning = "rejected"
+    elif command == "materialize":
+        service.materialize(args.request_id, article_id=args.article_id, now=now)
+        meaning = f"linked to article {args.article_id} (the article keeps its own workflow)"
+    elif command == "prepare":
+        service.prepare(args.request_id, downstream_type=args.downstream_type,
+                        downstream_id=args.downstream_id, now=now)
+        meaning = (f"linked to {args.downstream_type} {args.downstream_id} (its own approval and "
+                   "apply step remain)")
+    else:
+        service.close(args.request_id, now=now, reason=args.reason or "")
+        meaning = "cancelled"
+    session.commit()
+    print(f"handoff request #{args.request_id} {meaning}")
+    return 0
+
+
+def render_handoff(h: dict) -> str:
+    kind = h.get("lane") or h.get("change_type") or ""
+    lines = [f"handoff #{h['id']} {h['workflow']} {kind} — {h['status']}; article "
+             f"{_v(h.get('article_id'))} keyword {_v(h.get('keyword_id'))}"
+             + (f"; angle {h['requested_angle']}" if h.get("requested_angle") else "")]
+    if h.get("generation_request_id"):
+        lines.append(f"  generation request {h['generation_request_id']}")
+    if h.get("source_drift"):
+        lines.append(f"  source drift since conversion: {', '.join(h['source_drift'])} "
+                     "(prepare will refuse; close and re-review)")
+    for d in h.get("downstream") or []:
+        extra = ", ".join(f"{k} {v}" for k, v in d.items() if k not in ("type", "id") and v)
+        lines.append(f"  downstream {d['type']} #{d['id']}: {extra}")
+    lines.append(f"  external effect: {_v(h.get('external_effect'))} "
+                 "(converted ≠ approved ≠ published / applied)")
+    return "\n".join(lines)
 
 
 def linkage(session, settings, candidate_id) -> dict:
@@ -263,6 +377,8 @@ def render_linkage(link: dict) -> str:
     for d in link["downstream"]:
         lines.append(f"downstream {d['type']} #{d['id']}: {d['state']}; effective_at "
                      f"{d.get('effective_at') or '— (not applied)'}")
+        if d.get("handoff"):
+            lines.append(render_handoff(d["handoff"]))
     if link["latest_outcome"]:
         o = link["latest_outcome"]
         lines.append(f"latest outcome: {o['measurement_state']} "
@@ -360,7 +476,9 @@ def render_explain(e: dict, conversion: dict) -> str:
         f"approval means: permission to proceed only (nothing is executed); "
         f"requires human approval: {e['requires_human_approval']}; external write needed "
         f"later: {_v(e['external_write_required'])}; reversible: {e['reversible']}",
-        f"conversion: {conversion['support']} → {_v(conversion['target_workflow'])}",
+        f"conversion: {conversion['support']} → {_v(conversion['target_workflow'])} "
+        f"(execution mode {conversion['execution_mode']})"
+        + (f"; not executable: {conversion['missing']}" if conversion.get("missing") else ""),
         *[f"  - {s}" for s in conversion["steps"]],
         f"  note: {conversion['note']}",
     ])

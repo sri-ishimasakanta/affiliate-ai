@@ -136,12 +136,10 @@ uv run python scripts/analyze_growth_action_outcomes.py show <id> --checkpoint 7
 | 行動 | 実行の形 | 先の流れ / いま足りないもの |
 |---|---|---|
 | `review_internal_links` | **local_handoff** | 保存済みの C6 の候補 (無ければ C6 の評価を保存。C6 がいまも提案していることを確かめてから) → `ChangeRequestService.propose_from_seo_candidate` → `change_requests` (awaiting_approval、`source_engine=seo` のまま)。**承認・適用はしない** |
-| `create_new_article` | plan_only | `export_article_plan.py` は読むだけの計画。手元の「記事の計画の依頼」の実体が無いので、変換済みにしない |
+| `create_new_article` | **local_handoff** (C9-B) | 記事の計画の依頼 (`article_planning`)。記事は作らない |
 | `create_growth_post` | plan_only | Growth の枠が生成を持つ (1 日の呼び出しの上限・目的の検査)。渡すものが無い |
-| `create_regular_threads_post` / `create_threads_alternative_angle` | unsupported | 在庫の保守の規則の中で記事と切り口を指定する GenerationRequest の入口が要る |
-| `review_affiliate_placement` | unsupported | `affiliate_link_change` は表せるが v1 では作らない (配置は人) |
-| `update_existing_article` | unsupported | `text_edit` は表せるが v1 では作らない |
-| `improve_search_snippet` | unsupported | meta / snippet の変更の生成・更新の経路が無い |
+| `create_regular_threads_post` / `create_threads_alternative_angle` | **local_handoff** (C9-B) | 記事 (と切り口) を指定した生成の依頼 (`threads_generation`) |
+| `review_affiliate_placement` / `update_existing_article` / `improve_search_snippet` | **local_handoff** (C9-B) | 変更の準備の依頼 (`change_preparation`: `affiliate_placement` / `body_update` / `meta_description`) |
 | `wait_for_more_data` / `investigate_data_quality` | not_applicable | 情報 |
 
 ### 変換の約束 (`growth-action-conversion/1`)
@@ -227,3 +225,58 @@ uv run python scripts/manage_growth_actions.py review <id> --fingerprint <sha> -
 | レビュー | 1 件ずつ (一括の承認は無い)。まとめの指紋で `review --fingerprint` を依頼し、古ければ断る。承認・却下は既存の指紋の照合のまま |
 | 携帯 | **DEFERRED**: mobile approval の中継の対象の種類は DB の CHECK と WordPress の中継で決まり、Growth Action を足すには中継の再配置が要る。CLI のレビューのまま |
 | worker | まとめを送らない (評価と手元の履歴だけ、Batch 2 のまま)。定期の実行は送信の承認のあとで決める |
+
+## C9-B: 下流への安全な引き渡し (手元の依頼)
+
+承認した Growth Action を、既存の流れの **手元の依頼** に変える。表は 1 つ
+(`growth_handoff_requests`、migration `4fe83827d695`、**本番にはまだ適用していない**。追加だけで
+既存の表は変えない。downgrade は依頼の行が 1 行でもあれば止まる)。どの依頼も OpenAI・Threads・
+WordPress を呼ばない。**Growth Action の変換 ≠ 先の承認 ≠ 公開 / 適用** (状態は別々に見る)。
+
+```bash
+uv run python scripts/convert_growth_action.py <id>                        # PLAN (書かない)
+uv run python scripts/convert_growth_action.py <id> --execute              # Threads・記事の計画
+uv run python scripts/convert_growth_action.py <id> --execute --expected-source-hash <hash>  # 変更の準備
+uv run python scripts/manage_growth_actions.py handoff list|show <request_id>
+uv run python scripts/manage_growth_actions.py handoff approve-plan|reject-plan <request_id> --execute
+uv run python scripts/manage_growth_actions.py handoff materialize <request_id> --article-id <id> --execute
+uv run python scripts/manage_growth_actions.py handoff prepare <request_id>     --downstream-type change_request|editorial_revision|link_mapping --downstream-id <id> --execute
+uv run python scripts/manage_growth_actions.py handoff close <request_id> --reason "..." --execute
+```
+
+`show` / `explain` / `history` の linkage に、依頼の状態とその先 (提案・記事・変更) の状態が出る。
+
+| 流れ | 状態 | 作るとき (変換の直前の検査、どれも fail closed) | その先 |
+|---|---|---|---|
+| `threads_generation` (`regular` / `alternative_angle`) | pending → claimed → proposal_created (claimed → pending: 答えが来ないまま古くなった) / cancelled | 記事が公開済み (URL あり) / その記事に開いている・承認済みで未公開の提案が無い / その記事に開いている指定の依頼が無い / 別の切り口は、変換の時点の勧めの切り口を固定し、もう試した・公開した切り口なら断る | 在庫の保守が使う (下) → 提案は awaiting_approval → 既存の承認・公開 |
+| `article_planning` | pending → approved → materialized / rejected / cancelled | キーワードがある / 同じキーワード (ID か正規化した文字列) の archived でない記事が無い / 開いている計画の依頼が無い / 既存の記事の計画 (`ArticlePlanService.plan_for_keyword`、読むだけ) で重なりの確認が要らない | 人が承認 → 既存の流れ (`export_article_plan.py` → `POST /api/v1/keywords/{id}/article-plan/approve`) で記事を作る → `materialize` で結ぶ (同じキーワード・planned 以降で archived でない・依頼より後に作った・ほかの依頼と結んでいない記事だけ) |
+| `change_preparation` (`body_update` / `meta_description` / `affiliate_placement`) | pending → prepared / rejected / cancelled | 記事が公開済み / その記事に開いている変更の依頼が無い / 同じ種類の開いている準備が無い / **計画で見た元の hash** (`--expected-source-hash`) が今と同じ | 人が既存の流れで具体的な変更を作る → `prepare` で結ぶ。結べる先: 本文 = 変更の依頼か編集の版、メタ = 編集の版、配置 = リンクの置き換え (`manage_article_link_mapping.py`) か変更の依頼。固定した元の hash の上に作ったもの・依頼より後に作ったもの・却下 / 古いでないもの・ほかの依頼と結んでいないものだけ |
+
+固定する中身 (`frozen_json`): 版・指紋・レビューの写しの hash・止める理由・証拠の要素、記事の
+題と状態 (URL は入れない)、Threads は道と切り口と試した切り口、記事の計画はキーワードと重なりの
+確認、変更の準備は本文とメタの hash (配置はさらにプログラム・有効な追跡先・有効な置き換えの ID)。
+**生成した中身・推測した URL・追跡の URL は入れない。** 空の変更の依頼を作って変換済みにしない。
+待っている変更の準備は、元が変わると `source_drift` に出る (`prepare` は断る。閉じて見直す)。
+
+### 在庫の保守が指定の依頼を使う規則
+
+- `growth_action_policy.json` の `threads_generation_requests.consume_in_stock_maintenance`
+  (**既定 false**)。false の間、在庫の保守は今までと同じ (依頼は pending のまま待つ)。
+  **本番で true にするのは人の判断** (その先で既存の OpenAI の生成が指定の記事に向く)。
+- true のとき: 在庫の規則で **もともと生成するとき** だけ、公平の順の 1 つの代わりに使う
+  (下限 3 / 1 回 3 本 / 答え待ちの抑止 / 1 記事 1 本 / トピックの散らし / 切り口の重なりはそのまま)。
+  呼び出しの数は増えない。使えない (その記事に在庫がある・休みの期間・固定した切り口が最近使われた・
+  記事が対象外) なら使わずに待つ。
+- 依頼を出したら `claimed` (生成の依頼の ID)、提案を保存したら `proposal_created` (提案の ID)。
+  答えが来ないまま古くなれば `pending` へ戻る。依頼の記録に失敗しても在庫の保守は止めない。
+- worker は変換しない (変換は人の `--execute` だけ)。
+
+### わかっている制約 (C9-B で変えていない)
+
+- 変更の適用 (`ChangeApplicationService`) は V1 のまま: 1 本の内部リンクの挿入だけを通す。本文の
+  書き換え・配置の変更の変更の依頼は、準備と結べても、適用の段で止まる (fail closed)。
+- メタディスクリプションは WordPress への更新の経路が無い (更新は本文だけ、抜粋は最初の下書きの
+  ときだけ)。手元だけ変えると後の照合が合わなくなる。適用の経路は後の段階。
+- 記事の計画の承認は API だけ (記事の行そのものが承認の記録)。計画の依頼は、その記事を結ぶだけ。
+- 変換の先の効果の観測は、変更の依頼の適用だけ (Threads の公開・記事の公開の窓は C9-C)。
+

@@ -1,4 +1,4 @@
-"""承認した Growth Action を、既存のどの流れへ渡せるか (C9 Batch 2、pure)。**実行しない。**
+"""承認した Growth Action を、既存のどの流れへ渡せるか (C9 Batch 2 / C9-B、pure)。**実行しない。**
 
 承認は「次の段階へ進めてよい」という許可だけ。ここは、その次の段階として **実在する** 入口を
 示す (計画 = PLAN) だけで、依頼を作らない・書かない。自然な入口が無いものは
@@ -31,25 +31,45 @@ EXECUTION_MODES = (EXEC_LOCAL_HANDOFF, EXEC_PLAN_ONLY, EXEC_UNSUPPORTED, EXEC_NO
 #: 対応の表 (報告と試験のため): 行動 → (実行の形, いま足りないもの)。
 CONVERSION_MATRIX = {
     ga.REVIEW_INTERNAL_LINKS: (EXEC_LOCAL_HANDOFF, None),
-    ga.CREATE_NEW_ARTICLE: (EXEC_PLAN_ONLY,
-                            "a durable article-planning request entity does not exist"),
+    ga.CREATE_NEW_ARTICLE: (EXEC_LOCAL_HANDOFF, None),
     ga.CREATE_GROWTH_POST: (EXEC_PLAN_ONLY, "the Growth lane owns generation (daily call cap, "
                                             "purpose gate); nothing to hand off"),
-    ga.CREATE_REGULAR_THREADS_POST: (EXEC_UNSUPPORTED,
-                                     "needs a targeted GenerationRequest adapter (article + "
-                                     "angle) inside the proposal stock rules"),
-    ga.CREATE_THREADS_ALTERNATIVE_ANGLE: (EXEC_UNSUPPORTED,
-                                          "needs a targeted GenerationRequest adapter (article "
-                                          "+ angle) inside the proposal stock rules"),
-    ga.REVIEW_AFFILIATE_PLACEMENT: (EXEC_UNSUPPORTED,
-                                    "affiliate_link_change is representable but not generated "
-                                    "in change requests v1; placement stays manual"),
-    ga.UPDATE_EXISTING_ARTICLE: (EXEC_UNSUPPORTED,
-                                 "text_edit is representable but not generated in v1"),
-    ga.IMPROVE_SEARCH_SNIPPET: (EXEC_UNSUPPORTED,
-                                "no meta/snippet change generator or update path exists"),
+    ga.CREATE_REGULAR_THREADS_POST: (EXEC_LOCAL_HANDOFF, None),
+    ga.CREATE_THREADS_ALTERNATIVE_ANGLE: (EXEC_LOCAL_HANDOFF, None),
+    ga.REVIEW_AFFILIATE_PLACEMENT: (EXEC_LOCAL_HANDOFF, None),
+    ga.UPDATE_EXISTING_ARTICLE: (EXEC_LOCAL_HANDOFF, None),
+    ga.IMPROVE_SEARCH_SNIPPET: (EXEC_LOCAL_HANDOFF, None),
     ga.WAIT_FOR_MORE_DATA: (EXEC_NOT_APPLICABLE, None),
     ga.INVESTIGATE_DATA_QUALITY: (EXEC_NOT_APPLICABLE, None),
+}  # fmt: skip
+
+# -- 渡す先 (C9-B) ---------------------------------------------------------------------------------
+TARGET_CHANGE_REQUEST = "change_request"
+TARGET_THREADS_GENERATION = "threads_generation_request"
+TARGET_ARTICLE_PLANNING = "article_planning_request"
+TARGET_CHANGE_PREPARATION = "change_preparation_request"
+TARGETS = (TARGET_CHANGE_REQUEST, TARGET_THREADS_GENERATION, TARGET_ARTICLE_PLANNING,
+           TARGET_CHANGE_PREPARATION)  # fmt: skip
+#: 行動 → 渡す先 (手元の依頼の種類)。無い行動は渡さない。
+HANDOFF_TARGETS = {
+    ga.REVIEW_INTERNAL_LINKS: TARGET_CHANGE_REQUEST,
+    ga.CREATE_REGULAR_THREADS_POST: TARGET_THREADS_GENERATION,
+    ga.CREATE_THREADS_ALTERNATIVE_ANGLE: TARGET_THREADS_GENERATION,
+    ga.CREATE_NEW_ARTICLE: TARGET_ARTICLE_PLANNING,
+    ga.UPDATE_EXISTING_ARTICLE: TARGET_CHANGE_PREPARATION,
+    ga.IMPROVE_SEARCH_SNIPPET: TARGET_CHANGE_PREPARATION,
+    ga.REVIEW_AFFILIATE_PLACEMENT: TARGET_CHANGE_PREPARATION,
+}
+#: 変更の準備の種類 (ChangeRequest V2)。
+CHANGE_TYPE_FOR_ACTION = {
+    ga.UPDATE_EXISTING_ARTICLE: "body_update",
+    ga.IMPROVE_SEARCH_SNIPPET: "meta_description",
+    ga.REVIEW_AFFILIATE_PLACEMENT: "affiliate_placement",
+}
+#: 変換の先ごとの支え (``supported`` / ``plan_only`` / ``unsupported``)。
+TARGET_SUPPORT = {
+    TARGET_CHANGE_REQUEST: "supported", TARGET_THREADS_GENERATION: "supported",
+    TARGET_ARTICLE_PLANNING: "supported", TARGET_CHANGE_PREPARATION: "supported",
 }  # fmt: skip
 
 
@@ -95,40 +115,63 @@ def _plan_conversion(candidate: Mapping) -> ConversionPlan:
             "the change request flow owns the WordPress write; this approval does not")
     if action == ga.CREATE_NEW_ARTICLE:
         return ConversionPlan(
-            action, SUPPORTED, "keyword → article plan",
-            f"scripts/export_article_plan.py --keyword-id {kid}" if kid else
-            "scripts/export_article_plan.py --keyword <query>",
-            ("export the read-only article plan for the keyword",
+            action, SUPPORTED, TARGET_ARTICLE_PLANNING,
+            "scripts/convert_growth_action.py <id> --execute (one article planning request)",
+            ("--execute writes one growth_handoff_requests row (article_planning, pending); "
+             "no article is created",
+             "a human approves or rejects the planning request "
+             "(scripts/manage_growth_actions.py handoff approve-plan / reject-plan)",
+             f"the existing plan flow creates the article: scripts/export_article_plan.py "
+             f"--keyword-id {kid} (read-only) then POST /api/v1/keywords/{kid}/article-plan/"
+             f"approve" if kid else "the existing plan flow creates the article",
+             "link the created article: handoff materialize <request> --article-id <id>",
              "drafting, review and publication stay in the existing article workflow"),
-            "the article plan export is read-only; publishing is a separate human step")
+            "the planning request is local only; the article plan approval, drafting and "
+            "publication are separate human steps")
     if action == ga.CREATE_GROWTH_POST:
         return ConversionPlan(
             action, LANE, "Growth lane (account_growth_maintenance)", None,
             ("the worker's Growth lane generates the day's post (awaiting human approval)",),
             "no conversion: the lane already does this")
     if action in (ga.CREATE_REGULAR_THREADS_POST, ga.CREATE_THREADS_ALTERNATIVE_ANGLE):
+        angle = (candidate.get("recommendation") or {}).get("angle")
+        lane = ("alternative angle " + str(angle)
+                if action == ga.CREATE_THREADS_ALTERNATIVE_ANGLE else "regular")
         return ConversionPlan(
-            action, UNSUPPORTED, "Threads proposal stock maintenance", None,
-            ("the stock maintenance chooses articles and angles itself; it has no targeted "
-             "request for a given article or angle",),
-            "unsupported conversion: a targeted Threads proposal request does not exist yet")
-    if action == ga.REVIEW_AFFILIATE_PLACEMENT:
+            action, SUPPORTED, TARGET_THREADS_GENERATION,
+            "scripts/convert_growth_action.py <id> --execute (one targeted generation request)",
+            (f"--execute writes one growth_handoff_requests row (threads_generation, {lane}, "
+             f"article {aid}); no OpenAI call, no Threads write",
+             "the existing proposal stock maintenance uses it only when it would generate "
+             "anyway (floor / caps / cooldown / pending-request rules unchanged), and only while "
+             "growth_action_policy.json threads_generation_requests.consume_in_stock_maintenance "
+             "is true",
+             "the proposal goes through the existing Threads approval and publication flow"),
+            "Growth Action converted ≠ Threads proposal approved ≠ published")
+    if action in CHANGE_TYPE_FOR_ACTION:
+        change_type = CHANGE_TYPE_FOR_ACTION[action]
+        downstream = {"body_update": "a change request or an editorial revision",
+                      "meta_description": "an editorial revision",
+                      "affiliate_placement": "a link mapping (manage_article_link_mapping.py) "
+                                             "or a change request"}[change_type]
         return ConversionPlan(
-            action, MANUAL, "monetization review", "scripts/manage_article_link_mapping.py",
-            ("review the article's affiliate placement by hand",
-             "if a tracked target is missing, bind it with manage_article_link_mapping "
-             "(PLAN by default)"),
-            "no automated placement change; affiliate destinations are never changed here")
-    if action in (ga.UPDATE_EXISTING_ARTICLE, ga.IMPROVE_SEARCH_SNIPPET):
-        return ConversionPlan(
-            action, UNSUPPORTED, "article content/meta change", None,
-            ("change requests generate only add_internal_link in v1; text and meta edits have "
-             "no generator",),
-            "unsupported conversion: edit by hand through the editorial workflow")
+            action, SUPPORTED, TARGET_CHANGE_PREPARATION,
+            "scripts/convert_growth_action.py <id> --execute --expected-source-hash <hash>",
+            (f"--execute writes one growth_handoff_requests row (change_preparation, "
+             f"{change_type}) with the article's frozen source hashes; no content is "
+             "generated, no URL is guessed, nothing is written to WordPress",
+             f"a human prepares the concrete change as {downstream} in the existing flow",
+             "link it: handoff prepare <request> --downstream-type <type> --downstream-id <id> "
+             "(refused when it was not made from the frozen source)",
+             "the downstream keeps its own approval and apply step"),
+            "Growth Action converted ≠ change approved ≠ applied")
     return ConversionPlan(action, NOT_APPLICABLE, None, None, (),
                           "informational: not a review or execution target")
 
 
-__all__ = ["CONVERSION_MATRIX", "EXECUTION_MODES", "EXEC_LOCAL_HANDOFF", "EXEC_NOT_APPLICABLE",
-           "EXEC_PLAN_ONLY", "EXEC_UNSUPPORTED", "LANE", "MANUAL", "NOT_APPLICABLE", "SUPPORTED",
-           "UNSUPPORTED", "ConversionPlan", "plan_conversion"]
+__all__ = ["CHANGE_TYPE_FOR_ACTION", "CONVERSION_MATRIX", "EXECUTION_MODES",
+           "EXEC_LOCAL_HANDOFF", "EXEC_NOT_APPLICABLE", "EXEC_PLAN_ONLY", "EXEC_UNSUPPORTED",
+           "HANDOFF_TARGETS", "LANE", "MANUAL", "NOT_APPLICABLE", "SUPPORTED", "TARGETS",
+           "TARGET_ARTICLE_PLANNING", "TARGET_CHANGE_PREPARATION", "TARGET_CHANGE_REQUEST",
+           "TARGET_SUPPORT", "TARGET_THREADS_GENERATION", "UNSUPPORTED", "ConversionPlan",
+           "plan_conversion"]

@@ -129,6 +129,7 @@ from app.models.growth_action import (
     GrowthActionEvent,
     GrowthActionReview,
 )
+from app.models.growth_handoff import GrowthHandoffRequest
 from app.models.keyword import Keyword
 from app.models.keyword_score import KeywordScore
 from app.models.keyword_score_signal import KeywordScoreSignal
@@ -529,6 +530,7 @@ __all__ = [
     "GrowthActionConversion",
     "GrowthActionEvent",
     "GrowthActionReview",
+    "GrowthHandoffRequest",
     "WordPressContentUpdateReconciliation",
     "WordPressContentUpdateRun",
     "WordPressDraftRun",

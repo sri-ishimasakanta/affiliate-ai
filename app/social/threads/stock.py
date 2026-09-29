@@ -123,6 +123,20 @@ class ArticleFact:
 
 
 @dataclass(frozen=True)
+class TargetedFact:
+    """C9-B: Growth Action から渡された、記事 (と切り口) を指定した生成の依頼 (古い順)。
+
+    在庫の保守が **生成が要るときに**、公平の順の 1 つの代わりに使う。上限・1 記事 1 本・
+    待ちの依頼・直近の切り口の規則はそのまま (使わないときは待つだけ)。
+    """
+
+    request_id: int
+    article_id: int
+    angle: str | None = None
+    lane: str = "regular"
+
+
+@dataclass(frozen=True)
 class StockFacts:
     now: datetime
     proposals: tuple[ProposalFact, ...]
@@ -131,6 +145,8 @@ class StockFacts:
     recent_publications: tuple[tuple[str, str], ...] = ()
     #: 答えを待っている生成の依頼の数。
     pending_generation_requests: int = 0
+    #: C9-B: 使ってよい指定の依頼 (方針のスイッチが無効なら空)。
+    targeted: tuple[TargetedFact, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -143,9 +159,11 @@ class PlannedRequest:
     reasons: tuple[str, ...]
     #: T6.3: 会話のきっかけ (conversation.py)。依頼の安定した入力から決定的に決まる。
     conversation_hook: str | None = None
+    #: C9-B: この依頼が使った指定の依頼 (無ければ None)。
+    targeted_request_id: int | None = None
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "article_id": self.article_id,
             "article_title": self.article_title,
             "topic": self.topic,
@@ -154,6 +172,9 @@ class PlannedRequest:
             "conversation_hook": self.conversation_hook,
             "reasons": list(self.reasons),
         }
+        if self.targeted_request_id is not None:
+            out["targeted_request_id"] = self.targeted_request_id
+        return out
 
 
 @dataclass(frozen=True)
@@ -302,6 +323,29 @@ def _select(facts, policy, guidance, wanted, usable_rows):
     ordered = sorted(candidates, key=key)
     chosen: list[ArticleFact] = []
     seen_topics: set[str] = set()
+    targeted: dict[int, TargetedFact] = {}
+    by_id = {a.article_id: a for a in facts.articles}
+    for target in facts.targeted:  # C9-B: 指定の依頼を先に (生成が要るときだけ、同じ上限の中で)
+        article = by_id.get(target.article_id)
+        if len(chosen) >= wanted:
+            break
+        if article is None:
+            skipped["targeted request waiting: article not eligible"] += 1
+            continue
+        if article.article_id in stocked:
+            skipped["targeted request waiting: article already has usable stock"] += 1
+            continue
+        if key(article)[0]:  # 記事の休みの期間は指定の依頼でも守る
+            skipped["targeted request waiting: article in cooldown"] += 1
+            continue
+        if target.angle and target.angle in article.recent_angles:
+            skipped["targeted request waiting: the frozen angle was used meanwhile"] += 1
+            continue
+        if article in chosen:
+            continue
+        chosen.append(article)
+        seen_topics.add(article.topic_key)
+        targeted[article.article_id] = target
     for article in ordered:  # まず違うトピックから
         if len(chosen) >= wanted:
             break
@@ -317,11 +361,12 @@ def _select(facts, policy, guidance, wanted, usable_rows):
     if wanted:
         skipped["waiting for a later cycle (fairness order)"] = len(ordered) - len(chosen)
 
-    requests = _assign(chosen, facts, policy, guidance, usable_rows)
+    requests = _assign(chosen, facts, policy, guidance, usable_rows, targeted)
     return requests, dict(sorted(skipped.items()))
 
 
-def _assign(chosen, facts, policy, guidance, usable_rows) -> list[PlannedRequest]:
+def _assign(chosen, facts, policy, guidance, usable_rows, targeted=None) -> list[PlannedRequest]:
+    targeted = targeted or {}
     window = int(policy.proposal_stock("recent_publication_window", 10))
     recent = facts.recent_publications[:window]
     angle_counts = Counter(p.angle for p in usable_rows) + Counter(a for a, _l in recent)
@@ -339,14 +384,23 @@ def _assign(chosen, facts, policy, guidance, usable_rows) -> list[PlannedRequest
     requests = []
     for article in chosen:
         reasons = []
-        options = [a for a in POST_ANGLES if a not in used and a not in article.recent_angles]
-        if not options:
-            options = [a for a in POST_ANGLES if a not in used] or list(POST_ANGLES)
-            reasons.append("every angle was used recently for this article")
-        angle = min(
-            options,
-            key=lambda a: (angle_counts.get(a, 0), angle_rank.get(a, 1), POST_ANGLES.index(a)),
-        )
+        target = targeted.get(article.article_id)
+        if target is not None and target.angle and target.angle not in used:
+            angle = target.angle
+            reasons.append(f"angle {angle}: frozen by growth handoff request #{target.request_id}")
+        else:
+            options = [a for a in POST_ANGLES if a not in used and a not in article.recent_angles]
+            if not options:
+                options = [a for a in POST_ANGLES if a not in used] or list(POST_ANGLES)
+                reasons.append("every angle was used recently for this article")
+            angle = min(
+                options,
+                key=lambda a: (angle_counts.get(a, 0), angle_rank.get(a, 1),
+                               POST_ANGLES.index(a)),
+            )
+        if target is not None:
+            reasons.append(f"targeted by growth handoff request #{target.request_id} "
+                           f"({target.lane})")
         used.add(angle)
         angle_counts[angle] += 1
         reasons.append(
@@ -378,6 +432,7 @@ def _assign(chosen, facts, policy, guidance, usable_rows) -> list[PlannedRequest
                 angle=angle,
                 link_mode=link_mode,
                 reasons=tuple(reasons),
+                targeted_request_id=target.request_id if target is not None else None,
             )
         )
     as_of = _aware(facts.now).isoformat()

@@ -172,6 +172,7 @@ def test_all_tables_registered() -> None:
         "growth_action_reviews",
         "growth_action_events",
         "growth_action_conversions",
+        "growth_handoff_requests",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

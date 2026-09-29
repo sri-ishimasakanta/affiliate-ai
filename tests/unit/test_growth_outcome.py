@@ -106,16 +106,19 @@ def test_the_outcome_has_no_score_and_no_cause() -> None:
 
 
 # == 変換の対応表 ================================
-def test_only_internal_links_can_be_executed_now() -> None:
+def test_the_conversion_matrix_is_explicit() -> None:
     modes = {a: gc.plan_conversion({"action_type": a, "article_id": 1}).execution_mode
              for a in ga.ACTION_TYPES}  # fmt: skip
-    assert [a for a, m in modes.items() if m == gc.EXEC_LOCAL_HANDOFF] == [
-        ga.REVIEW_INTERNAL_LINKS]  # fmt: skip
-    assert modes[ga.CREATE_NEW_ARTICLE] == gc.EXEC_PLAN_ONLY
-    assert modes[ga.CREATE_GROWTH_POST] == gc.EXEC_PLAN_ONLY
-    for action in (ga.CREATE_REGULAR_THREADS_POST, ga.CREATE_THREADS_ALTERNATIVE_ANGLE,
-                   ga.REVIEW_AFFILIATE_PLACEMENT, ga.UPDATE_EXISTING_ARTICLE,
+    # C9-B: 手元の依頼へ渡せる行動 (どれも外には書かない)。
+    assert {a for a, m in modes.items() if m == gc.EXEC_LOCAL_HANDOFF} == set(gc.HANDOFF_TARGETS)
+    assert gc.HANDOFF_TARGETS[ga.REVIEW_INTERNAL_LINKS] == gc.TARGET_CHANGE_REQUEST
+    assert gc.HANDOFF_TARGETS[ga.CREATE_NEW_ARTICLE] == gc.TARGET_ARTICLE_PLANNING
+    for action in (ga.CREATE_REGULAR_THREADS_POST, ga.CREATE_THREADS_ALTERNATIVE_ANGLE):
+        assert gc.HANDOFF_TARGETS[action] == gc.TARGET_THREADS_GENERATION
+    for action in (ga.REVIEW_AFFILIATE_PLACEMENT, ga.UPDATE_EXISTING_ARTICLE,
                    ga.IMPROVE_SEARCH_SNIPPET):
-        plan = gc.plan_conversion({"action_type": action, "article_id": 1})
-        assert plan.execution_mode == gc.EXEC_UNSUPPORTED and plan.missing
+        assert gc.HANDOFF_TARGETS[action] == gc.TARGET_CHANGE_PREPARATION
+    plan = gc.plan_conversion({"action_type": ga.CREATE_GROWTH_POST, "article_id": 1})
+    assert plan.execution_mode == gc.EXEC_PLAN_ONLY and plan.missing
+    assert ga.CREATE_GROWTH_POST not in gc.HANDOFF_TARGETS
     assert modes[ga.WAIT_FOR_MORE_DATA] == gc.EXEC_NOT_APPLICABLE

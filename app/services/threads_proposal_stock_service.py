@@ -284,7 +284,51 @@ class ThreadsProposalStockService:
             articles=article_facts,
             recent_publications=recent,
             pending_generation_requests=len(pending),
+            targeted=self._targeted(),
         )
+
+    # -- C9-B: 指定の依頼 ---------------------------------------------------------------
+    def _targeted(self) -> tuple:
+        """使ってよい指定の依頼 (方針のスイッチが無効・表が無ければ空: 今までと同じ)。"""
+
+        from app.services.growth_handoff_service import (
+            GrowthHandoffService,
+            consume_targeted_enabled,
+            handoff_ready,
+        )
+        from app.social.threads.stock import TargetedFact
+
+        try:
+            if not consume_targeted_enabled() or not handoff_ready(self._session):
+                return ()
+            return tuple(TargetedFact(request_id=r.id, article_id=r.article_id,
+                                      angle=r.requested_angle, lane=r.lane or "regular")
+                         for r in GrowthHandoffService(self._session).pending_targeted())
+        except Exception:  # noqa: BLE001 - 指定の依頼が読めなくても在庫の保守は止めない
+            return ()
+
+    def _handoff(self, action: str, **kwargs) -> None:
+        """指定の依頼の状態を進める (表が無い・指定の依頼で無ければ何もしない)。
+
+        依頼の記録に失敗しても、在庫の保守 (提案の保存) は止めない (依頼はそのまま残る)。
+        """
+
+        from app.models.growth_handoff import GrowthHandoffRequest
+        from app.services.growth_handoff_service import (
+            GrowthHandoffError,
+            GrowthHandoffService,
+            handoff_ready,
+        )
+
+        if not handoff_ready(self._session):
+            return
+        try:
+            getattr(GrowthHandoffService(self._session), action)(**kwargs)
+        except GrowthHandoffError:
+            self._session.rollback()
+            return
+        if any(isinstance(o, GrowthHandoffRequest) for o in self._session.dirty):
+            self._session.commit()
 
     # -- plan ----------------------------------------------------------------------
     def plan(self, *, now: datetime | None = None, collect_only: bool = False) -> dict:
@@ -387,6 +431,8 @@ class ThreadsProposalStockService:
                         request, ok=False, outcome={"result": "stale", "at": now.isoformat()}
                     )
                     outcome["stale_requests"].append(request.request_id)
+                    self._handoff("release", generation_request_id=request.request_id, now=now,
+                                  note="the generation request went stale without an answer")
                     alerts.append(_alert_unanswered(request))
                 continue
             if not can_save:
@@ -401,7 +447,10 @@ class ThreadsProposalStockService:
                     {"request_id": request.request_id, "reason": "cycle bound reached"}
                 )
                 continue
+            before = len(outcome["created"])
             self._ingest(request, output, now, room, outcome, alerts)
+            self._handoff("proposal_created", generation_request_id=request.request_id,
+                          proposal_ids=list(outcome["created"][before:]), now=now)
 
         # 2) まだ足りなければ、新しい依頼を出す (上限・待ち・migration を守る)。
         #    collect-only では、このブロックに入らない (submit を呼ぶ経路が無い)。
@@ -421,10 +470,16 @@ class ThreadsProposalStockService:
                     alerts.append(_alert_provider_failed(str(exc)))
                     break
                 outcome["requests_created"].append(request.request_id)
+                if planned.get("targeted_request_id") is not None:
+                    self._handoff("claim", request_id=planned["targeted_request_id"],
+                                  generation_request_id=request.request_id, now=now)
                 if output is not None:  # 同期の provider
                     room = per_cycle - len(outcome["created"])
                     if room > 0:
+                        before = len(outcome["created"])
                         self._ingest_with_repair(request, output, now, room, outcome, alerts)
+                        self._handoff("proposal_created", generation_request_id=request.request_id,
+                                      proposal_ids=list(outcome["created"][before:]), now=now)
 
         if alerts:
             self._alert(alerts, now)

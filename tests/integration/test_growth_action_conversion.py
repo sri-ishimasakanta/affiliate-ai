@@ -7,7 +7,8 @@ pin する契約:
 - 内部リンクの見直し → ChangeRequest (awaiting_approval) を作るところまで。ChangeRequest の
   承認・WordPress への適用は 0 件。Growth Action の承認を ChangeRequest の承認に使わない。
 - 同じ変換を 2 回しても依頼は 1 つ (前の結果を返す)。
-- ほかの行動は計画だけ・対応なしとして断る (架空の依頼を作らない)。
+- 計画だけの行動 (Growth の投稿) は断る (架空の依頼を作らない)。C9-B の手元の依頼は
+  ``test_growth_handoffs.py``。
 - 変換 ≠ 適用。effective_at は実際の適用の時刻だけ (承認・変換の時刻ではない)。
 - 変換した候補は、同じ証拠なら再び出てこない。新しい証拠は新しい版 (生きている版は 1 つ)。
 """
@@ -219,12 +220,16 @@ def test_conflicting_downstream_work_is_refused(session, approved) -> None:
     assert session.get(ChangeRequest, other.id).idempotency_key == "someone-else"
 
 
-def test_unsupported_actions_are_refused_explicitly(session, approved) -> None:
+def test_plan_only_actions_are_refused_explicitly(session, approved) -> None:
+    # C9-B: Threads の提案は手元の依頼へ渡せるようになった。Growth の投稿は計画だけのまま。
     row = _row(session, ga.CREATE_THREADS_ALTERNATIVE_ANGLE)
+    row.action_type = ga.CREATE_GROWTH_POST  # Growth の投稿の候補の代役 (計画だけの行動)
+    row.snapshot_json = {**row.snapshot_json, "action_type": ga.CREATE_GROWTH_POST}
+    session.commit()
     result = _service(session).plan(row.id, now=_NOW)
-    assert result["plan"]["execution_mode"] == "unsupported"
-    assert "GenerationRequest adapter" in result["plan"]["missing"]
-    _refused(session, _service(session), row.id, "supported: execution mode unsupported")
+    assert result["plan"]["execution_mode"] == "plan_only"
+    assert "Growth lane owns generation" in result["plan"]["missing"]
+    _refused(session, _service(session), row.id, "supported: execution mode plan_only")
 
 
 # == 実行 ================================

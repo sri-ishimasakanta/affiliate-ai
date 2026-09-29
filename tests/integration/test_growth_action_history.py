@@ -167,7 +167,8 @@ def test_review_approve_is_permission_only_and_idempotent(session) -> None:
     review = reviews.request_review(row.id, now=_NOW)
     assert reviews.request_review(row.id, now=_NOW).id == review.id  # 2 つ目は作らない
     assert review.snapshot_json["candidate_fingerprint"] == row.candidate_fingerprint
-    assert review.snapshot_json["conversion"]["support"] == "manual_only"
+    # C9-B: 配置の見直しは、変更の準備の依頼へ渡せる (承認そのものは何もしない)。
+    assert review.snapshot_json["conversion"]["target_workflow"] == "change_preparation_request"
     assert "executes nothing" in review.snapshot_json["approval_meaning"]
     approved = reviews.approve(review.id, expected_candidate_fingerprint=row.candidate_fingerprint,
                                now=_NOW)

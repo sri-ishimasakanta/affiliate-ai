@@ -193,10 +193,11 @@ def test_no_migration_was_added() -> None:
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
     # T6.5B の段階 2 の準備は migration を足していない: 観察の表 (HEAD) より後にあるのは、
-    # C9 の Growth Action の表 (Batch 2 の履歴 74bfaf6c9c9f・Batch 3 の変換 74dbecaa4bb2) だけ。
+    # C9 の Growth Action の表 (Batch 2 の履歴 74bfaf6c9c9f・Batch 3 の変換 74dbecaa4bb2・
+    # C9-B の引き渡しの依頼 4fe83827d695) だけ。
     later = [r.revision for r in script.walk_revisions(base=HEAD, head="heads")
              if r.revision != HEAD]
-    assert later == ["74dbecaa4bb2", "74bfaf6c9c9f"]
+    assert later == ["4fe83827d695", "74dbecaa4bb2", "74bfaf6c9c9f"]
 
 
 # -- 保存の門 (段階 2 以上) ----------------------------------------------------------------------

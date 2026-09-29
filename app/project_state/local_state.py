@@ -193,7 +193,9 @@ def describe_url(url: str) -> str:
 #: 記録: ``74dbecaa4bb2`` (C9 Batch 3 の変換の記録の表) は 2026-09-29 21:47 JST に本番へ適用した
 #: (人の許可あり。integrity_check ok・foreign_key_check 0・既存の表の行と中身は同じ)。backup は
 #: D:/Backups/affiliate-ai/ の ``affiliate_ai.pre-c9b3.20260929T124657Z.db``。
-PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {}
+PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {
+    "4fe83827d695": "C9-B growth handoff requests (additive table; not applied to production yet)",
+}
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 
 

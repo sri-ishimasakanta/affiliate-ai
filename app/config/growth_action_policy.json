@@ -6,5 +6,9 @@
     "max_items": 5,
     "cadence_days": 7,
     "respect_approval_notification_window": true
+  },
+  "threads_generation_requests": {
+    "note": "C9-B targeted Threads generation requests (from converted Growth Actions). While false, the proposal stock maintenance ignores them (behaviour unchanged). When true, a pending request replaces one fairness pick only when the stock would generate anyway (floor, per-cycle cap, cooldown, pending-request and recent-angle rules unchanged), so the number of OpenAI calls does not grow. Turning it on in production is a human decision.",
+    "consume_in_stock_maintenance": false
   }
 }

@@ -191,15 +191,20 @@ def test_conversion_plans_are_explicit() -> None:
 
     links = plan(ga.REVIEW_INTERNAL_LINKS)
     assert links.support == gc.SUPPORTED and "propose_change.py" in links.entry_point
-    assert plan(ga.CREATE_NEW_ARTICLE, keyword_id=12).entry_point == (
-        "scripts/export_article_plan.py --keyword-id 12")  # fmt: skip
-    for action in (ga.CREATE_REGULAR_THREADS_POST, ga.CREATE_THREADS_ALTERNATIVE_ANGLE,
-                   ga.UPDATE_EXISTING_ARTICLE, ga.IMPROVE_SEARCH_SNIPPET):
+    article = plan(ga.CREATE_NEW_ARTICLE, keyword_id=12)
+    assert article.target_workflow == gc.TARGET_ARTICLE_PLANNING
+    assert any("export_article_plan.py --keyword-id 12" in s for s in article.steps)
+    assert any("no article is created" in s for s in article.steps)
+    for action in (ga.CREATE_REGULAR_THREADS_POST, ga.CREATE_THREADS_ALTERNATIVE_ANGLE):
         p = plan(action)
-        assert p.support == gc.UNSUPPORTED and p.entry_point is None
-        assert "unsupported conversion" in p.note
+        assert p.support == gc.SUPPORTED and p.target_workflow == gc.TARGET_THREADS_GENERATION
+        assert any("no OpenAI call" in s for s in p.steps)
+    for action in (ga.UPDATE_EXISTING_ARTICLE, ga.IMPROVE_SEARCH_SNIPPET,
+                   ga.REVIEW_AFFILIATE_PLACEMENT):
+        p = plan(action)
+        assert p.support == gc.SUPPORTED and p.target_workflow == gc.TARGET_CHANGE_PREPARATION
+        assert any("no URL is guessed" in s for s in p.steps)
     assert plan(ga.CREATE_GROWTH_POST).support == gc.LANE
-    assert plan(ga.REVIEW_AFFILIATE_PLACEMENT).support == gc.MANUAL
     assert plan(ga.WAIT_FOR_MORE_DATA).support == gc.NOT_APPLICABLE
     assert all(not plan(a).writes_on_plan for a in ga.ACTION_TYPES)
 
