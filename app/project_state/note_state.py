@@ -12,6 +12,8 @@ from collections import Counter
 from pathlib import Path
 
 NOTE_DIR = Path("reports/note")
+#: N 系の段階 (定義は docs/operations/n-track-plan.md)。
+NOTE_PHASES = tuple(f"N{i}" for i in range(9))
 
 
 def collect_note_channel(root: Path, roadmap_phases: list[dict]) -> dict:
@@ -32,7 +34,7 @@ def collect_note_channel(root: Path, roadmap_phases: list[dict]) -> dict:
     by_status = Counter(d.get("status", "draft") for d in drafts)
     published = [d for d in drafts if (d.get("publication") or {}).get("url")]
     return {
-        "phases": {pid: status.get(pid) for pid in ("N0", "N1", "N2", "N3")},
+        "phases": {pid: status.get(pid) for pid in NOTE_PHASES},
         "candidates": len(candidates),
         "candidates_generated_at": generated_at,
         "top_candidate": candidates[0].get("working_title") if candidates else None,

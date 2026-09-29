@@ -449,6 +449,19 @@ ACTION_RANK = {
 }
 
 
+def _prerequisite_chain(start: str | None, planned: list[str], phases: Mapping) -> list[str]:
+    """``start`` の後に前提でつながる予定のフェーズ (N1 → N2 → … → C11)。分岐は宣言順の最初。"""
+
+    chain, current = [], start
+    while current is not None:
+        current = next((pid for pid in planned if pid not in chain
+                        and current in ((phases.get(pid) or {}).get("prerequisites") or ())),
+                       None)  # fmt: skip
+        if current is not None:
+            chain.append(current)
+    return chain
+
+
 def action_sort_key(item: Mapping) -> tuple:
     return (PRIORITY_ORDER[item["priority"]], ACTION_RANK.get(item["id"], 50), item["id"])
 
@@ -670,14 +683,20 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
             )
         )
     later = [pid for pid in project.get("upcoming_phases") or [] if pid not in (next_phase, "C10")]
+    chain = _prerequisite_chain(next_phase, later, phases)
+    unordered = [pid for pid in later if pid not in chain]
     if later:
+        text = []
+        if chain:
+            text.append("in order: " + " → ".join(chain))
+        if unordered:
+            text.append("also planned (not ordered): " + " / ".join(unordered))
         out.append(
             action(
                 "later-roadmap-phases",
                 "P3",
                 "roadmap",
-                f"later: {' / '.join(later)} "
-                f"(declared only; after {next_phase or 'the next phase'})",
+                f"later ({'; '.join(text)}; after {next_phase or 'the next phase'})",
                 why="roadmap",
                 prerequisites=["start-next-phase"] if next_phase else [],
             )

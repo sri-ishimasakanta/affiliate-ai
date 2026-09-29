@@ -32,6 +32,7 @@ import pytest
 from app.project_state import (
     compare,
     docs_health,
+    findings,
     invariants,
     precedence,
     runtime_records,
@@ -129,8 +130,8 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
     )
     assert facts["make_tracked_articles"]["value"] == [1, 10, 11]
     assert facts["current_phase"]["value"] == "T6.3.3c"  # Growth の多様さと確かさ
-    assert facts["next_phase"]["value"] == "T6.5C"  # T6.3.3c の後
-    assert facts["last_completed_phase"]["value"] == "T6.4"
+    assert facts["next_phase"]["value"] == "N1"  # C10 → N1…N8 → C11 (2026-09-30)
+    assert facts["last_completed_phase"]["value"] == "C10"
 
 
 # == disagreements A–D ==============================================================
@@ -491,8 +492,7 @@ def test_intentional_states_get_no_fix_actions_and_c10_waits(tmp_path) -> None:
     text = json.dumps(report["next_actions"])
     for forbidden in ("media 99", "delete", "broaden", "--maintain-proposal-stock ON"):
         assert forbidden not in text
-    c10 = _action(report, "c10-after-maturity")
-    assert c10["blocking"] and c10["prerequisites"] == []  # T7・N0 は完了、成熟を待つ
+    assert _action(report, "c10-after-maturity") is None  # C10 は完了 (2026-09-30)
     info = {w["id"] for w in report["warnings"] if w["severity"] == "info"}
     assert {"wp-media-99-duplicate",
             "wp-api-user-author-role"} <= info  # fmt: skip
@@ -510,14 +510,20 @@ def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
     assert {"T7A", "T7B", "T7", "N0", "T6.3.1", "T6.3.1a", "T6.3.2", "T6.3.3", "T6.4"} <= set(
         roadmap["completed"]
     )
-    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("T6.4", "T6.5C")
+    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("C10", "N1")
     assert roadmap["next_phase_prerequisites_unmet"] == []
     kinds = {p["id"]: p["evidence_kind"] for p in roadmap["phases"]}
     assert kinds["N0"] == "repository"  # docs/operations/note-channel.md
-    for pid in ("N1", "N2", "N3", "C10"):
-        assert kinds[pid] == "declared_only", pid
+    for pid in (*(f"N{i}" for i in range(1, 9)), "C10", "C11"):
+        assert kinds[pid] == "repository", pid  # n-track-plan.md / roadmap.md
     status = {p["id"]: p["status"] for p in roadmap["phases"]}
-    assert status["N1"] == "planned"  # まだ始めていない
+    assert status["C10"] == "complete"
+    for pid in (*(f"N{i}" for i in range(1, 9)), "C11"):
+        assert status[pid] == "planned", pid  # まだ始めていない
+    prereq = {p["id"]: p.get("prerequisites") for p in load_roadmap(REPO)["phases"]}
+    assert prereq["N1"] == ["N0", "C10"] and prereq["C11"] == ["N8"]
+    for i in range(2, 9):
+        assert prereq[f"N{i}"] == [f"N{i - 1}"]  # N1 → … → N8 → C11 の順
     assert "T6.5" not in status  # T6.5A〜H に分けた
     for pid in ("T6.5C", "T6.5D", "T6.5E", "T6.5F", "T6.5G", "T6.5H"):
         assert status[pid] == "planned", pid
@@ -676,3 +682,11 @@ def test_project_state_reports_the_content_quality_policy(tmp_path) -> None:
     assert policy["one_main_point"] and policy["hook_semantics_enforced"]
     assert policy["self_tuning"] is False and policy["recent_topic_window"] == 12
     assert "content quality: t6.3.1" in render_markdown(report)
+
+
+def test_later_phases_follow_the_prerequisite_chain() -> None:
+    phases = {"N1": {"prerequisites": ["N0"]}, "T6.5C": {"prerequisites": ["T6.5B"]},
+              "N2": {"prerequisites": ["N1"]}, "C11": {"prerequisites": ["N2"]}}
+    chain = findings._prerequisite_chain("N1", ["T6.5C", "N2", "C11"], phases)
+    assert chain == ["N2", "C11"]  # T6.5C は順番に入らない
+    assert findings._prerequisite_chain(None, ["N2"], phases) == []

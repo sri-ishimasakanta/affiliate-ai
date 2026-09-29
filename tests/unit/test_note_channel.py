@@ -334,4 +334,5 @@ def test_the_generator_includes_the_note_channel_without_warnings(tmp_path) -> N
     assert note["phases"]["N0"] == "complete" and note["published_with_evidence"] == 0
     assert not any("note" in w["id"] for w in report["warnings"])
     assert "note channel (local)" in render_markdown(report)
-    assert report["project"]["next_phase"] == "T6.5C"
+    assert report["project"]["next_phase"] == "N1"
+    assert set(note["phases"]) == {f"N{i}" for i in range(9)}  # N0〜N8
