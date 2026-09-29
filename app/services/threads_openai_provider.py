@@ -88,8 +88,12 @@ def proposal_schema(
     angles: tuple[str, ...] | list[str],
     conversation_hook: str | None = None,
     link_mode: str | None = None,
+    growth_assessment: bool = False,
 ):
     """Structured Outputs (strict) の JSON schema。manual の答えと同じ形。
+
+    ``growth_assessment`` (Growth Post の目的の検査): 本文についての Luna の自己評価の項目を
+    足す (Growth の生成だけ。通常の投稿の schema は変わらない)。
 
     ``conversation_hook`` (T6.3) を求める依頼では、その値だけを許す enum の項目を足す
     (モデルに別の型を選ばせない)。求めない依頼 (T6.3 より前) は前と同じ schema。
@@ -116,6 +120,11 @@ def proposal_schema(
             "link_mode": item["properties"]["link_mode"],
             "body": item["properties"]["body"],
         }
+    if growth_assessment:
+        from app.social.threads.growth_purpose import assessment_schema
+
+        item["required"] = [*item["required"], "growth_assessment"]
+        item["properties"] = {**item["properties"], "growth_assessment": assessment_schema()}
     return {
         "type": "object",
         "additionalProperties": False,
@@ -174,6 +183,7 @@ class OpenAIResponsesClient:
         feedback: tuple[str, str] | None = None,
         conversation_hook: str | None = None,
         link_mode: str | None = None,
+        growth_assessment: bool = False,
     ) -> dict:
         messages = [{"role": "user", "content": prompt}]
         if feedback is not None:
@@ -191,7 +201,8 @@ class OpenAIResponsesClient:
                     "type": "json_schema",
                     "name": "threads_proposals",
                     "strict": True,
-                    "schema": proposal_schema(angles, conversation_hook, link_mode),
+                    "schema": proposal_schema(angles, conversation_hook, link_mode,
+                                              growth_assessment=growth_assessment),
                 }
             },
             "max_output_tokens": self._max_output_tokens,
@@ -199,7 +210,8 @@ class OpenAIResponsesClient:
         }
 
     def generate(
-        self, prompt: str, *, angles, feedback=None, conversation_hook=None, link_mode=None
+        self, prompt: str, *, angles, feedback=None, conversation_hook=None, link_mode=None,
+        growth_assessment: bool = False,
     ) -> GenerationResult:
         body = self.body(
             prompt,
@@ -207,6 +219,7 @@ class OpenAIResponsesClient:
             feedback=feedback,
             conversation_hook=conversation_hook,
             link_mode=link_mode,
+            growth_assessment=growth_assessment,
         )
         attempts: list[dict] = []
         headers = {"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"}
@@ -551,7 +564,8 @@ def _sanitized_output(text: str) -> dict | str:
             items.append(
                 {
                     key: (redact(item[key]) if isinstance(item.get(key), str) else item.get(key))
-                    for key in ("angle", "conversation_hook", "link_mode", "body")
+                    for key in ("angle", "conversation_hook", "link_mode", "body",
+                                "growth_assessment")
                     if key in item
                 }
             )

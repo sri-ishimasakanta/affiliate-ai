@@ -13,6 +13,10 @@
 - T6.3.3c: 書き方 (family / hook / CTA / structure、``growth_strategy``) を brief に載せる。
   目標の人数を必ず書くか・どんなお願いで終えるかは書き方で決まる (アカウントの紹介・事実の
   境界・リンク・絵文字・長さ・似ている度合いの上限は、どの書き方でも同じ)。
+- Growth の目的 (``growth_purpose``): prompt に目的の節を必ず入れ、検査で目的 (何者か +
+  フォローの理由、開発日記・記事の要約・一般的な励まし・お願いのしすぎでない) を確かめる。
+  どの書き方でも同じ。優先順位は Growth の目的 > 事実・文体の規則 > 成績の参考 (T6.5 は
+  Growth に使わない)。
 """
 
 from __future__ import annotations
@@ -25,13 +29,15 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from app.social.threads import growth_purpose as gp
 from app.social.threads.growth_strategy import CTAS as GROWTH_CTAS
 from app.social.threads.growth_strategy import FAMILIES, HOOKS, STRUCTURES, Strategy
 from app.social.threads.quality import prose_length
 
 GROWTH_POLICY_VERSION = "t6.3.3"
 #: -2 (T6.3.3c): 書き方を選び、似すぎたら別の書き方で書き直す (1 日に多くても 4 回呼ぶ)。
-GROWTH_GENERATOR_VERSION = "threads-growth-2"
+#: -3: Growth の目的の節と目的の検査 (``growth_purpose``)、Luna の自己評価 (否決にだけ使う)。
+GROWTH_GENERATOR_VERSION = "threads-growth-3"
 #: 方針として有効か。本番で動かすには、さらに worker を ``--maintain-growth-posts`` で起動する。
 GROWTH_POSTS_ENABLED = True
 #: JST の 1 日あたりの目安 (上限でもある)。取り戻さない。
@@ -192,6 +198,10 @@ class GrowthBrief:
     facts: tuple[str, ...] = ()
     #: 前の候補が似すぎていたときの、新しい方向 (言い換えではなく、別の書き方)。
     retry_direction: str | None = None
+    #: 今回の中心の軸と結びの種類 (``growth_purpose.choose_framing``、弱い好み)。
+    framing: gp.Framing | None = None
+    #: 最近の Growth Post の軸と結び (新しい順。同じなら警告だけ)。
+    recent_framings: tuple[Mapping, ...] = ()
 
     @property
     def goal_required(self) -> bool:
@@ -220,6 +230,8 @@ class GrowthBrief:
         if self.strategy is not None:
             out["strategy"] = self.strategy.as_dict()
             out["facts_used"] = len(self.facts)
+        if self.framing is not None:
+            out["framing"] = self.framing.as_dict()
         return out
 
 
@@ -278,9 +290,12 @@ def build_prompt(brief: GrowthBrief) -> str:
             "- 最近の Growth Post と同じ言い回しにしない:",
             recent,
             "",
+            *gp.prompt_section(family=brief.angle, framing=brief.framing),
+            "",
             "## 出力",
             f'JSON: {{"proposals": [{{"angle": "{brief.angle}", "link_mode": "none", '
-            '"body": "..."}]}',
+            '"body": "...", "growth_assessment": {...}}]}',
+            gp.ASSESSMENT_PROMPT,
         ]
     )
 
@@ -298,6 +313,8 @@ def _strategy_prompt(brief: GrowthBrief, progress: str, recent: str) -> str:
     lines = [
         "あなたは Threads のアカウントの中の人として、アカウントを育てる短い投稿を 1 本書く。",
         "記事の宣伝ではない。**下の事実だけ** を使う。出来事・数字・実績を作らない。",
+        "",
+        *gp.prompt_section(family=strategy.family, framing=brief.framing),
         "",
         "## アカウント (事実の境界)",
         ACCOUNT_IDENTITY,
@@ -334,7 +351,8 @@ def _strategy_prompt(brief: GrowthBrief, progress: str, recent: str) -> str:
         "",
         "## 出力",
         f'JSON: {{"proposals": [{{"angle": "{brief.angle}", "link_mode": "none", '
-        '"body": "..."}]}',
+        '"body": "...", "growth_assessment": {...}}]}',
+        gp.ASSESSMENT_PROMPT,
     ]
     return "\n".join(lines)
 
@@ -346,7 +364,10 @@ _PEOPLE = re.compile(r"(\d[\d,，]*)\s*(?:人|名)")
 _MONEY = re.compile(r"\d[\d,，.]*\s*(?:円|万円|万|ドル|USD)|[$¥￥]\s*\d")
 _MONEY_WORDS = re.compile(r"稼い|稼げ|月収|年収|売上|売り上げ|報酬|コミッション|利益|収入")
 _MILESTONE = re.compile(r"達成|突破|到達|超えました|超えた|記念")
-_PERSONAL = re.compile(r"家族|妻|夫|子ども|子供|息子|娘|本業|会社員|脱サラ|副業で|育児|実家")
+#: 「夫」「妻」は人を指す語として見る (「工夫」「丈夫」「大丈夫」「農夫」「漁夫」「稲妻」の中の
+#: 1 文字では反応しない)。「夫婦」「夫人」などは人を指すので残る。
+_PERSONAL = re.compile(r"家族|(?<!稲)妻|(?<![工丈農漁水])夫|子ども|子供|息子|娘|本業|会社員|"
+                       r"脱サラ|副業で|育児|実家")  # fmt: skip
 _CUSTOMERS = re.compile(r"\d[\d,，]*\s*(?:社|件)|利用者|顧客|お客様|ユーザー数")
 _HASHTAG = re.compile(r"(?:^|\s)#\S")
 _CTA = re.compile(r"フォロー|フォロバ|つなが|繋が")
@@ -398,8 +419,13 @@ def recent_similarity(body: str, recent: Iterable[Mapping]) -> dict:
     }
 
 
-def validate(body: str, brief: GrowthBrief, recent: Iterable[Mapping] = ()) -> dict:
-    """Growth Post の決定的な検査。``problems`` は書き直しの理由 (残れば保存しない)。"""
+def validate(body: str, brief: GrowthBrief, recent: Iterable[Mapping] = (), *,
+             self_assessment: Mapping | None = None) -> dict:  # fmt: skip
+    """Growth Post の決定的な検査。``problems`` は書き直しの理由 (残れば保存しない)。
+
+    目的の検査 (``growth_purpose.evaluate``) もここで行う。``self_assessment`` は Luna の
+    自己評価 (否決にだけ使う)。
+    """
 
     text = body or ""
     problems: list[str] = []
@@ -459,6 +485,12 @@ def validate(body: str, brief: GrowthBrief, recent: Iterable[Mapping] = ()) -> d
             f"too similar to the recent growth post {audit['blocked_by']} "
             f"({audit['max_similarity']}); vary the wording and angle"
         )
+    purpose = gp.evaluate(text, self_assessment=self_assessment)
+    problems += list(purpose.problems)
+    if gp.repeated_framing(purpose.framing, brief.recent_framings):
+        warnings.append(f"same growth framing as the previous growth post "
+                        f"({purpose.framing.get('axis')}/{purpose.framing.get('cta_kind')}); "
+                        "vary it next time")  # fmt: skip
     if not (GROWTH_PROSE_TARGET[0] <= prose <= GROWTH_PROSE_TARGET[1]) and low <= prose <= high:
         warnings.append(f"prose is {prose} chars (target {GROWTH_PROSE_TARGET[0]}-"
                         f"{GROWTH_PROSE_TARGET[1]})")  # fmt: skip
@@ -470,6 +502,7 @@ def validate(body: str, brief: GrowthBrief, recent: Iterable[Mapping] = ()) -> d
         "character_count": len(text),
         "emoji": emojis,
         "similarity": audit,
+        "purpose": purpose.as_dict(),
     }
 
 
@@ -490,6 +523,13 @@ GROWTH_REASON_IDS = (
     ("growth_cta_missing", re.compile(r"invitation to follow|end with the requested")),
     ("growth_hook_mismatch", re.compile(r"requested question hook")),
     ("growth_duplicate", re.compile(r"too similar to the recent growth post")),
+    ("growth_purpose_who_missing", re.compile(r"growth purpose: say who the account is")),
+    ("growth_follow_reason_missing", re.compile(r"growth purpose: give a reason to follow")),
+    ("growth_development_diary_only", re.compile(r"growth purpose: reads as a development")),
+    ("growth_article_summary_like", re.compile(r"growth purpose: reads like an article")),
+    ("growth_generic_motivation_only", re.compile(r"growth purpose: generic motivation")),
+    ("growth_excessive_cta", re.compile(r"growth purpose: too many follow requests")),
+    ("growth_self_assessment_flag", re.compile(r"growth purpose: the generator's own")),
     ("malformed_output", re.compile(r"malformed output")),
 )
 

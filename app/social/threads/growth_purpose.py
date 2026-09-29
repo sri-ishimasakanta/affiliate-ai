@@ -1,0 +1,490 @@
+"""Growth Post の目的 (``threads-growth-purpose-1``): 役割・柱・目的の検査・書き方の揺らし。
+
+Growth Post は通常の投稿の追加の枠ではない。**第一の目的は、プロフィールを見てもらう・フォロー
+してもらう・つながる・やり取りすること。** 開発日記・記事の別の切り口・一般的な励ましにしない。
+
+読者が本文だけから、少なくとも次の **十分な組み合わせ** を分かること:
+
+- A. このアカウント (人) は何者か (``identity`` / ``account_purpose``)
+- B. これから何を発信するか (``future_value``)
+- C. フォローすると何が得られるか (``future_value`` / ``follow_invitation``)
+- D. どんな人とつながりたいか、または自然なやり取りの呼びかけ (``connection``)
+
+検査 (``evaluate``) は決まった規則で **文ごとに** 見る (言葉が 1 つあるかだけではなく、どの文が
+何をしているか・開発の話が本文のどれだけを占めるか)。生成した Luna の自己評価
+(``growth_assessment``) は **否決にだけ** 使う (Luna が「開発日記だ」と言えば通さない。
+Luna が「良い」と言っても、規則に落ちたものは通さない)。
+
+優先順位 (T6.5 との境界): **Growth の目的 > 事実・文体の規則 > 成績の参考 (T6.5)**。
+T6.5 の成績の参考は Growth の生成に使わない (Growth は n が少なく ``insufficient_data``。
+参考は通常の投稿だけのもの)。成績の上で弱い書き方があっても、自己紹介や作りながらの公開を
+禁止しない。強い書き方があっても、目的を満たさない投稿は通さない。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import unicodedata
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date
+
+GROWTH_PURPOSE_POLICY_VERSION = "threads-growth-purpose-1"
+
+#: Growth の柱 (何を伝えるか)。``build_in_public`` は **補助の材料** で、単独では成立しない。
+PILLARS: Mapping[str, str] = {
+    "identity": "自己紹介: 何をしている人・アカウントか",
+    "account_purpose": "このアカウントで何を発信・記録しているか",
+    "future_value": "これからどんな情報・学び・検証の結果を共有するか",
+    "goal": "何を目指しているか・何を作ろうとしているか",
+    "connection": "同じ関心を持つ人との交流の呼びかけ",
+    "follow_invitation": "自然なフォロー・続けて見てもらう案内",
+    "build_in_public": "開発・検証の途中であること (補助の材料。これだけで終えない)",
+}
+
+#: 目的の検査の結果に出る信号。
+POSITIVE_SIGNALS = ("identity_signal", "account_purpose_signal", "future_value_signal",
+                    "connection_signal", "follow_invitation_signal")  # fmt: skip
+NEGATIVE_SIGNALS = ("development_diary_only", "article_summary_like", "generic_motivation_only",
+                    "excessive_cta")  # fmt: skip
+#: Luna の自己評価の項目 (strict な JSON schema の boolean)。
+ASSESSMENT_FIELDS = (*POSITIVE_SIGNALS, "development_diary_only", "article_summary_like",
+                     "generic_motivation_only")  # fmt: skip
+
+#: 採用の条件 (``evaluate`` の docstring も参照)。
+GATE = {
+    "who": "identity_signal or account_purpose_signal",
+    "why_follow": "future_value_signal or connection_signal or follow_invitation_signal",
+    "minimum_positive_signals": 2,
+    "must_be_false": list(NEGATIVE_SIGNALS),
+    "self_assessment": "veto only (a flagged negative rejects; a positive never overrides)",
+}
+MINIMUM_POSITIVE_SIGNALS = 2
+#: 開発の話の文が本文のこの割合以上で、B/D の信号が無ければ「開発日記だけ」。
+DIARY_SHARE = 0.5
+#: 記事の説明のような文がこの割合以上で、自己紹介の印が無ければ「記事の要約のよう」。
+ARTICLE_SHARE = 0.5
+#: フォローの言葉・お願いの文がこれ以上は「お願いのしすぎ」。
+MAX_FOLLOW_MENTIONS = 2
+MAX_CTA_SENTENCES = 2
+
+#: 検査の理由 (英語の文。``growth.GROWTH_REASON_IDS`` が ID に変える)。
+PROBLEM_WHO = "growth purpose: say who the account is or what it shares"
+PROBLEM_WHY = "growth purpose: give a reason to follow or connect (future value or connection)"
+PROBLEM_DIARY = "growth purpose: reads as a development diary only"
+PROBLEM_ARTICLE = "growth purpose: reads like an article summary"
+PROBLEM_GENERIC = "growth purpose: generic motivation only"
+PROBLEM_CTA = "growth purpose: too many follow requests"
+PROBLEM_WEAK = "growth purpose: not enough growth signals"
+PROBLEM_SELF = "growth purpose: the generator's own assessment flagged"
+
+#: 目的に落ちたときの書き直しの指示 (同じ事実のまま、主役を入れ替える)。
+REWRITE_INSTRUCTION = "\n".join([
+    "Growth Post として書き直す (目的の検査に通らなかった):",
+    "- 開発の出来事を主役から外す (出来事は 1 文までの補助の材料にする)。",
+    "- このアカウントが何をしていて、誰に向けたアカウントかをはっきり書く。",
+    "- フォローすると、これから何が見られるか (発信・共有の予告) につなげる。",
+    "- 自然なつながり・フォローの呼びかけを 1 つ入れる (押し売りにしない)。",
+    "- 元の事実以上のこと (出来事・数字・実績) を作らない。",
+])  # fmt: skip
+
+# -- 書き方の揺らし (soft preference) ----------------------------------------------------------
+
+#: 中心にする軸 (最近の Growth Post と違うものを優先する。禁止ではない)。
+FRAMING_AXES: Mapping[str, str] = {
+    "identity": "自分が何者か・何をしているアカウントかを中心に",
+    "goal": "何を目指しているかを中心に",
+    "future_value": "これから何を共有していくか (フォローすると見られるもの) を中心に",
+    "connection": "どんな人とつながりたいかを中心に",
+    "current_build": "いま作っている仕組みを材料にして、アカウントの価値につなげる",
+    "learning_journey": "学びながら進めていることを材料にして、これからの共有につなげる",
+}
+#: 結びの種類 (最近と違うものを優先する)。
+CTA_KINDS: Mapping[str, str] = {
+    "follow": "自然なフォローの案内 (続けて見てもらう)",
+    "connect": "つながりの呼びかけ",
+    "comment": "コメントでのやり取りの呼びかけ (これだけで終えず、フォローの理由も入れる)",
+    "same_theme_call": "同じテーマに取り組む人への呼びかけ",
+    "future_preview": "これからの発信の予告 (次に何を共有するか)",
+}
+#: 書き方の種類 (``growth_strategy.FAMILIES``) → 合う軸。
+FAMILY_AXES: Mapping[str, tuple[str, ...]] = {
+    "account_identity": ("identity", "future_value", "connection"),
+    "goal_progress": ("goal", "future_value"),
+    "build_in_public": ("current_build", "future_value", "connection"),
+    "behind_the_scenes": ("current_build", "future_value"),
+    "lesson_learned": ("learning_journey", "future_value"),
+    "failure_improvement": ("learning_journey", "future_value"),
+    "experiment": ("current_build", "future_value"),
+    "community_question": ("connection", "identity"),
+    "principle": ("identity", "future_value"),
+    "next_step": ("future_value", "goal"),
+    "milestone": ("goal", "future_value"),
+    "mutual_growth": ("connection", "goal"),
+}
+#: 書き方の結び (``growth_strategy.CTAS``) → 合う結びの種類。``none`` でも予告は入れる
+#: (結びなしの Growth を当たり前にしない)。
+STRATEGY_CTA_KINDS: Mapping[str, tuple[str, ...]] = {
+    "follow_connect": ("follow", "connect", "same_theme_call"),
+    "mutual_growth": ("follow", "connect"),
+    "question": ("comment", "same_theme_call"),
+    "experience_share": ("comment", "same_theme_call"),
+    "soft_connection": ("connect", "same_theme_call"),
+    "none": ("future_preview",),
+}
+#: 開発の話を材料にする書き方 (目的の柱につなげることを prompt で特に求める)。
+DEVELOPMENT_FAMILIES = frozenset({"build_in_public", "behind_the_scenes", "lesson_learned",
+                                  "failure_improvement", "experiment"})  # fmt: skip
+
+
+# -- 文の規則 ---------------------------------------------------------------------------------
+
+_SENTENCE_END = re.compile(r"(?<=[。！!？?])|\n+")
+_DOMAIN = re.compile(r"AI|ＡＩ|Luna|自動化|自動で|メディア|ブログ|Threads|WordPress|記事|投稿|"
+                     r"仕組み|計測|分析", re.I)  # fmt: skip
+_SELF = re.compile(r"アカウント|私|僕|わたし|自分|中の人|個人で")
+#: 自分の活動を言う文末 (主語を書かない日本語の自己紹介)。
+_SELF_ACTIVITY = re.compile(r"(?:検証|記録|発信|運営|開発|自動化|挑戦|公開|共有|実験|作|試|育|"
+                            r"進め|取り組|つく|まとめ)[^。！!？?\n]{0,6}(?:ています|中です|てます|"
+                            r"ている(?:アカウント|ところ))")  # fmt: skip
+_SHARE = re.compile(r"(?:発信|共有|記録|公開|シェア|届け|紹介|報告|まとめ)[^。！!？?\n]{0,4}"
+                    r"(?:ています|てます|ている|していき|していく|します|する予定)")  # fmt: skip
+_FUTURE = re.compile(
+    r"(?:これから|今後|引き続き|これからも|この先|次は|次に|続けて)[^。！!？?\n]{0,40}"
+    r"(?:発信|共有|紹介|公開|記録|届け|書いて|伝え|シェア|報告|載せ|出して)"
+    r"|(?:発信|共有|紹介|公開|記録|シェア|報告)[^。！!？?\n]{0,4}(?:していきます|していく|"
+    r"する予定|していこう|します)"
+    r"|結果(?:も|を|は)[^。！!？?\n]{0,10}(?:共有|公開|報告|発信)"
+    r"|(?:知りたい|気になる|興味のある|興味がある)(?:人|方)(?:は|に|へ)"
+)  # fmt: skip
+_CONNECTION = re.compile(r"(?:同じ|似た)[^。！!？?\n]{0,20}(?:人|方)|(?:取り組んで|試して|やって|"
+                         r"興味(?:の|が)ある|関心(?:の|が)ある)[^。！!？?\n]{0,6}(?:人|方)|"
+                         r"つなが|繋が|交流|仲間")  # fmt: skip
+_TOGETHER = re.compile(r"一緒に")
+_FOLLOW = re.compile(r"フォロー|フォロバ")
+_FOLLOW_INVITE = re.compile(
+    r"(?:フォロー|フォロバ)[^。！!？?\n]{0,20}(?:いただけ|もらえ|ください|お待ち|返し|します|"
+    r"大歓迎|嬉し|うれし)"
+    r"|(?:よければ|よかったら|気軽に|ぜひ)[^。！!？?\n]{0,20}(?:フォロー|つなが|繋が)"
+    r"|(?:続けて|これからも)[^。！!？?\n]{0,10}(?:見て|読んで|のぞいて|チェック)"
+)  # fmt: skip
+_COMMENT = re.compile(r"コメント|教えて|聞かせ|[？?]\s*$")
+_GOAL = re.compile(r"目標|目指")
+_BUILD = re.compile(r"作りながら|作っている|作っています|開発中|検証中|検証して|試して|組み立て|"
+                    r"仕組みを|仕組みごと")  # fmt: skip
+_DEVELOPMENT = re.compile(
+    r"問題|不具合|エラー|バグ|直しました|直した|直す|修正|改善しました|うまくいかな|うまく動かな|"
+    r"難しい|混ざ|詰まっ|ハマ|原因|解決|勉強になった|学びになった|分かりました|わかりました|"
+    r"気づきました|対応しました|ズレ|ずれ|失敗|トラブル|今日は|昨日は|先日"
+)  # fmt: skip
+_EXPLAINER = re.compile(r"ポイント|コツ|方法|手順|とは|メリット|デメリット|注意点|おすすめ|"
+                        r"まとめると|まず|次に|最後に|第一に|すべき|しましょう|大切です|"
+                        r"重要です")  # fmt: skip
+_BULLET = re.compile(r"^\s*(?:[・\-*•]|\d+[.)．]|[①②③④⑤])", re.M)
+_MOTIVATION = re.compile(r"頑張|がんば|挑戦し続け|一歩ずつ|継続は力|諦めず|あきらめず|夢|前向き|"
+                         r"成長し続け|大切なのは|信じ|負けず|努力")  # fmt: skip
+_PUSHY = re.compile(r"今すぐフォロー|絶対(?:に)?フォロー|必ずフォロー|フォローしないと|拡散|"
+                    r"フォロー(?:を)?お願いします[！!]{2,}")  # fmt: skip
+
+
+def sentences(text: str) -> list[str]:
+    parts = _SENTENCE_END.split(unicodedata.normalize("NFKC", text or ""))
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+@dataclass(frozen=True)
+class PurposeEvaluation:
+    """目的の検査の結果 (決定的)。``evidence`` はどの文がどの信号を出したか (文の番号)。"""
+
+    signals: Mapping[str, bool]
+    evidence: Mapping[str, tuple[int, ...]]
+    shares: Mapping[str, float]
+    problems: tuple[str, ...]
+    self_assessment: Mapping[str, bool] | None = None
+    self_assessment_disagrees: tuple[str, ...] = ()
+    framing: Mapping[str, str | None] = field(default_factory=dict)
+
+    @property
+    def accepted(self) -> bool:
+        return not self.problems
+
+    @property
+    def positive_count(self) -> int:
+        return sum(1 for s in POSITIVE_SIGNALS if self.signals.get(s))
+
+    def as_dict(self) -> dict:
+        return {
+            "policy_version": GROWTH_PURPOSE_POLICY_VERSION,
+            "accepted": self.accepted,
+            "signals": dict(self.signals),
+            "positive_signals": self.positive_count,
+            "evidence_sentences": {k: list(v) for k, v in self.evidence.items() if v},
+            "shares": dict(self.shares),
+            "problems": list(self.problems),
+            "self_assessment": dict(self.self_assessment) if self.self_assessment else None,
+            "self_assessment_disagrees": list(self.self_assessment_disagrees),
+            "framing": dict(self.framing),
+            "source": "rules+self_assessment_veto" if self.self_assessment else "rules",
+        }
+
+
+def evaluate(body: str, *, self_assessment: Mapping | None = None) -> PurposeEvaluation:
+    """Growth Post の目的の検査。
+
+    採用の条件 (``GATE``): A (何者か) の信号が 1 つ以上・B/C/D (フォローの理由) の信号が
+    1 つ以上・良い信号が合わせて 2 つ以上、かつ 開発日記だけ・記事の要約のよう・一般的な
+    励ましだけ・お願いのしすぎ がどれも偽。Luna の自己評価は否決にだけ使う。
+    """
+
+    items = sentences(body)
+    body_has_domain = bool(_DOMAIN.search(body or ""))
+    hits: dict[str, list[int]] = {k: [] for k in (
+        "identity", "account_purpose", "future_value", "connection", "follow_invitation",
+        "comment", "goal", "build", "development", "explainer", "motivation", "cta")}  # fmt: skip
+    follow_mentions = len(_FOLLOW.findall(body or ""))
+    for i, sentence in enumerate(items):
+        domain = bool(_DOMAIN.search(sentence))
+        self_marked = bool(_SELF.search(sentence))
+        if (self_marked or _SELF_ACTIVITY.search(sentence)) and (domain or body_has_domain):
+            hits["identity"].append(i)
+        if _SHARE.search(sentence) and (domain or self_marked or body_has_domain):
+            hits["account_purpose"].append(i)
+        if _FUTURE.search(sentence):
+            hits["future_value"].append(i)
+        if _CONNECTION.search(sentence) or (_TOGETHER.search(sentence)
+                                            and (_FOLLOW.search(sentence) or domain)):
+            hits["connection"].append(i)
+        if _FOLLOW_INVITE.search(sentence):
+            hits["follow_invitation"].append(i)
+        if _COMMENT.search(sentence):
+            hits["comment"].append(i)
+        if _GOAL.search(sentence):
+            hits["goal"].append(i)
+        if _BUILD.search(sentence):
+            hits["build"].append(i)
+        if _DEVELOPMENT.search(sentence):
+            hits["development"].append(i)
+        if _EXPLAINER.search(sentence):
+            hits["explainer"].append(i)
+        if _MOTIVATION.search(sentence):
+            hits["motivation"].append(i)
+        if (_FOLLOW.search(sentence) or _FOLLOW_INVITE.search(sentence)
+                or _CONNECTION.search(sentence)) and not _FUTURE.search(sentence):
+            hits["cta"].append(i)
+    n = len(items) or 1
+    development_share = round(len(hits["development"]) / n, 3)
+    explainer_share = round(len(hits["explainer"]) / n, 3)
+    signals = {
+        "identity_signal": bool(hits["identity"]),
+        "account_purpose_signal": bool(hits["account_purpose"]),
+        "future_value_signal": bool(hits["future_value"]),
+        "connection_signal": bool(hits["connection"]),
+        "follow_invitation_signal": bool(hits["follow_invitation"]),
+        "goal_signal": bool(hits["goal"]),
+        "build_in_public_signal": bool(hits["build"]),
+        "interaction_cta_signal": bool(hits["comment"]),
+    }
+    who = signals["identity_signal"] or signals["account_purpose_signal"]
+    why = (signals["future_value_signal"] or signals["connection_signal"]
+           or signals["follow_invitation_signal"])  # fmt: skip
+    signals["development_diary_only"] = bool(
+        hits["development"] and development_share >= DIARY_SHARE
+        and not (signals["future_value_signal"] or signals["connection_signal"]))  # fmt: skip
+    signals["article_summary_like"] = bool(
+        (explainer_share >= ARTICLE_SHARE and not _SELF.search(body or "")
+         and not signals["identity_signal"])
+        or len(_BULLET.findall(body or "")) >= 3)  # fmt: skip
+    signals["generic_motivation_only"] = bool(
+        hits["motivation"] and not (signals["identity_signal"] or signals["account_purpose_signal"]
+                                    or signals["future_value_signal"]))  # fmt: skip
+    signals["excessive_cta"] = bool(follow_mentions > MAX_FOLLOW_MENTIONS
+                                    or len(hits["cta"]) > MAX_CTA_SENTENCES
+                                    or _PUSHY.search(body or ""))  # fmt: skip
+    problems = []
+    if not who:
+        problems.append(PROBLEM_WHO)
+    if not why:
+        problems.append(PROBLEM_WHY)
+    positives = sum(1 for s in POSITIVE_SIGNALS if signals[s])
+    if who and why and positives < MINIMUM_POSITIVE_SIGNALS:
+        problems.append(PROBLEM_WEAK)  # pragma: no cover - who と why で 2 つ以上になる
+    for name, problem in (("development_diary_only", PROBLEM_DIARY),
+                          ("article_summary_like", PROBLEM_ARTICLE),
+                          ("generic_motivation_only", PROBLEM_GENERIC),
+                          ("excessive_cta", PROBLEM_CTA)):  # fmt: skip
+        if signals[name]:
+            problems.append(problem)
+    assessment = normalize_assessment(self_assessment)
+    disagrees: list[str] = []
+    if assessment is not None:
+        disagrees = sorted(k for k in ASSESSMENT_FIELDS if assessment[k] != signals.get(k))
+        flagged = [k for k in ("development_diary_only", "article_summary_like",
+                               "generic_motivation_only") if assessment[k]]  # fmt: skip
+        if flagged:
+            problems.append(f"{PROBLEM_SELF} {', '.join(flagged)}")
+    evidence = {
+        "identity_signal": hits["identity"], "account_purpose_signal": hits["account_purpose"],
+        "future_value_signal": hits["future_value"], "connection_signal": hits["connection"],
+        "follow_invitation_signal": hits["follow_invitation"],
+        "interaction_cta_signal": hits["comment"], "goal_signal": hits["goal"],
+        "build_in_public_signal": hits["build"], "development_sentences": hits["development"],
+        "explainer_sentences": hits["explainer"], "motivation_sentences": hits["motivation"],
+        "cta_sentences": hits["cta"],
+    }  # fmt: skip
+    return PurposeEvaluation(
+        signals=signals,
+        evidence={k: tuple(v) for k, v in evidence.items()},
+        shares={"development": development_share, "explainer": explainer_share,
+                "sentences": len(items), "follow_mentions": follow_mentions},  # fmt: skip
+        problems=tuple(problems),
+        self_assessment=assessment,
+        self_assessment_disagrees=tuple(disagrees),
+        framing=observed_framing(signals, hits, len(items)),
+    )
+
+
+def normalize_assessment(raw: Mapping | None) -> dict[str, bool] | None:
+    """Luna の自己評価 (全部の項目が boolean のときだけ使う。欠けていれば無いものとする)。"""
+
+    if not isinstance(raw, Mapping):
+        return None
+    if not all(isinstance(raw.get(k), bool) for k in ASSESSMENT_FIELDS):
+        return None
+    return {k: bool(raw[k]) for k in ASSESSMENT_FIELDS}
+
+
+def observed_framing(signals: Mapping[str, bool], hits: Mapping[str, list[int]],
+                     count: int) -> dict[str, str | None]:  # fmt: skip
+    """本文から読み取れる軸と結びの種類 (最近の書き方の履歴に使う)。"""
+
+    if signals.get("development_diary_only") is False and hits["development"]:
+        axis = "learning_journey"
+    elif signals.get("build_in_public_signal"):
+        axis = "current_build"
+    elif signals.get("goal_signal"):
+        axis = "goal"
+    elif signals.get("future_value_signal"):
+        axis = "future_value"
+    elif signals.get("connection_signal"):
+        axis = "connection"
+    else:
+        axis = "identity" if signals.get("identity_signal") else None
+    last = count - 1
+    if hits["comment"] and last in hits["comment"]:
+        cta = "comment"
+    elif hits["follow_invitation"]:
+        cta = "follow"
+    elif hits["connection"]:
+        cta = ("same_theme_call" if any(i in hits["connection"] for i in hits["cta"])
+               and not hits["follow_invitation"] else "connect")  # fmt: skip
+    elif hits["future_value"]:
+        cta = "future_preview"
+    else:
+        cta = None
+    return {"axis": axis, "cta_kind": cta}
+
+
+@dataclass(frozen=True)
+class Framing:
+    """今回の Growth Post で中心にする軸と結びの種類 (弱い好み。禁止ではない)。"""
+
+    axis: str
+    cta_kind: str
+    avoided: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict:
+        return {"axis": self.axis, "cta_kind": self.cta_kind, "avoided": list(self.avoided)}
+
+
+def choose_framing(day: date, *, family: str, strategy_cta: str,
+                   recent: Sequence[Mapping[str, str | None]]) -> Framing:  # fmt: skip
+    """最近 (新しい順) の 1〜2 本と同じ軸・同じ結びを避けて選ぶ (決定的)。合うものが全部
+    最近と同じなら、それでも使う (弱い好み)。"""
+
+    recent_axes = [r.get("axis") for r in recent[:2] if r.get("axis")]
+    last_cta = next((r.get("cta_kind") for r in recent[:1] if r.get("cta_kind")), None)
+
+    def rank(value: str) -> bytes:
+        return hashlib.sha256(f"{GROWTH_PURPOSE_POLICY_VERSION}:{day}:{value}".encode()).digest()
+
+    axes = FAMILY_AXES.get(family, tuple(FRAMING_AXES))
+    axis = sorted(axes, key=lambda a: (a in recent_axes, rank(a)))[0]
+    kinds = STRATEGY_CTA_KINDS.get(strategy_cta, tuple(CTA_KINDS))
+    cta = sorted(kinds, key=lambda k: (k == last_cta, rank(k)))[0]
+    avoided = tuple(sorted({*(a for a in recent_axes if a in axes),
+                            *((last_cta,) if last_cta in kinds else ())}))  # fmt: skip
+    return Framing(axis=axis, cta_kind=cta, avoided=avoided)
+
+
+def repeated_framing(framing: Mapping[str, str | None],
+                     recent: Iterable[Mapping[str, str | None]]) -> bool:  # fmt: skip
+    """直前の Growth Post と同じ軸・同じ結び (警告だけ。検査は落とさない)。"""
+
+    previous = next(iter(recent), None)
+    return bool(previous and framing.get("axis") and framing.get("axis") == previous.get("axis")
+                and framing.get("cta_kind") == previous.get("cta_kind"))  # fmt: skip
+
+
+def prompt_section(*, family: str, framing: Framing | None) -> list[str]:
+    """Growth の生成の prompt に必ず入れる、目的の節。"""
+
+    lines = [
+        "## この投稿の目的 (Growth Post。いちばん優先する)",
+        "読んだ人が「このアカウントをこれからも見たい」と感じる投稿にする。",
+        "通常の投稿の追加の枠・開発日記・記事の別の切り口ではない。",
+        "本文だけから、次のうち十分な組み合わせが分かるようにする:",
+        "- A. 何をしている人・アカウントか (自己紹介・発信していること)",
+        "- B. これからどんな情報・学び・検証の結果を共有するか",
+        "- C. フォローすると何が得られるか",
+        "- D. どんな人とつながりたいか、または自然なやり取りの呼びかけ",
+        "A を必ず入れ、B・C・D の少なくとも 1 つを入れる。",
+        "- 単なる技術メモ・作業の報告・開発日記・一般的な励ましにしない。",
+        "- 開発・検証の話は補助の材料 (1〜2 文まで)。「こんな開発をした」で終えず、"
+        "このアカウントで何を共有していくか・誰の役に立つかにつなげる。",
+        "- フォローのお願いは自然に 1 回まで。「フォローしてください」を繰り返さない。",
+        "- 同じことに興味がある人への「つながりましょう」、フォロバの言葉は自然なら書いてよい。",
+        "- 毎回同じ自己紹介の文にしない。",
+        "- 誇張・作った実績・作った体験談は書かない (上の事実だけ)。",
+    ]
+    if family in DEVELOPMENT_FAMILIES:
+        lines.append("- この書き方は開発の話を材料にする。出来事を主役にしないで、"
+                     "アカウントの価値 (これから何を共有するか・誰と話したいか) で結ぶ。")
+    if framing is not None:
+        lines += [
+            f"- 今回の中心: {FRAMING_AXES[framing.axis]}。",
+            f"- 今回の結び: {CTA_KINDS[framing.cta_kind]}。",
+        ]
+    lines.append("- 優先順位: この目的 > 事実・文体の規則 (成績の参考は Growth には使わない)。")
+    return lines
+
+
+def assessment_schema() -> dict:
+    """Luna の自己評価の strict な JSON schema (``proposals[].growth_assessment``)。"""
+
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(ASSESSMENT_FIELDS),
+        "properties": {k: {"type": "boolean"} for k in ASSESSMENT_FIELDS},
+    }
+
+
+ASSESSMENT_PROMPT = (
+    "growth_assessment には、書いた本文について正直に true / false を入れる "
+    "(identity_signal: 何者か分かる / account_purpose_signal: 何を発信しているか分かる / "
+    "future_value_signal: これから何を共有するか分かる / connection_signal: 誰とつながりたいか "
+    "分かる / follow_invitation_signal: 自然なフォローの案内がある / development_diary_only: "
+    "開発の出来事の報告だけ / article_summary_like: 記事の要約・解説のよう / "
+    "generic_motivation_only: 一般的な励ましだけ)。"
+)
+
+
+__all__ = [
+    "ASSESSMENT_FIELDS", "ASSESSMENT_PROMPT", "CTA_KINDS", "DEVELOPMENT_FAMILIES",
+    "FAMILY_AXES", "FRAMING_AXES", "GATE", "GROWTH_PURPOSE_POLICY_VERSION", "NEGATIVE_SIGNALS",
+    "PILLARS", "POSITIVE_SIGNALS", "REWRITE_INSTRUCTION", "STRATEGY_CTA_KINDS", "Framing",
+    "PurposeEvaluation", "assessment_schema", "choose_framing", "evaluate",
+    "normalize_assessment", "observed_framing", "prompt_section", "repeated_framing",
+    "sentences",
+]  # fmt: skip

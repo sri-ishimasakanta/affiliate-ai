@@ -141,14 +141,16 @@ VALIDATION_SIMILARITY = "validation_similarity"
 VALIDATION_FORMAT = "validation_format"
 VALIDATION_HOOK = "validation_hook"
 VALIDATION_FACT = "validation_fact"
+#: Growth の目的 (``growth_purpose``) に落ちた: 同じ書き方で 1 回、主役を入れ替えて書き直す。
+VALIDATION_PURPOSE = "validation_purpose"
 PROVIDER_TRANSIENT = "provider_transient"
 PROVIDER_AUTH = "provider_auth"
 FOLLOWER_TARGET_REACHED = "follower_target_reached"
 STRATEGY_EXHAUSTED = "strategy_exhausted"
 MODEL_CALL_BUDGET_EXHAUSTED = "model_call_budget_exhausted"
 FAILURE_CLASSES = (VALIDATION_SIMILARITY, VALIDATION_FORMAT, VALIDATION_HOOK, VALIDATION_FACT,
-                   PROVIDER_TRANSIENT, PROVIDER_AUTH, FOLLOWER_TARGET_REACHED, STRATEGY_EXHAUSTED,
-                   MODEL_CALL_BUDGET_EXHAUSTED)  # fmt: skip
+                   VALIDATION_PURPOSE, PROVIDER_TRANSIENT, PROVIDER_AUTH, FOLLOWER_TARGET_REACHED,
+                   STRATEGY_EXHAUSTED, MODEL_CALL_BUDGET_EXHAUSTED)  # fmt: skip
 #: その日の最後の結果 (候補なし)。
 GROWTH_GENERATION_EXHAUSTED = "growth_generation_exhausted"
 
@@ -161,9 +163,22 @@ _REASON_CLASS = {
     "growth_customer_claim": VALIDATION_FACT,
     "growth_link": VALIDATION_FACT,
     "growth_hook_mismatch": VALIDATION_HOOK,
+    "growth_purpose_who_missing": VALIDATION_PURPOSE,
+    "growth_follow_reason_missing": VALIDATION_PURPOSE,
+    "growth_development_diary_only": VALIDATION_PURPOSE,
+    "growth_article_summary_like": VALIDATION_PURPOSE,
+    "growth_generic_motivation_only": VALIDATION_PURPOSE,
+    "growth_excessive_cta": VALIDATION_PURPOSE,
+    "growth_self_assessment_flag": VALIDATION_PURPOSE,
 }
+#: 目的の検査の理由の ID (書き直しの指示を足すため)。
+GROWTH_PURPOSE_REASON_IDS = frozenset(
+    r for r, c in _REASON_CLASS.items() if c == VALIDATION_PURPOSE)  # fmt: skip
 #: 分類の強さ (複数に落ちたら強い方で決める)。似すぎは言い換えでは直らないので最優先。
-_CLASS_RANK = (VALIDATION_SIMILARITY, VALIDATION_FACT, VALIDATION_HOOK, VALIDATION_FORMAT)
+#: 目的 (``validation_purpose``) は最後: 形・事実の問題と一緒なら、そちらの分類になる (書き直しの
+#: 指示は、目的の理由があればどの分類でも足す)。
+_CLASS_RANK = (VALIDATION_SIMILARITY, VALIDATION_FACT, VALIDATION_HOOK, VALIDATION_FORMAT,
+               VALIDATION_PURPOSE)  # fmt: skip
 #: provider の失敗の分類 (``GenerationError.category``)。
 _PROVIDER_AUTH = frozenset({"auth", "bad_request", "not_found"})
 _PROVIDER_TRANSIENT = frozenset({"timeout", "network", "rate_limited", "server_error", "http",
@@ -368,11 +383,13 @@ def history_from_meta(rows: Iterable[tuple[str | None, Mapping | None]]) -> list
 
 __all__ = [
     "CTAS", "FACT_FOLLOWER_COUNT", "FACT_KINDS", "FAILURE_CLASSES", "FAMILIES", "FAMILY_NAMES",
-    "FOLLOWER_TARGET_REACHED", "GROWTH_GENERATION_EXHAUSTED", "GROWTH_STRATEGY_POLICY_VERSION",
-    "HOOKS", "LEGACY_ANGLE_FAMILY", "MAX_GROWTH_MODEL_CALLS_PER_DAY", "MAX_REPAIRS_PER_STRATEGY",
-    "MODEL_CALL_BUDGET_EXHAUSTED", "PROVIDER_AUTH", "PROVIDER_TRANSIENT", "RECENT_STRATEGY_WINDOW",
-    "STRATEGY_EXHAUSTED", "STRUCTURES", "VALIDATION_FACT", "VALIDATION_FORMAT", "VALIDATION_HOOK",
-    "VALIDATION_SIMILARITY", "Family", "GrowthFact", "GrowthStrategyError", "HistoryItem",
-    "Strategy", "active_facts", "classify_provider", "classify_validation", "eligible_families",
-    "family_order", "history_from_meta", "load_facts", "next_strategy", "signature_order",
+    "FOLLOWER_TARGET_REACHED", "Family", "GROWTH_GENERATION_EXHAUSTED",
+    "GROWTH_PURPOSE_REASON_IDS", "GROWTH_STRATEGY_POLICY_VERSION", "GrowthFact",
+    "GrowthStrategyError", "HOOKS", "HistoryItem", "LEGACY_ANGLE_FAMILY",
+    "MAX_GROWTH_MODEL_CALLS_PER_DAY", "MAX_REPAIRS_PER_STRATEGY", "MODEL_CALL_BUDGET_EXHAUSTED",
+    "PROVIDER_AUTH", "PROVIDER_TRANSIENT", "RECENT_STRATEGY_WINDOW", "STRATEGY_EXHAUSTED",
+    "STRUCTURES", "Strategy", "VALIDATION_FACT", "VALIDATION_FORMAT", "VALIDATION_HOOK",
+    "VALIDATION_PURPOSE", "VALIDATION_SIMILARITY", "active_facts", "classify_provider",
+    "classify_validation", "eligible_families", "family_order", "history_from_meta", "load_facts",
+    "next_strategy", "signature_order",
 ]  # fmt: skip

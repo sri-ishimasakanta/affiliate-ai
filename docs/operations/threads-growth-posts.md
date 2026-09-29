@@ -394,3 +394,77 @@ T6.3.3b (Threads が `topic_tag=インサイト祭り` を受け入れたか) �
   1 日 1 本の公開・フォロワーの目標 (100 人で止まる) は変わらない。
 - やり直し中の日は、worker が続きを呼ばない (管理用 CLI だけが続けられる)。
 - 本番で使ったのは 2026-09-29 の 1 回 (人の許可あり)。
+
+## Growth の目的と目的の検査 (`app/social/threads/growth_purpose.py`、`threads-growth-purpose-1`)
+
+きっかけ: 提案 #36 (2026-09-29、人が却下)。Growth Post なのに、自己紹介・発信の価値・つながる理由が
+無く、「読み取りで問題があった → 直した → 経験を教えて」という開発日記になっていた。原因は、
+`failure_improvement` のような開発の話の書き方が、目的に触れなくても検査を通ったこと
+(検査は「AI と自動の言葉があるか」と結びの言葉だけを見ていた)。
+
+### 役割
+
+Growth Post は通常の投稿の追加の枠・開発日記・記事の別の切り口ではない。第一の目的は
+**プロフィールを見てもらう・フォロー・つながり・やり取り**。本文だけから次の十分な組み合わせが
+分かること: A 何者か / B これから何を発信するか / C フォローすると何が得られるか /
+D 誰とつながりたいか・自然なやり取りの呼びかけ。
+
+柱: `identity` / `account_purpose` / `future_value` / `goal` / `connection` /
+`follow_invitation` / `build_in_public` (補助の材料。単独では成立しない)。
+
+### prompt
+
+どの書き方でも、prompt の最初に「この投稿の目的」の節を入れる (A を必ず・B/C/D を 1 つ以上、開発の
+話は 1〜2 文までの材料、フォローのお願いは自然に 1 回まで、毎回同じ自己紹介にしない、作った実績・
+体験談なし)。開発の話の書き方 (`build_in_public` / `behind_the_scenes` / `lesson_learned` /
+`failure_improvement` / `experiment`) には「出来事を主役にしないで、アカウントの価値で結ぶ」を足す。
+
+### 目的の検査 (生成のあと、保存の前)
+
+`growth.validate` の中で `growth_purpose.evaluate` を通す。**文ごと** に見る (どの文が自己紹介か・
+これからの共有か・つながりの呼びかけか・開発の出来事か)。
+
+| 信号 | 意味 |
+|---|---|
+| `identity_signal` / `account_purpose_signal` | 何者か・何を発信しているか (A) |
+| `future_value_signal` / `connection_signal` / `follow_invitation_signal` | フォローの理由 (B/C/D) |
+| `development_diary_only` | 開発の出来事の文が半分以上で、B/D が無い |
+| `article_summary_like` | 説明の文が半分以上で自己紹介が無い、または箇条書きが 3 つ以上 |
+| `generic_motivation_only` | 励ましの言葉だけで、A/B が無い |
+| `excessive_cta` | フォローの言葉が 3 回以上・お願いの文が 3 つ以上・押し売りの言い方 |
+
+採用: A が 1 つ以上 **かつ** B/C/D が 1 つ以上 (良い信号が合わせて 2 つ以上) **かつ** 4 つの
+悪い信号がどれも偽。コメントのお願いだけ (`interaction_cta_signal`) はフォローの理由に数えない。
+既存の検査 (事実の境界・作った実績・長さ・リンク・似すぎ) はそのまま。
+
+Luna の自己評価: Growth の依頼の strict な schema にだけ `growth_assessment` (同じ名前の boolean)
+を足す。**否決にだけ使う** (Luna が開発日記・記事の要約・一般的な励ましと言えば通さない。良いと
+言っても規則に落ちたものは通さない)。規則との食い違いは記録する。
+
+記録: 呼び出しごとの `validation.purpose` (信号・どの文が出したか・割合・自己評価・食い違い)、
+保存した提案の `learning_guidance_json.growth.purpose` と `growth.framing`。理由の ID は
+`growth_purpose_who_missing` / `growth_follow_reason_missing` / `growth_development_diary_only` /
+`growth_article_summary_like` / `growth_generic_motivation_only` / `growth_excessive_cta` /
+`growth_self_assessment_flag` (分類は `validation_purpose`)。
+
+### 書き直し
+
+目的に落ちた候補は保存しない。同じ書き方で 1 回だけ、問題の一覧に「開発の出来事を主役から外す /
+誰に向けたアカウントかを書く / これから何が見られるかにつなげる / 自然な呼びかけを 1 つ / 元の
+事実以上を作らない」の指示を足して書き直す。それでも落ちれば別の書き方。1 日の上限 (4 回) に
+届けば、その日は提案なし (`growth_generation_exhausted`)。
+
+### 書き方の揺らし (弱い好み)
+
+軸 (`identity` / `goal` / `future_value` / `connection` / `current_build` / `learning_journey`) と
+結び (`follow` / `connect` / `comment` / `same_theme_call` / `future_preview`) を、書き方の種類に
+合うものの中から、最近 1〜2 本と違うものを先に選ぶ (日付から決定的)。前の日と同じ軸・結びでも
+警告だけ (落とさない)。結びなし (`none`) の書き方でも「これからの発信の予告」を求める。最近の軸と
+結びは、保存した記録 (無い古い提案は本文) から読む。
+
+### 通常の投稿・T6.5 との境界
+
+- 通常の投稿の schema・prompt・検査は変わらない (目的の検査は Growth だけ)。
+- 優先順位: **Growth の目的 > 事実・文体の規則 > 成績の参考**。T6.5 の成績の参考は Growth の生成に
+  使わない (`use_in_generation` は false のまま。Growth は n=1 で `insufficient_data`)。
+- 公開済みの Growth Post・#36 は変えない (新しい規則はこれから作る Growth Post から)。

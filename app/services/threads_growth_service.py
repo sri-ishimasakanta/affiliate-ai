@@ -57,6 +57,7 @@ from app.services.threads_openai_provider import (
     _call_totals,
     _sanitized_output,
 )
+from app.social.threads import growth_purpose as gp
 from app.social.threads import growth_strategy as gs
 from app.social.threads.errors import ThreadsError, redact
 from app.social.threads.growth import (
@@ -360,9 +361,23 @@ class ThreadsGrowthService:
         }
 
     # -- internals -----------------------------------------------------------------------
+    def recent_framings(self, day) -> list[dict]:
+        """その日より前の Growth Post の軸と結び (新しい順)。記録が無い古い提案は本文から読む。"""
+
+        out = []
+        for row in self.growth_proposals():
+            meta = _growth_meta(row) or {}
+            if not meta.get("date_jst") or meta["date_jst"] >= day.isoformat():
+                continue
+            recorded = ((meta.get("purpose") or {}).get("observed_framing")
+                        or gp.evaluate(row.content_text or "").framing)  # fmt: skip
+            out.append(dict(recorded))
+        return out[:RECENT_GROWTH_WINDOW]
+
     def _brief(self, day, observation: FollowerObservation | None, strategy: gs.Strategy,
                facts: tuple[str, ...], retry_direction: str | None) -> GrowthBrief:  # fmt: skip
         recent = self.growth_proposals()[:RECENT_GROWTH_WINDOW]
+        framings = self.recent_framings(day)
         return GrowthBrief(
             day=day,
             angle=strategy.family,
@@ -372,6 +387,9 @@ class ThreadsGrowthService:
             strategy=strategy,
             facts=facts,
             retry_direction=retry_direction,
+            framing=gp.choose_framing(day, family=strategy.family, strategy_cta=strategy.cta,
+                                      recent=framings),
+            recent_framings=tuple(framings),
         )
 
     def strategy_history(self, day) -> list[gs.HistoryItem]:
@@ -457,7 +475,8 @@ class ThreadsGrowthService:
             entry["prompt_hash"] = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
             try:
                 result = self._client.generate(
-                    prompt, angles=[brief.angle], feedback=feedback, link_mode="none"
+                    prompt, angles=[brief.angle], feedback=feedback, link_mode="none",
+                    growth_assessment=True,
                 )
             except GenerationError as exc:
                 failure_class = gs.classify_provider(exc.category)
@@ -491,6 +510,8 @@ class ThreadsGrowthService:
                 "reasons": None if check["ok"] else "; ".join(check["problems"])[:1500],
                 "audit": {"similarity": check.get("similarity"),
                           "prose_length": check.get("prose_length")},
+                # 目的の検査: 信号・どの文が出したか・Luna の自己評価 (否決にだけ使う)。
+                "purpose": check.get("purpose"),
             }  # fmt: skip
             entry["similarity"] = {"max": similarity.get("max_similarity"),
                                    "compared": (similarity.get("top") or [{}])[0].get("ref"),
@@ -602,7 +623,7 @@ class ThreadsGrowthService:
         if (item.get("link_mode") or "none") != "none":
             problems.append("a Growth Post must not contain a URL, a link or {link}")
         body = build_publish_text(item["body"], None)
-        verdict = validate(body, brief, recent)
+        verdict = validate(body, brief, recent, self_assessment=_assessment(text))
         problems += verdict["problems"]
         return {**verdict, "ok": not problems, "problems": sorted(set(problems)), "body": body}
 
@@ -642,6 +663,8 @@ class ThreadsGrowthService:
                     "strategy_policy_version": gs.GROWTH_STRATEGY_POLICY_VERSION,
                     "model_call_index": call_index,
                     "attempt_index": attempt_index,
+                    # Growth の目的の検査の結果 (次の日の書き方の揺らしにも使う)。
+                    "purpose": _purpose_meta(check.get("purpose")),
                 },
             },
             not_before=to_storage_utc(start),
@@ -783,11 +806,18 @@ def _next_action(day, calls: list[dict], families, history):
     if isinstance(items, list) and items and isinstance(items[0], dict):
         text = json.dumps(output, ensure_ascii=False)
     reasons = (last.get("validation") or {}).get("reasons")
-    if (failure in (gs.VALIDATION_FORMAT, gs.VALIDATION_FACT, gs.VALIDATION_HOOK)
+    if (failure in (gs.VALIDATION_FORMAT, gs.VALIDATION_FACT, gs.VALIDATION_HOOK,
+                    gs.VALIDATION_PURPOSE)
             and previous is not None and text and reasons
             and repairs < gs.MAX_REPAIRS_PER_STRATEGY):  # fmt: skip
         last.setdefault("next_action", {"purpose": "repair", "strategy": previous.signature,
                                         "retry_reason": failure})  # fmt: skip
+        if failure == gs.VALIDATION_PURPOSE or any(
+            r in gs.GROWTH_PURPOSE_REASON_IDS
+            for r in (last.get("validation") or {}).get("reason_ids") or []
+        ):
+            # 目的に落ちた: 問題の一覧に、主役を入れ替える書き直しの指示を足す。
+            reasons = f"{reasons}\n\n{gp.REWRITE_INSTRUCTION}"
         return ("repair", previous, (text, reasons), None)
     strategy = gs.next_strategy(day, families=families, history=history, tried=tried)
     if strategy is None:
@@ -825,6 +855,25 @@ def _totals(history: list[dict]) -> dict:
     totals["strategy_retries"] = sum(1 for c in history if c.get("purpose") == "strategy_retry")
     totals.pop("history", None)
     return totals
+
+
+def _assessment(text: str) -> dict | None:
+    """生成の出力の ``growth_assessment`` (無い・形が違えば ``None``)。"""
+
+    try:
+        data = json.loads(text)
+        return gp.normalize_assessment(data["proposals"][0].get("growth_assessment"))
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return None
+
+
+def _purpose_meta(purpose: dict | None) -> dict | None:
+    if not purpose:
+        return None
+    return {"policy_version": purpose.get("policy_version"),
+            "signals": purpose.get("signals"), "observed_framing": purpose.get("framing"),
+            "self_assessment_used": purpose.get("self_assessment") is not None,
+            "self_assessment_disagrees": purpose.get("self_assessment_disagrees")}  # fmt: skip
 
 
 def _growth_meta(row) -> dict | None:
