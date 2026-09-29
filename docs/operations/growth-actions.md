@@ -177,3 +177,53 @@ uv run python scripts/analyze_growth_action_outcomes.py show <id> --checkpoint 7
   (変換済みの版は converted のまま、`superseded_by_id` でつながる)。開いている変更の依頼は、同じ
   記事の WordPress の行動を「既存の仕事が担う」にする (同じ記事の同時の編集を避ける)。
 - worker は変換しない (評価と手元の履歴の更新だけ、Batch 2 のまま)。
+
+## C9-A: 機会の識別の固定・優先・まとめ (weekly digest)
+
+### 別の切り口の機会は記事ごとに 1 つ
+
+原因: C9 Batch 2 では「サイトの直近 1〜2 本と違う、まだ試していない最初の切り口」を機会の鍵
+(`...:angle=<切り口>`) と material に入れていた。直近の投稿が入れ替わるだけで鍵が変わり、行が
+増えた (既存の仕事が担うので知らせてはいなかった)。
+
+- 今の鍵: `create_threads_alternative_angle:article:article:<id>` (変種なし)。
+- 勧める切り口は `recommendation` (弱い好み)。**鍵・証拠の指紋に入れない** (変わっても同じ版)。
+- 新しい版になるのは material の変化だけ: 順位が中央値を跨ぐ・試した切り口・関係する出所の状態・
+  止める理由。
+- 古い形の行は消さない・書き換えない。今の規則で計算し直した指紋 (`stable_candidate_fingerprint`)
+  が同じなら、その行を同じ候補として扱う (新しい行を作らない。却下・変換・レビュー中はそのまま効く)。
+  1 つの機会に生きている行は 1 つ (ほかの古い変種は `not_observed`: 置き換えられた)。証拠が前の版に
+  戻ったときは、いまの版を生きたまま残す。migration は無い。
+- 識別の版 (`growth-action-identity/1`) は変えていない (ほかの行動の指紋は同じ)。
+
+### 優先 (人が扱える少数へ)
+
+対象: `active` + `actionable_now` + まだ扱われていない + 同じ状態 (同じ指紋) で知らせていない。
+除外の理由: blocked / covered_by_existing_work / informational / not_observed / レビュー中・承認済み・
+却下・変換済み・見送り・置き換え (not_active) / already_notified_same_state / digest_limit。
+
+並べ方は C9 の成分の順 (証拠の強さ → 機会 → 収益との関係 → 手間 (少ない方) → 急ぎ)。1 つの点数は
+作らない。候補ごとに「選んだ理由」と「次の候補より前に来た理由」(最初に違う成分) を出す。多様さは
+弱い調整: 種類ごとに一番よいものを先に入れ、残りは全体の順で埋める (候補が少なければ同じ種類が
+複数でもよい)。
+
+### まとめ (digest)
+
+```bash
+uv run python scripts/manage_growth_actions.py digest-plan            # 読むだけ・送らない
+uv run python scripts/manage_growth_actions.py digest-send            # PLAN
+uv run python scripts/manage_growth_actions.py digest-send --execute  # 方針で有効なときだけ送る
+uv run python scripts/manage_growth_actions.py review <id> --fingerprint <sha> --execute
+```
+
+| 項目 | 内容 |
+|---|---|
+| 件数 | 5 件まで (`growth_action_policy.json` `max_items`)。足りなければ少ないまま |
+| 間隔 | 週 1 回 (`cadence_days` 7)。前に送ってから 7 日経つまで送らない |
+| 窓 | 承認の通知の窓 (`threads_operations_policy.json` の `approval_notification_window`、08:00–21:00 JST) の中だけ。夜に候補が増えても送らない |
+| 送信 | `sending_enabled` (既定 **false**) と `--execute` の両方が要る。**最初の本番の送信は人の判断** |
+| 履歴 | 既存の `notification_deliveries` の 1 行 (種類 `growth_action_digest`、dedupe key はまとめの ID、`detail_json` に候補の ID・版・候補の指紋・通知の指紋・除外の数)。新しい表は無い |
+| 重複 | 同じ状態の候補はもう知らせない。同じまとめは 2 回送らない。証拠が変われば指紋が変わるので知らせてよい |
+| レビュー | 1 件ずつ (一括の承認は無い)。まとめの指紋で `review --fingerprint` を依頼し、古ければ断る。承認・却下は既存の指紋の照合のまま |
+| 携帯 | **DEFERRED**: mobile approval の中継の対象の種類は DB の CHECK と WordPress の中継で決まり、Growth Action を足すには中継の再配置が要る。CLI のレビューのまま |
+| worker | まとめを送らない (評価と手元の履歴だけ、Batch 2 のまま)。定期の実行は送信の承認のあとで決める |
