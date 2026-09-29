@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "C10-2 manually seeded discovery terms (human-written). Each seed becomes a discovery candidate only; it never creates a Keyword. Add terms as {\"phrase\": \"...\", \"note\": \"why\"}.",
+  "seeds": []
+}

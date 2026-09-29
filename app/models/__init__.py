@@ -81,6 +81,7 @@ from app.models.change_request import (
     ChangeRequestApproval,
     change_request_transition_allowed,
 )
+from app.models.content_discovery import ContentDiscoveryCandidate, NightlyAnalysisRun
 from app.models.draft_generation_run import (
     EXECUTION_MODES,
     MODE_API,
@@ -531,6 +532,8 @@ __all__ = [
     "GrowthActionEvent",
     "GrowthActionReview",
     "GrowthHandoffRequest",
+    "ContentDiscoveryCandidate",
+    "NightlyAnalysisRun",
     "WordPressContentUpdateReconciliation",
     "WordPressContentUpdateRun",
     "WordPressDraftRun",
