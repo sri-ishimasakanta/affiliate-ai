@@ -53,6 +53,8 @@ COMMERCIAL_ROLES = frozenset({COMPARISON, ROUNDUP, PRICING})
 _ROLE_MARKERS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("導入", "構築", "連携", "移行", "設定方法"), IMPLEMENTATION),
     (("活用", "ワークフロー", "自動化 方法", "効率化 方法", "テンプレート"), PRACTICAL_WORKFLOW),
+    # 料金の意図の言い方 (既存の型の印「料金・価格・費用・プラン」に無いもの)。
+    (("いくら", "課金", "pricing", "plans", "plan"), PRICING),
 )
 #: commercial_intent がこれ以上で、アフィリエイトの対象があれば「選ぶ」記事が合う。
 COMMERCIAL_INTENT_ROUNDUP_MIN = 60.0
@@ -67,7 +69,13 @@ def role_from_marker(keyword: str) -> tuple[str | None, str | None]:
     """語の印から役割 (無ければ None)。返り値: (役割, 印)。"""
 
     text = " ".join((keyword or "").split())
+    lowered = text.casefold()
     for markers, role in _ROLE_MARKERS:
+        if role == PRICING:
+            for marker in markers:
+                if marker in lowered.split() or (not marker.isascii() and marker in text):
+                    return role, marker
+            continue
         for marker in markers:
             if marker in text:
                 return role, marker
