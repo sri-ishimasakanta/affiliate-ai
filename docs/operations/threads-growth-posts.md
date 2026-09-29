@@ -263,3 +263,117 @@ queue を止める作りだった。人の決定: **Growth Post は記事の本�
 今日は #25 がすでに出ているので `growth_daily_limit` (Growth の生成 0 回・公開 0 件)。
 **本番での受け入れはまだ** (`growth_topic_production_acceptance = pending_canary`)。確認は
 2026-09-29 以降の、次の自然な Growth Post (人の承認の後に Growth の枠で公開) で行う。
+
+## Growth の多様さと確かさ・日付のトピック (T6.3.3c)
+
+実装と試験だけ (2026-09-29)。worker は再起動していない。本番の切り替えは別の確認点。
+
+### 1 日の目的
+
+**JST の 1 日に、検査を通った Growth Post の提案を 1 本** (1 回の呼び出し、ではない)。
+前 (T6.3.3): 1 回の生成 + 書き直し 1 回まで。通らなければその日は終わり (2026-09-29 は
+最近の #25 と似すぎて (0.543) 提案なし)。後 (T6.3.3c):
+
+1. 資格 (07:00 JST から、今日の提案・公開がまだ無い) とフォロワーの目標 (100 人に届いたら
+   止まる) を見る
+2. その日の記録 (`data/threads-growth/<日付>.openai.json`) から、使った呼び出しと書き方を読む
+3. 事実のそろった書き方だけを、決まった順に並べる
+4. 候補を作り、検査する。通れば `awaiting_approval` の提案を 1 本作って止まる
+5. 落ちたら、落ちた理由で次を決める (下)。**呼び出しは 1 日に多くても 4 回**
+   (`MAX_GROWTH_MODEL_CALLS_PER_DAY`、最初・書き直し・別の書き方を合わせて)。
+   上限か書き方が尽きたら、提案なしで止まる (`growth_generation_exhausted`)
+
+提案は 1 日 1 本だけ (選ばせるための複数の提案は作らない)。公開も 1 日 1 本のまま、人の承認が
+要るまま。**必ず 1 本できる、という約束ではない** (検査は弱めない。似ている度合いの上限 0.5 も
+同じ)。
+
+### 書き方 (`app/social/threads/growth_strategy.py`、`threads-growth-strategy-1`)
+
+| 部品 | 値 |
+| --- | --- |
+| family | account_identity・goal_progress・build_in_public・behind_the_scenes・lesson_learned・failure_improvement・experiment・community_question・principle・next_step・milestone・mutual_growth |
+| hook | question・experience・progress・observation・opinion・lesson・challenge・direct_statement |
+| CTA | follow_connect・mutual_growth・question・experience_share・soft_connection・none |
+| structure | single_short_point・two_paragraph・progress_then_invite・lesson_then_question・observation_then_connection・question_then_context |
+
+family ごとに使える hook・CTA・structure を決めてある。書き方の印 (signature) =
+`family+hook+cta+structure`。
+
+- **事実の要る family は、事実があるときだけ**: goal_progress は観測したフォロワー数、
+  behind_the_scenes・lesson_learned・failure_improvement・experiment・next_step・milestone は
+  `app/config/threads_growth_facts.json` の、その日に有効な文 (人が書く。公開してよい文だけ。
+  URL・path・秘密の言葉があれば読み込みで止まる)。milestone の事実はまだ無い (使わない)。
+  多様さのために出来事を作らない。
+- 目標の人数を必ず書くのは account_identity・goal_progress・milestone・mutual_growth だけ。
+  ほかの family は、何をしているアカウントか (AI と自動化) で伝える。結び (CTA) は書き方どおりか
+  を見る (question なら「？」、フォローのお願いなら「フォロー」「つながり」)。question の hook
+  は最初の段落に「？」。アカウントの紹介・事実の境界 (お金・実績・人数・個人の話)・リンク・
+  絵文字・長さ・似ている度合いは、どの書き方でも同じ検査。
+- 「フォロワー100人を目指しています」から書き始めない。必ずフォローを返す・全員に返信する、とは
+  約束しない (フォロー・返信は人が手で行う)。
+
+### 順と、落ちたときの次
+
+順は **JST の日付・方針の版・最近の履歴・使える書き方・試みの番号** だけで決まる (SHA-256。
+乱数なし)。最近 7 本の Growth Post の書き方を見て、前の日と同じ family・前の日と同じ
+family+CTA・最近と同じ signature・前の日と同じ hook を後ろに回す (選べるものが無ければ使う)。
+
+| 落ちた理由 (分類) | 次 |
+| --- | --- |
+| `validation_similarity` (最近の Growth Post に似すぎた) | 言い換えはしない。**まだ試していない family** で最初から書く。指示には新しい方向 (family の意図・書き出し・組み立て・結び) を書く。family が尽きたら、同じ family で hook・CTA・structure の 2 つ以上が違う書き方 |
+| `validation_format`・`validation_fact`・`validation_hook` | 同じ書き方で 1 回だけ書き直す (検査の理由を渡す)。それでも落ちたら別の書き方 |
+| `provider_auth` (認証・設定) | その日は止める (残りの呼び出しを使わない) |
+| `provider_transient` (時間切れ・通信・429・5xx) | その回は止め、次の点検 (1 時間ごと) に同じ書き方で続ける (上限の中で) |
+| `strategy_exhausted`・`model_call_budget_exhausted` | 提案なしで止める (`growth_generation_exhausted`) |
+| `follower_target_reached` | 呼ばない (次の目標は人が決める) |
+
+呼び出しは、呼ぶ **前に** 記録に書く (落ちても数は戻らない)。再起動の後も、記録から使った数と
+試した書き方を読み、残りの上限の中で続ける。今日の提案があれば作らない。T6.3.3c より前の形の
+記録 (書き方の版が無い) がある日は呼び直さない: **2026-09-29 の記録
+(`rejected_by_validation`・0.543) はそのまま**。
+
+### 記録
+
+- 日の記録: 呼び出しごとに `call_index`・`attempt_index`・`purpose` (initial / repair /
+  strategy_retry)・書き方・検査の結果・`failure_class`・似ている度合い (最大・比べた提案・上限)・
+  `retry_direction`・`next_action`。その日の `outcome` (stored / growth_generation_exhausted /
+  provider_auth) と `exhaustion_reason`。
+- 提案 (`learning_guidance_json.growth`): 書き方・`strategy_policy_version`・
+  `model_call_index`・`attempt_index`。migration なし。
+- `scripts/report_threads_growth_reliability.py` (読むだけ): 生成した日・提案ができた日・
+  提案なしの日・呼び出し・候補・似すぎ・書き直し・別の書き方・提案 1 本あたりの呼び出し・
+  成功の割合、と最近の family / hook / CTA / structure の分布・同じ書き方の繰り返し・最近の
+  最大の類似。**記述だけ** (フォロワー・表示回数の原因は言わない。生成に戻さない)。
+- 将来 (設計だけ): 外の傾向 (T6.5)・自分の投稿の成績・書き方の履歴 → 書き方の相談役。
+  **いまはつながない** (T6.3.3c の順は決まった規則だけ)。
+
+### Growth のトピック (日付の方針)
+
+**公開の JST の日付で決める** (`app/social/threads/topic.py`、UTC の日付では決めない)。
+
+| 種類 | 公開の日 (JST) | トピック |
+| --- | --- | --- |
+| article | いつも | AI Threads |
+| account_growth | 2026-10-04 まで (その日を含む) | インサイト祭り |
+| account_growth | 2026-10-05 00:00 から | なし |
+| 未知の種類 | — | 公開しない (fail closed) |
+
+- 10/4 23:59:59 JST → インサイト祭り、10/5 00:00:00 JST → なし (試験あり)。ただし Growth の
+  公開は公開の窓 (07:00〜23:00) の中だけなので、実際には 10/4 は 22:59 までに出る。
+- 10/4 までの公開は `topic_tag=インサイト祭り` を 1 回だけ送る。断られたら、トピックなしで出し
+  直さない (Growth の枠だけ止まり、記事の枠は続く。T6.3.3b のまま)。
+- 10/5 からは、**方針として** `topic_tag` を送らない。公開の記録に `topic_decision =
+  policy_no_topic` (断られて外した、ではない。失敗も出し直しも無い)。
+- 10/5 の後に別のトピックを自動で選ばない (`GROWTH_TOPIC_AUTO_REPLACEMENT = False`)。次は人が
+  成績とフォロワーを見て決める。
+- トピックは公開のときのメタデータだけ: 本文・提案の hash・文字数・prompt・似ている度合いの計算・
+  link_mode・目標は変わらない。本文に「インサイト祭り」を足さない (prompt もトピックの言葉を
+  書かせない)。
+- 承認の画面・メール: 10/4 までの Growth Post は「トピック: インサイト祭り」、10/5 からは
+  「トピック: なし」 (提案の公開してよい日で決める。WordPress の中継の変更は要らない)。
+- 過去の行は変えない: #25 (トピックなし) も、トピック付きで公開した行も、そのまま。
+
+T6.3.3b (Threads が `topic_tag=インサイト祭り` を受け入れたか) と T6.3.3c (多様さと確かさの
+仕組みで検査を通った提案ができたか) の本番の確認は、別々に数える。
+
+**1 日 1 本の検査を通った提案を目指し、似すぎたら別の書き方で書く。検査は弱めない。**

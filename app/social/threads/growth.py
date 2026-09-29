@@ -10,6 +10,9 @@
   実際のフォロー返しは人が手で行う (ここでは文章を作るだけ)。
 - 目標 (フォロワー 100 人) に届いた記録があれば、新しい Growth Post を作らずに止める。
   次の目標は人が決める (自動で 200・500 などにしない)。
+- T6.3.3c: 書き方 (family / hook / CTA / structure、``growth_strategy``) を brief に載せる。
+  目標の人数を必ず書くか・どんなお願いで終えるかは書き方で決まる (アカウントの紹介・事実の
+  境界・リンク・絵文字・長さ・似ている度合いの上限は、どの書き方でも同じ)。
 """
 
 from __future__ import annotations
@@ -22,10 +25,13 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from app.social.threads.growth_strategy import CTAS as GROWTH_CTAS
+from app.social.threads.growth_strategy import FAMILIES, HOOKS, STRUCTURES, Strategy
 from app.social.threads.quality import prose_length
 
 GROWTH_POLICY_VERSION = "t6.3.3"
-GROWTH_GENERATOR_VERSION = "threads-growth-1"
+#: -2 (T6.3.3c): 書き方を選び、似すぎたら別の書き方で書き直す (1 日に多くても 4 回呼ぶ)。
+GROWTH_GENERATOR_VERSION = "threads-growth-2"
 #: 方針として有効か。本番で動かすには、さらに worker を ``--maintain-growth-posts`` で起動する。
 GROWTH_POSTS_ENABLED = True
 #: JST の 1 日あたりの目安 (上限でもある)。取り戻さない。
@@ -180,6 +186,16 @@ class GrowthBrief:
     #: 新しい観測があるときだけ (無ければ目標だけを書く)。
     observation: FollowerObservation | None = None
     recent_bodies: tuple[str, ...] = ()
+    #: T6.3.3c: 今回の書き方 (``None`` は T6.3.3 の書き方: 目標とお願いが必須)。
+    strategy: Strategy | None = None
+    #: この書き方で使ってよい事実 (``app/config/threads_growth_facts.json`` の公開してよい文)。
+    facts: tuple[str, ...] = ()
+    #: 前の候補が似すぎていたときの、新しい方向 (言い換えではなく、別の書き方)。
+    retry_direction: str | None = None
+
+    @property
+    def goal_required(self) -> bool:
+        return self.strategy is None or FAMILIES[self.strategy.family].goal_required
 
     @property
     def remaining(self) -> int | None:
@@ -194,13 +210,17 @@ class GrowthBrief:
         return allowed
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "date_jst": self.day.isoformat(),
             "angle": self.angle,
             "follower_target": self.follower_target,
             "follower_observation": self.observation.as_dict() if self.observation else None,
             "uses_follower_count": self.observation is not None,
         }
+        if self.strategy is not None:
+            out["strategy"] = self.strategy.as_dict()
+            out["facts_used"] = len(self.facts)
+        return out
 
 
 def profile_hash() -> str:
@@ -225,6 +245,8 @@ def build_prompt(brief: GrowthBrief) -> str:
         if brief.recent_bodies
         else "  - (まだ無い)"
     )
+    if brief.strategy is not None:
+        return _strategy_prompt(brief, progress, recent)
     return "\n".join(
         [
             "あなたは Threads のアカウントの中の人として、"
@@ -263,6 +285,60 @@ def build_prompt(brief: GrowthBrief) -> str:
     )
 
 
+def _strategy_prompt(brief: GrowthBrief, progress: str, recent: str) -> str:
+    """T6.3.3c: 書き方 (family / hook / CTA / structure) を指定する prompt。"""
+
+    strategy = brief.strategy
+    family = FAMILIES[strategy.family]
+    facts = [f"- {text}" for text in brief.facts] or ["- (この書き方で使う追加の事実は無い)"]
+    goal = (f"- いまの目標 (まずはフォロワー {brief.follower_target} 人) を本文に書く。"
+            if brief.goal_required
+            else f"- 目標 (フォロワー {brief.follower_target} 人) は、書いても書かなくてもよい。"
+                 "書かないときは、何をしているアカウントかで伝える。")  # fmt: skip
+    lines = [
+        "あなたは Threads のアカウントの中の人として、アカウントを育てる短い投稿を 1 本書く。",
+        "記事の宣伝ではない。**下の事実だけ** を使う。出来事・数字・実績を作らない。",
+        "",
+        "## アカウント (事実の境界)",
+        ACCOUNT_IDENTITY,
+        "実際にあるもの: " + "、".join(PROJECT_AREAS),
+        "",
+        "## 今回の書き方で使ってよい事実",
+        *facts,
+        "",
+        "## 今日の投稿",
+        f"- 日付 (JST): {brief.day.isoformat()}",
+        f"- 書き方の種類: {strategy.family} ({family.intent})",
+        f"- 書き出し: {HOOKS[strategy.hook]}",
+        f"- 組み立て: {STRUCTURES[strategy.structure]}",
+        f"- 結び: {GROWTH_CTAS[strategy.cta]}",
+        progress,
+        goal,
+    ]
+    if brief.retry_direction:
+        lines += ["", "## 今回は新しい方向で書く", brief.retry_direction]
+    lines += [
+        "",
+        "## 書き方",
+        f"- 本文は {GROWTH_PROSE_TARGET[0]}〜{GROWTH_PROSE_TARGET[1]} 字くらい。",
+        "- 親しみやすく、会話のように。会社の告知のようにしない。箇条書きを並べない。",
+        f"- 絵文字は使っても {GROWTH_MAX_EMOJI} 個まで。",
+        "- 必ず入れること: このアカウントが AI で何を自動化しているか (ひとことでよい)。",
+        "- フォローを返すことは書いてよいが、必ず返す・全員に返信する、とは約束しない。",
+        "- 書かないこと: 収益・売上・報酬・金額 / 利用者や顧客の数 / 達成した・"
+        "突破したなどの実績 / 家族・仕事・生活などの個人の話 / 上に無い数字。",
+        "- URL・リンク・{link}・ハッシュタグ・トピックの言葉は書かない。",
+        "- 「フォロワー100人を目指しています」から書き始めない。",
+        "- 最近の Growth Post と同じ言い回し・同じ書き出しにしない:",
+        recent,
+        "",
+        "## 出力",
+        f'JSON: {{"proposals": [{{"angle": "{brief.angle}", "link_mode": "none", '
+        '"body": "..."}]}',
+    ]
+    return "\n".join(lines)
+
+
 # -- 検査 ---------------------------------------------------------------------------------
 
 _URL = re.compile(r"https?://|www\.|\{link\}|/go/|utm_|\.(?:com|jp|net|org)\b", re.I)
@@ -277,6 +353,11 @@ _CTA = re.compile(r"フォロー|フォロバ|つなが|繋が")
 _IDENTITY_AI = re.compile(r"AI|ＡＩ|Luna", re.I)
 _IDENTITY_AUTO = re.compile(r"自動")
 _GOAL = re.compile(r"目標|目指")
+_QUESTION = re.compile(r"[？?]")
+_SHARE = re.compile(r"[？?]|教えて|聞かせ|コメント|シェア")
+#: 書き方の結び (CTA) → 本文に要る言葉 (``None`` は要らない)。
+_CTA_PATTERN = {"follow_connect": _CTA, "mutual_growth": _CTA, "soft_connection": _CTA,
+                "question": _QUESTION, "experience_share": _SHARE, "none": None}  # fmt: skip
 
 
 def emoji_count(text: str) -> int:
@@ -360,10 +441,18 @@ def validate(body: str, brief: GrowthBrief, recent: Iterable[Mapping] = ()) -> d
         problems.append(f"{emojis} emoji; use at most {GROWTH_MAX_EMOJI}")
     if not (_IDENTITY_AI.search(text) and _IDENTITY_AUTO.search(text)):
         problems.append("say what the account does (AI and automation of the media)")
-    if not (_GOAL.search(text) and str(brief.follower_target) in text):
+    if brief.goal_required and not (_GOAL.search(text) and str(brief.follower_target) in text):
         problems.append(f"state the current goal ({brief.follower_target} followers)")
-    if not _CTA.search(text):
-        problems.append("include one natural invitation to follow or connect")
+    cta = brief.strategy.cta if brief.strategy is not None else "follow_connect"
+    pattern = _CTA_PATTERN[cta]
+    if pattern is not None and not pattern.search(text):
+        wanted = f"end with the requested {cta} closing"
+        problems.append("include one natural invitation to follow or connect"
+                        if pattern is _CTA else wanted)  # fmt: skip
+    if brief.strategy is not None and brief.strategy.hook == "question":
+        first = text.strip().split("\n\n", 1)[0]
+        if not _QUESTION.search(first):
+            problems.append("the requested question hook is missing from the opening")
     audit = recent_similarity(text, recent)
     if audit["blocked"]:
         problems.append(
@@ -398,7 +487,8 @@ GROWTH_REASON_IDS = (
     ("growth_emoji", re.compile(r"emoji; use at most")),
     ("growth_identity_missing", re.compile(r"say what the account does")),
     ("growth_goal_missing", re.compile(r"state the current goal")),
-    ("growth_cta_missing", re.compile(r"invitation to follow")),
+    ("growth_cta_missing", re.compile(r"invitation to follow|end with the requested")),
+    ("growth_hook_mismatch", re.compile(r"requested question hook")),
     ("growth_duplicate", re.compile(r"too similar to the recent growth post")),
     ("malformed_output", re.compile(r"malformed output")),
 )

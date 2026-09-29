@@ -56,10 +56,9 @@ from app.social.threads.policy import get_operations_policy as get_threads_opera
 from app.social.threads.proposal import canonical_identity
 from app.social.threads.topic import (
     TopicPolicyError,
-    content_kind,
     is_account_growth,
     topic_label,
-    topic_tag_for,
+    topic_tag_for_proposal,
 )
 
 GROWTH_POST_LABEL = "Growth Post"
@@ -473,6 +472,6 @@ def _topic_text(proposal) -> str:
     """承認のメールに出すトピック (T6.3.2)。公開のときと同じ方針で決める。"""
 
     try:
-        return topic_label(topic_tag_for(content_kind(proposal)))
+        return topic_label(topic_tag_for_proposal(proposal))
     except TopicPolicyError:
         return "不明 (この種類は公開されない)"

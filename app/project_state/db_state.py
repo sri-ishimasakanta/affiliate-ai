@@ -237,6 +237,25 @@ def generation_state(stock: dict | None, pending: list[dict]) -> dict:
     }
 
 
+def growth_topic_schedule() -> dict:
+    """T6.3.3c: Growth Post のトピックの日付の方針 (人が決めた。自動で次を選ばない)。"""
+
+    from app.social.threads.topic import (
+        GROWTH_TOPIC_AUTO_REPLACEMENT,
+        GROWTH_TOPIC_LAST_DAY,
+        THREADS_GROWTH_TOPIC_TAG,
+    )
+
+    return {
+        "growth_topic_policy_timezone": "Asia/Tokyo",
+        "growth_topic_through": GROWTH_TOPIC_LAST_DAY.isoformat(),
+        "growth_topic_through_2026_10_04": THREADS_GROWTH_TOPIC_TAG,
+        "growth_topic_from_2026_10_05": "none",
+        "growth_topic_auto_replacement": GROWTH_TOPIC_AUTO_REPLACEMENT,
+        "growth_topic_next_human_review": "after performance/follower observation",
+    }
+
+
 def topic_policy(conn) -> dict:
     """T6.3.2 の固定トピックの方針と、本番のコンテナ作成で実際に送った数 (読むだけ)。
 
@@ -246,13 +265,13 @@ def topic_policy(conn) -> dict:
     from app.social.threads.topic import (
         CONTENT_KIND_ACCOUNT_GROWTH,
         CONTENT_KIND_ARTICLE,
+        THREADS_GROWTH_TOPIC_TAG,
         THREADS_NORMAL_TOPIC_TAG,
-        TOPIC_BY_CONTENT_KIND,
     )
 
     counts: Counter = Counter()
     growth_counts: Counter = Counter()
-    growth_tag = TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH]
+    growth_tag = THREADS_GROWTH_TOPIC_TAG
     for row in _rows(
         conn,
         "select outcome, detail_json from threads_publication_attempts "
@@ -277,11 +296,14 @@ def topic_policy(conn) -> dict:
     return {
         "enabled": True,
         "normal_topic_tag": THREADS_NORMAL_TOPIC_TAG,
-        "by_content_kind": dict(TOPIC_BY_CONTENT_KIND),
+        "by_content_kind": {CONTENT_KIND_ARTICLE: THREADS_NORMAL_TOPIC_TAG,
+                            CONTENT_KIND_ACCOUNT_GROWTH: "by JST publication date"},
         "normal_content_kind": CONTENT_KIND_ARTICLE,
-        # T6.3.3b: Growth Post にも固定のトピック (インサイト祭り)。
-        "growth_topic_tag": TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH],
-        "selection": "deterministic by content kind (not Luna, hook, angle, category, link)",
+        # T6.3.3b: Growth Post のトピック (インサイト祭り)。T6.3.3c から公開の日で決まる。
+        "growth_topic_tag": growth_tag,
+        **growth_topic_schedule(),
+        "selection": "deterministic by content kind and JST publication date "
+                     "(not Luna, hook, angle, category, link)",
         "api_field": "topic_tag (POST /{threads-user-id}/threads)",
         "fail_closed": True,
         "alters_body_hash_or_character_count": False,
@@ -378,7 +400,11 @@ def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
         FollowerObservation,
         target_reached,
     )
-    from app.social.threads.topic import CONTENT_KIND_ACCOUNT_GROWTH, TOPIC_BY_CONTENT_KIND
+    from app.social.threads.growth_strategy import (
+        GROWTH_STRATEGY_POLICY_VERSION,
+        MAX_GROWTH_MODEL_CALLS_PER_DAY,
+    )
+    from app.social.threads.topic import THREADS_GROWTH_TOPIC_TAG
 
     columns = _rows(
         conn, "select name, \"notnull\" from pragma_table_info('threads_post_proposals')"
@@ -445,7 +471,12 @@ def growth_state(conn, root: Path, *, now: datetime | None = None) -> dict:
             "follower_target": GROWTH_FOLLOWER_TARGET,
             "manual_follow_back_by_user": True,
             "human_approval": True,
-            "topic_tag": TOPIC_BY_CONTENT_KIND[CONTENT_KIND_ACCOUNT_GROWTH],
+            "topic_tag": THREADS_GROWTH_TOPIC_TAG,
+            **growth_topic_schedule(),
+            # T6.3.3c: 1 日に検査を通った提案 1 本を目指す (呼び出しは多くても 4 回)。
+            "strategy_policy_version": GROWTH_STRATEGY_POLICY_VERSION,
+            "max_model_calls_per_jst_day": MAX_GROWTH_MODEL_CALLS_PER_DAY,
+            "daily_objective": "one valid proposal per eligible JST day (best effort)",
             "link_mode": "none",
             "target_reached_pauses_for_human": True,
             # T6.3.3a: 足し分の公開の枠 (記事の 120 分の間隔と 1 回 1 本の枠を使わない)。

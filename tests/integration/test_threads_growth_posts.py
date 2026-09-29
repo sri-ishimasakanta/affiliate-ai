@@ -46,6 +46,7 @@ from app.social.threads.growth import (
     select_angle,
     validate,
 )
+from app.social.threads.growth_strategy import FAMILY_NAMES
 from app.social.threads.models import ThreadsInsights
 from app.social.threads.policy import get_operations_policy
 from app.social.threads.queue import (
@@ -57,7 +58,12 @@ from app.social.threads.queue import (
     evaluate_queue,
 )
 from app.social.threads.schedule import daily_activity
-from app.social.threads.topic import TopicPolicyError, content_kind, topic_tag_for
+from app.social.threads.topic import (
+    TopicPolicyError,
+    content_kind,
+    topic_tag_for,
+    topic_tag_for_proposal,
+)
 
 JST = ZoneInfo("Asia/Tokyo")
 API_KEY = "sk-test-NEVER-A-REAL-KEY-growth-0123456789"
@@ -65,19 +71,19 @@ DAY = date(2026, 9, 28)
 MORNING = datetime(2026, 9, 28, 7, 5, tzinfo=JST).astimezone(UTC)
 
 BODY_A = (
-    "AIを使って、収益メディアをどこまで自動化できるか。WordPressの記事づくりからThreadsへの投稿、"
-    "計測まで、実際に作りながら検証して記録しています🛠️\n\n"
+    "AIを使って、収益メディアをどこまで自動化できると思いますか？WordPressの記事づくりから"
+    "Threadsへの投稿、計測まで、実際に作りながら検証して記録しています🛠️\n\n"
     "まずはフォロワー100人が目標です。AI活用やブログ運営、自動化に取り組んでいる方、気軽に"
     "つながってください。フォローいただけたら、こちらからもフォローします！"
 )
 BODY_B = (
-    "AIでメディア運営をどこまで自動化できるか、作りながら公開しているアカウントです。"
+    "AIでメディア運営をどこまで自動化できるか、気になりませんか？作りながら公開しているアカウントです。"
     "記事の下書きも、Threadsの投稿も、数字の振り返りも仕組みにしています。\n\n"
     "いまのフォロワーは現在63人。目標の100人まで、あと37人です。同じようにAIや自動化を"
     "試している方、フォロバしますので一緒に伸ばしていきましょう🙌"
 )
 BODY_C = (
-    "AIでどこまでメディア運営を自動化できるかを、作りながら公開しています。記事の下書き、"
+    "メディア運営は、AIでどこまで自動化できるのでしょう？作りながら公開しています。記事の下書き、"
     "Threadsの投稿、数字の振り返りまで、仕組みごと少しずつ育てています。\n\n"
     "目標はフォロワー100人。同じようにAIや自動化を試している方と、一緒に伸ばしていけたら"
     "うれしいです。フォロバします🙌"
@@ -214,7 +220,7 @@ def test_account_growth_requires_a_null_source_article() -> None:
     ok = type("P", (), {"learning_guidance_json": growth, "source_article_id": None})()
     bad = type("P", (), {"learning_guidance_json": growth, "source_article_id": 21})()
     assert content_kind(ok) == "account_growth"
-    assert topic_tag_for("account_growth") == "インサイト祭り"
+    assert topic_tag_for("account_growth", at=MORNING) == "インサイト祭り"  # 10/4 まで
     with pytest.raises(TopicPolicyError, match="must not have a source article"):
         content_kind(bad)
 
@@ -261,11 +267,14 @@ def test_case_a_one_growth_post_is_prepared_for_the_day(session, tmp_path) -> No
     assert row.destination_url is None and row.content_text == BODY_A
     assert row.angle == "account_growth"
     assert content_kind(row) == "account_growth"
-    assert topic_tag_for(content_kind(row)) == "インサイト祭り"  # T6.3.3b (公開のときに付ける)
+    # T6.3.3b/c: 公開のときに付ける (公開の日 2026-09-28 JST は 10/4 より前)。
+    assert topic_tag_for_proposal(row) == "インサイト祭り"
     meta = row.learning_guidance_json["growth"]
     assert meta["date_jst"] == "2026-09-28" and meta["follower_target"] == 100
     assert meta["follower_observation"] is None and meta["uses_follower_count"] is False
-    assert meta["angle"] in GROWTH_ANGLES
+    assert meta["angle"] in FAMILY_NAMES and meta["strategy"]["family"] == meta["angle"]
+    assert meta["strategy_policy_version"] == "threads-growth-strategy-1"
+    assert (meta["model_call_index"], meta["attempt_index"]) == (1, 1)
     start, end = day_window(DAY, JST)
     assert row.not_before.replace(tzinfo=UTC) == start
     assert row.expires_at.replace(tzinfo=UTC) == end
@@ -330,16 +339,21 @@ def test_case_d_repeated_runs_and_restarts_prepare_exactly_one(session, tmp_path
     assert fake.calls == 1 and len(_growth_rows(session)) == 1
 
 
-def test_a_crash_after_the_call_never_calls_again_that_day(session, tmp_path) -> None:
-    fake = GrowthLuna([BODY_A])
+def test_a_crash_after_the_call_keeps_the_call_counted(session, tmp_path) -> None:
+    # T6.3.3c: 呼ぶ前に記録を書くので、落ちても呼び出しの数は戻らない。再起動の後は、試した
+    # 書き方を使ったことにして、残りの上限 (4 回) の中で別の書き方で続ける。
+    fake = GrowthLuna([BODY_A, BODY_C])
     service = _growth(session, tmp_path, fake)
     service._persist = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash"))
     with pytest.raises(RuntimeError):
         service.maintain(now=MORNING, execute=True)
+    assert len(_record(tmp_path)["history"]) == 1 and _growth_rows(session) == []
     again = _growth(session, tmp_path, fake).maintain(now=MORNING + timedelta(hours=1),
                                                       execute=True)  # fmt: skip
-    assert fake.calls == 1 and again["created"] is None
-    assert "already attempted" in again["reason"]
+    assert fake.calls == 2 and again["created"] and again["model_calls_today"] == 2
+    first, second = _record(tmp_path)["history"]
+    assert second["purpose"] == "strategy_retry"
+    assert second["strategy"]["family"] != first["strategy"]["family"]
 
 
 def test_case_e_article_posts_keep_their_rules_and_topic(session, article) -> None:
@@ -476,39 +490,47 @@ def test_growth_body_limit_is_500() -> None:
     assert any("limit is 500" in p for p in verdict["problems"])
 
 
-def test_a_near_duplicate_of_a_recent_growth_post_is_repaired(session, tmp_path) -> None:
+def test_a_near_duplicate_switches_to_a_different_strategy(session, tmp_path) -> None:
     _growth(session, tmp_path, GrowthLuna([BODY_A])).maintain(
         now=MORNING - timedelta(days=1), execute=True
     )
-    fake = GrowthLuna([BODY_A, BODY_C])  # 昨日と同じ言い回し → 書き直し
+    fake = GrowthLuna([BODY_A, BODY_C])  # 昨日と同じ言い回し → 別の書き方で新しく
     out = _growth(session, tmp_path, fake).maintain(now=MORNING, execute=True)
     assert fake.calls == 2 and out["created"]
     assert session.get(ThreadsPostProposal, out["created"]).content_text == BODY_C
     record = _record(tmp_path)
-    assert (record["generation_attempts"], record["model_calls"], record["repair_calls"]) == (
-        1, 2, 1,
-    )  # fmt: skip
+    assert (record["generation_attempts"], record["model_calls"], record["repair_calls"],
+            record["strategy_retries"]) == (2, 2, 0, 1)  # fmt: skip
     first, second = record["history"]
     assert first["purpose"] == "initial" and first["output"]["proposals"][0]["body"] == BODY_A
     assert first["validation"]["reason_ids"] == ["growth_duplicate"]
-    assert first["validation"]["audit"]["similarity"]["blocked"] is True
-    assert second["purpose"] == "repair" and second["repair_reason_ids"] == ["growth_duplicate"]
-    assert second["validation"]["ok"] is True
+    assert first["failure_class"] == "validation_similarity"
+    assert first["similarity"]["max"] >= 0.5 and first["similarity"]["compared"]
+    assert first["next_action"]["purpose"] == "strategy_retry"
+    # 言い換え (書き直し) ではなく、別の family で新しく書く。新しい方向を指示に書く。
+    assert second["purpose"] == "strategy_retry" and "repair_reason_ids" not in second
+    assert second["strategy"]["family"] != first["strategy"]["family"]
+    assert "言い換えではなく" in second["retry_direction"]
+    assert second["validation"]["ok"] is True and record["outcome"] == "stored"
     assert record["usage"]["input_tokens"] == 1800 and record["content_kind"] == "account_growth"
     assert API_KEY not in json.dumps(record)
 
 
-def test_a_persistent_duplicate_fails_safely(session, tmp_path) -> None:
+def test_a_persistent_duplicate_exhausts_safely(session, tmp_path) -> None:
     _growth(session, tmp_path, GrowthLuna([BODY_A])).maintain(
         now=MORNING - timedelta(days=1), execute=True
     )
-    fake = GrowthLuna([BODY_A, BODY_A])
+    fake = GrowthLuna([BODY_A] * 6)
     out = _growth(session, tmp_path, fake).maintain(now=MORNING, execute=True)
-    assert fake.calls == 2 and out["created"] is None and len(_growth_rows(session)) == 1
-    assert _record(tmp_path)["result"] == "rejected_by_validation"
+    assert fake.calls == 4 and out["created"] is None and len(_growth_rows(session)) == 1
+    record = _record(tmp_path)
+    assert record["outcome"] == "growth_generation_exhausted"
+    assert record["exhaustion_reason"] == "model_call_budget_exhausted"
+    assert len({c["strategy"]["family"] for c in record["history"]}) == 4  # 毎回 別の書き方
     again = _growth(session, tmp_path, fake).maintain(now=MORNING + timedelta(hours=2),
                                                       execute=True)  # fmt: skip
-    assert fake.calls == 2 and again["created"] is None  # 同じ日は呼び直さない
+    assert fake.calls == 4 and again["created"] is None  # 5 回目は呼ばない
+    assert "finished (growth_generation_exhausted)" in again["reason"]
 
 
 def test_angles_rotate_deterministically_without_adjacent_repeats() -> None:

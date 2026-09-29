@@ -6,7 +6,9 @@
     # 期限が来ていれば今日の分を 1 本だけ用意する (awaiting_approval。承認・公開はしない)
     uv run python scripts/maintain_threads_growth_post.py --execute
 
-JST の 1 日に 1 本まで。その日の提案か生成の記録があれば、何度実行しても作らない。
+JST の 1 日に 1 本まで。その日の提案があれば、何度実行しても作らない。T6.3.3c: その日の
+呼び出しは多くても 4 回 (記録のファイルから数える。再起動しても戻らない)。似すぎた候補は
+別の書き方で書き直す。T6.3.3c より前の記録がある日は呼び直さない。
 フォロワー数は ``--collect-followers`` のときだけ Threads から 1 回読む (読むだけ)。
 記事の無い提案を保存する migration (``c4d2e8f1a9b3``) の前の DB では、PLAN だけが動く。
 """
@@ -75,6 +77,7 @@ def main(
     keys = (
         "date_jst", "due", "reason", "active_proposal", "published_today",
         "follower_target", "follower_target_reached", "created", "model_calls",
+        "model_calls_today", "model_call_budget", "outcome", "strategy",
     )  # fmt: skip
     for key in keys:
         if key in result:

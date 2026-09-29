@@ -9,8 +9,9 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -65,7 +66,9 @@ def _growth_creates(api) -> list[dict]:
 
 def test_the_topic_policy() -> None:
     assert THREADS_NORMAL_TOPIC_TAG == "AI Threads" and THREADS_GROWTH_TOPIC_TAG == G
-    assert topic_tag_for("article") == "AI Threads" and topic_tag_for("account_growth") == G
+    before_cutoff = datetime(2026, 10, 4, 23, 59, 59, tzinfo=ZoneInfo("Asia/Tokyo"))
+    assert topic_tag_for("article") == "AI Threads"
+    assert topic_tag_for("account_growth", at=before_cutoff) == G  # T6.3.3c: 10/4 まで
 
 
 def test_case_a_and_b_growth_and_article_payloads(session, article) -> None:  # noqa: F811

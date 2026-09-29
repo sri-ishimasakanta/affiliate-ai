@@ -89,7 +89,7 @@ def _threads_post_snapshot(proposal, article) -> dict:
         TopicPolicyError,
         content_kind,
         is_account_growth,
-        topic_tag_for,
+        topic_tag_for_proposal,
     )
 
     guidance = proposal.learning_guidance_json or {}
@@ -97,7 +97,8 @@ def _threads_post_snapshot(proposal, article) -> dict:
     meta = guidance.get("growth") or {} if growth else {}
     try:
         kind = content_kind(proposal)
-        topic = ja.topic_label(topic_tag_for(kind))
+        # T6.3.3c: Growth Post は公開してよい日 (JST) で決まる (公開のときと同じ方針)。
+        topic = ja.topic_label(topic_tag_for_proposal(proposal))
     except TopicPolicyError:
         kind, topic = None, "不明 (この種類は公開されない)"
     if growth:

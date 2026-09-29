@@ -193,7 +193,8 @@ def _no_secret(session, *objects) -> None:
 def test_the_fixed_topic_is_ai_threads_and_is_valid() -> None:
     assert THREADS_NORMAL_TOPIC_TAG == "AI Threads"
     assert topic_tag_for(CONTENT_KIND_ARTICLE) == "AI Threads"
-    assert topic_tag_for(CONTENT_KIND_ACCOUNT_GROWTH) == "インサイト祭り"  # T6.3.3b
+    # T6.3.3b/c: 公開の日 (JST) が 10/4 までなら "インサイト祭り"。
+    assert topic_tag_for(CONTENT_KIND_ACCOUNT_GROWTH, at=_NOW) == "インサイト祭り"
     assert validate_topic_tag("インサイト祭り") == "インサイト祭り"
     assert set(CONTENT_KINDS) == {CONTENT_KIND_ARTICLE, CONTENT_KIND_ACCOUNT_GROWTH}
     assert validate_topic_tag("AI Threads") == "AI Threads"
@@ -255,7 +256,7 @@ def test_case_a_normal_post_sends_the_topic_and_records_it(session, article) -> 
     assert row.status == PUB_PUBLISHED and row.exact_published_text == _TEXT
     steps = {a.step: a for a in _attempts(session, row.id)}
     assert steps["create_container"].detail_json == {
-        "creation_id": "container-1", "content_kind": "article",
+        "creation_id": "container-1", "content_kind": "article", "topic_decision": "policy_topic",
         "topic_tag": "AI Threads", "topic_tag_sent": True,
     }  # fmt: skip
     assert steps["publish_container"].detail_json["media_id"] == "media-1"
@@ -301,6 +302,7 @@ def test_case_c_topic_rejection_never_falls_back_to_an_untagged_post(session, ar
     assert attempt.step == "create_container" and attempt.outcome == "failed"
     assert attempt.detail_json == {
         "content_kind": "article", "topic_tag": "AI Threads", "topic_tag_sent": True,
+        "topic_decision": "policy_topic",
         "status": 400, "api_code": "100",
     }  # fmt: skip
     assert "topic_tag" in (attempt.error_message or "")
@@ -393,6 +395,7 @@ def test_an_unknown_content_kind_is_never_published(session, article) -> None:
 def test_the_digest_email_shows_the_topic(session, article) -> None:
     normal = _proposal(session, article)
     growth = _proposal(session, article, seed="c", guidance={"content_kind": "account_growth"})
+    growth.not_before = _NOW  # T6.3.3c: Growth Post のトピックは公開してよい日 (JST) で決まる
     assert _topic_text(normal) == "AI Threads" and _topic_text(growth) == "インサイト祭り"
     item = {"proposal_id": 1, "article_title": "記事", "angle": "insight", "preview": "本文",
             "timing": None, "topic": _topic_text(normal), "review_url": "https://x/r"}  # fmt: skip

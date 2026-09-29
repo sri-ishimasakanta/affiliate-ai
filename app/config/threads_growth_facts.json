@@ -1,0 +1,41 @@
+{
+ "version": "threads-growth-facts-1",
+ "note": "Public-safe, true facts that Growth Posts may use (T6.3.3c). Written and updated by a human. Each fact enables the Growth strategy family that needs its kind, only between valid_from and valid_until (JST dates). No secrets, paths, URLs, identifiers, private counts or unreleased details. Kinds: behind_the_scenes, lesson, failure_improvement, experiment, next_step, milestone. A family whose kind has no active fact is not used (do not invent events for variety).",
+ "facts": [
+  {
+   "id": "bts-human-review",
+   "kind": "behind_the_scenes",
+   "text": "投稿の下書きは AI が作り、公開する前に人が 1 本ずつ読んで確かめています",
+   "valid_from": "2026-09-29",
+   "valid_until": "2026-10-31"
+  },
+  {
+   "id": "lesson-check-against-screen",
+   "kind": "lesson",
+   "text": "自動で集めたデータも、実際の画面と照らし合わせないと、小さなズレに気づけないと分かりました",
+   "valid_from": "2026-09-29",
+   "valid_until": "2026-10-31"
+  },
+  {
+   "id": "fix-observer-body-reading",
+   "kind": "failure_improvement",
+   "text": "Threads の投稿を読み取る仕組みで、画面の表示の文字が本文に混ざる問題が見つかり、読み取り方を直しました",
+   "valid_from": "2026-09-29",
+   "valid_until": "2026-10-31"
+  },
+  {
+   "id": "experiment-trend-observation",
+   "kind": "experiment",
+   "text": "Threads でどんな投稿が読まれているのかを、画面で確かめながら記録する仕組みを試しています",
+   "valid_from": "2026-09-29",
+   "valid_until": "2026-10-31"
+  },
+  {
+   "id": "next-use-observations",
+   "kind": "next_step",
+   "text": "記録したデータを、投稿の書き方を見直すのに使えるか、これから試す予定です",
+   "valid_from": "2026-09-29",
+   "valid_until": "2026-10-31"
+  }
+ ]
+}

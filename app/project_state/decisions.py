@@ -533,6 +533,28 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-growth-diversity-t633c",
+        "area": "threads/growth",
+        "decision": (
+            "T6.3.3c: Growth は 1 日に検査を通った提案 1 本を目指す (呼び出しは多くても 4 回)。"
+            "似すぎたら別の書き方で新しく書く。Growth のトピックは 2026-10-04 (JST) まで"
+            "インサイト祭り、10-05 からなし"
+        ),
+        "rationale": (
+            "2026-09-29 は 1 回の生成と書き直しが最近の投稿に似すぎて、提案なしで終わった。"
+            "検査を弱めずに、書き方そのものを変えて 1 本を目指す。トピックは人が期限を決めた"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "**必ず 1 本できる、という約束ではない**",
+        "resulting_state": (
+            "threads-growth-strategy-1・日の記録から数える呼び出しの上限 4・似ている度合いの上限は"
+            "同じ・日付のトピックの方針。本番の worker はまだ古いコード (切り替えは別の確認点)"
+        ),
+        "follow_up": (
+            "本番の切り替え (worker の再起動は人の許可) と、次の自然な Growth Post の確認"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (

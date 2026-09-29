@@ -66,6 +66,7 @@ from app.social.threads.topic import (
     TopicPolicyError,
     content_kind,
     is_account_growth,
+    topic_decision,
     topic_tag_for,
 )
 
@@ -222,6 +223,9 @@ class PublishPlan:
     #: T6.3.2: 投稿の種類と、コンテナ作成で送るトピック (None は送らない)。
     content_kind: str | None = None
     topic_tag: str | None = None
+    #: T6.3.3c: トピックの決め方 (``policy_topic`` / ``policy_no_topic``)。方針でなしのときも
+    #: 記録に残す (断られてトピックを外した、とは区別する。外して出し直すことは無い)。
+    topic_decision: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -250,6 +254,7 @@ class PublishPlan:
             "gap_overridden_reason": self.gap_overridden_reason,
             "content_kind": self.content_kind,
             "topic_tag": self.topic_tag,
+            "topic_decision": self.topic_decision,
             "eligible": self.ok,
         }
 
@@ -375,7 +380,9 @@ class ThreadsPublicationService:
         plan.blocked_reasons.extend(assessment.integrity_reasons)
         try:
             plan.content_kind = content_kind(proposal)
-            plan.topic_tag = topic_tag_for(plan.content_kind)
+            # T6.3.3c: Growth Post のトピックは公開の時刻 (JST の日付) で決まる。
+            plan.topic_tag = topic_tag_for(plan.content_kind, at=now)
+            plan.topic_decision = topic_decision(plan.topic_tag)
         except TopicPolicyError as exc:
             # 種類もトピックも決まらないなら出さない (トピックなしで出す逃げ道は作らない)。
             plan.blocked_reasons.append(f"topic policy: {exc}")
@@ -478,6 +485,7 @@ class ThreadsPublicationService:
             "content_kind": plan.content_kind,
             "topic_tag": plan.topic_tag,
             "topic_tag_sent": plan.topic_tag is not None,
+            "topic_decision": plan.topic_decision,
             **(audit or {}),
         }
         self._set(row, PUB_CREATING, reason="creating the media container")

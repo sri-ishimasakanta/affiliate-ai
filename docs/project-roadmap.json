@@ -1,8 +1,8 @@
 {
   "schema": "project-roadmap/1",
   "note": "Repository-declared phase status. current_phase is the phase in progress (null when none is in progress); next_phase is the next phase to start (planned, not started). scripts/generate_project_state.py verifies each phase's evidence (the files mention the phase id; the commits exist) and reports disagreements. Update this file when a phase changes state; do not rewrite history.",
-  "current_phase": "T6.5B.2",
-  "next_phase": "T6.3.3c",
+  "current_phase": "T6.3.3c",
+  "next_phase": "T6.5C",
   "last_completed_phase": "T6.4",
   "phases": [
     {"id": "C8.7", "title": "Email alerts + weekly reports", "status": "complete",
@@ -59,9 +59,9 @@
     {"id": "T6.3.3b", "title": "Growth Post topic \"インサイト祭り\" (forward-only, fail closed, growth lane only)", "status": "active",
      "evidence": {"files": ["docs/operations/threads-growth-posts.md"], "commits": []},
      "note": "code deployed; worker loaded the new policy 2026-09-28 16:55 JST (pid 9288); article topic AI Threads, growth topic インサイト祭り; production acceptance pending_canary (next natural Growth Post)"},
-    {"id": "T6.3.3c", "title": "Growth Diversity & Reliability", "status": "planned",
-     "evidence": {"files": ["docs/operations/threads-trend-intelligence.md"], "commits": []},
-     "note": "not started; next after T6.5B.5 (2026-09-29)"},
+    {"id": "T6.3.3c", "title": "Growth Diversity & Reliability (bounded daily retries, semantic strategy diversity, date-based Growth topic)", "status": "active",
+     "evidence": {"files": ["docs/operations/threads-growth-posts.md"], "commits": []},
+     "note": "implemented 2026-09-29 (tests only; production cutover pending): one valid Growth proposal per eligible JST day as a best-effort objective; max 4 Growth model calls per JST day counted from the durable day record (restart-safe); similarity failures switch to a different strategy family (threads-growth-strategy-1: family/hook/CTA/structure, deterministic order, fact-gated families); format/fact/hook failures get one targeted repair; provider auth stops the day, transient pauses; human approval and max 1 Growth publication/day unchanged; similarity threshold unchanged; Growth topic インサイト祭り through 2026-10-04 JST, none from 2026-10-05 JST (no automatic replacement; next topic after human review); article lane unchanged; T6.5 advisory integration is design only; T6.5 Stage-2 stored pilot deferred until after Growth work"},
     {"id": "T6.4", "title": "Japanese user-facing localization (approval email, review page, warnings, alerts, daily/weekly reports)", "status": "complete",
      "evidence": {"files": ["docs/operations/threads-localization.md"], "commits": []},
      "note": "complete 2026-09-28: worker rollout (b6bc174), approval relay deployed and verified, the human confirmed the Japanese mobile review page on proposal #27, approval sync succeeded after the deploy"},
