@@ -512,6 +512,27 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-stage2-live-audit-complete-t65b5",
+        "area": "threads/analytics",
+        "decision": (
+            "T6.5B.5: 段階 2 の画面の監査を本物の画面で確かめて閉じる。"
+            "段階 2 の保存 (50 件 / 日) は後に戻し、次は T6.3.3c (Growth の多様さと確かさ) に進む"
+        ),
+        "rationale": (
+            "dry-run 4 回で、本文の形 2 つと画面の証拠の数え方 2 つを直し、最後の回で証拠 100%・"
+            "47 件の照合の食い違い 0 になった。保存は、急がずに後で人が許可してから行う"
+        ),
+        "evidence": ["docs/operations/threads-trend-intelligence.md"],
+        "phrase": "**T6.5B.5 = 完了。**",
+        "resulting_state": (
+            "visual audit t6.5b-visual-audit-3・collector-6・selector v4。観察の表は変えていない。"
+            "rollout.current_stage 0、段階 2 は無効"
+        ),
+        "follow_up": (
+            "T6.3.3c Growth Diversity & Reliability。段階 2 の保存は後で (人の許可が要る)"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (
