@@ -105,3 +105,21 @@ subsystem `performance_feedback_evaluation` (読むだけ・メモリに持つ�
 - 記述だけ: 特徴と成績の関連で、原因ではない。本数が少ない間は仮説。
 - トピックの記録は新しい投稿だけ (古い投稿は `unknown`)。
 - 比率は views が下限以上の投稿だけ (いまは少ない)。
+
+## 生成の依頼への固定 (prompt を作った時点の参考)
+
+在庫の生成の依頼 (`GenerationRequest.performance_feedback`、依頼の JSON の中。列は増やさない) に、
+prompt に入れた参考をそのまま固定する (`threads-performance-feedback-frozen/1`):
+`used_in_generation`・`schema`・`fingerprint`・`mode`・`evaluated_at`・`checkpoint`・`evidence`・
+`content` (参考の中身)。指紋は `content` の正規の JSON の sha256 (評価の時刻は入らない。Growth の
+最新の値も入らない)。参考を使わない依頼は `{"used_in_generation": false}` だけ (指紋は求めない)。
+
+保存の時 (`ThreadsProposalService.persist(frozen_feedback=..., request_prompt=...)`):
+
+- 固定した中身から指紋を計算し直して、固定した指紋と一致すること。
+- 実際に provider へ渡した prompt の参考の節が、その中身から作ったものと同じこと
+  (中立・使っていないなら、参考の節が無いこと)。
+- 合えば **固定した参考** を来歴に残す (`frozen_at_prompt: true`)。今の参考に差し替えない。
+- 合わなければ `performance feedback mismatch` で保存しない (fail closed)。
+
+この項目の無い古い依頼は、前と同じ経路で取り込める。

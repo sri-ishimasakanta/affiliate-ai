@@ -260,3 +260,52 @@ def test_real_personal_references_are_still_rejected(extra) -> None:
     verdict = validate(OK_FUTURE + extra, _brief())
     assert _PERSONAL_PROBLEM in verdict["problems"]
     assert "growth_personal_anecdote" in growth_reason_ids("; ".join(verdict["problems"]))
+
+
+# == フォローの案内とつながりの意味を分ける (C9 A) =================================================
+#: 2026-09-29 の実 Luna の preview (9/30 向け、合格)。フォローの言葉は無く、つながりの呼びかけだけ。
+PREVIEW_0930 = (
+    "いまは、WordPressの記事サイトとThreadsへの投稿を動かしながら、AIで投稿の下書き生成や作業を"
+    "どこまで自動化できるか試しています。次は、記録したデータを投稿の書き方の見直しに使えるか"
+    "検証します。\n\nこれから、試したことや分かったことを共有していくアカウントです。同じように"
+    "AI活用やメディア運営の自動化に取り組む人と、気軽につながれたら嬉しいです。"
+)
+
+
+@pytest.mark.parametrize("sentence", [
+    "気軽につながれたら嬉しいです。",
+    "よければつながってください。",
+    "同じテーマの方と交流したいです。",
+    "自動化について話したいです。",
+])  # fmt: skip
+def test_connection_intent_alone_is_not_a_follow_invitation(sentence) -> None:
+    e = gp.evaluate("AIで記事サイトの運営を自動化しているアカウントです。" + sentence)
+    assert e.signals["connection_signal"] is True
+    assert e.signals["follow_invitation_signal"] is False
+
+
+@pytest.mark.parametrize("sentence", [
+    "よければフォローしてください。",
+    "フォローいただけたら嬉しいです。",
+    "フォロバします。",
+    "これからも続けて見てもらえたら嬉しいです。",
+    "次の投稿もチェックしてください。",
+    "今後も見守ってもらえたら嬉しいです。",
+])  # fmt: skip
+def test_explicit_follow_or_continued_watching_is_a_follow_invitation(sentence) -> None:
+    e = gp.evaluate("AIで記事サイトの運営を自動化しているアカウントです。" + sentence)
+    assert e.signals["follow_invitation_signal"] is True
+
+
+def test_the_accepted_preview_stays_accepted_without_a_follow_invitation() -> None:
+    e = gp.evaluate(PREVIEW_0930)
+    assert e.accepted is True
+    assert e.signals["follow_invitation_signal"] is False
+    assert all(e.signals[s] for s in ("identity_signal", "account_purpose_signal",
+                                      "future_value_signal", "connection_signal"))  # fmt: skip
+
+
+def test_a_comment_request_alone_is_still_not_a_connection() -> None:
+    e = gp.evaluate(NG_36)
+    assert e.signals["connection_signal"] is False and e.signals["interaction_cta_signal"]
+    assert e.accepted is False

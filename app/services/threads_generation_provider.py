@@ -59,9 +59,14 @@ class GenerationRequest:
     prompt: str = field(default="", repr=False)
     #: T6.3: 求める会話のきっかけ。T6.3 より前の依頼は ``None`` (きっかけ無しの形のまま)。
     conversation_hook: str | None = None
+    #: T6.5: prompt を作った時点の成績の参考 (``performance_analysis.freeze_for_request``)。
+    #: 使っていなければ ``{"used_in_generation": false}``。この項目より前の依頼は ``None``。
+    performance_feedback: dict | None = field(default=None, repr=False, compare=False)
 
     def as_dict(self) -> dict:
         extra = {"conversation_hook": self.conversation_hook} if self.conversation_hook else {}
+        if self.performance_feedback is not None:
+            extra["performance_feedback"] = self.performance_feedback
         return {
             "request_id": self.request_id,
             "article_id": self.article_id,
@@ -93,6 +98,9 @@ class GenerationRequest:
             reasons=tuple(data.get("reasons", ())),
             prompt=prompt,
             conversation_hook=data.get("conversation_hook"),
+            performance_feedback=(data.get("performance_feedback")
+                                  if isinstance(data.get("performance_feedback"), dict)
+                                  else None),  # fmt: skip
         )
 
 

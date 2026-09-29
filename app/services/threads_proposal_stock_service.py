@@ -71,6 +71,7 @@ from app.social.threads.conversation import (
     hook_from_provenance,
 )
 from app.social.threads.fact_guard import fact_boundary_errors
+from app.social.threads.performance_analysis import freeze_for_request
 from app.social.threads.policy import ThreadsOperationsPolicy, get_operations_policy
 from app.social.threads.prompt import parse_generated
 from app.social.threads.quality import (
@@ -796,6 +797,8 @@ class ThreadsProposalStockService:
                 learning_as_of=as_of,
                 expected_guidance=request.guidance_fingerprint,
                 generation_brief=brief,
+                frozen_feedback=request.performance_feedback,
+                request_prompt=request.prompt or None,
             )
         except ThreadsProposalError as exc:
             self._session.rollback()
@@ -870,6 +873,8 @@ class ThreadsProposalStockService:
             reasons=tuple(planned["reasons"]),
             prompt=package.rendered_prompt,
             conversation_hook=planned.get("conversation_hook"),
+            # T6.5: prompt に入れた参考をこの時点で固定する (保存の時に照合する)。
+            performance_feedback=freeze_for_request(package.performance_feedback),
         )
 
     def _request_stale(self, request: GenerationRequest, now: datetime) -> bool:

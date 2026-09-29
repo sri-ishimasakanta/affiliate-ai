@@ -242,8 +242,10 @@ def test_the_planner_command_opens_no_browser_and_writes_nothing() -> None:
 
 
 def test_the_policy_file_is_version_controlled_config_not_env() -> None:
-    assert POLICY_PATH.as_posix() == "app/config/threads_observation_policy.json"
     root = Path(__file__).resolve().parents[2]
+    # 作業ディレクトリに依らず、git で管理する app/config の中を指す。
+    assert POLICY_PATH.is_absolute()
+    assert POLICY_PATH.relative_to(root).as_posix() == "app/config/threads_observation_policy.json"
     env_example = root / ".env.example"
     if env_example.exists():
         assert "OBSERVATION" not in env_example.read_text(encoding="utf-8").upper()

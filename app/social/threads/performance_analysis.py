@@ -497,6 +497,8 @@ class PerformanceFeedback:
     context: tuple[dict, ...] = ()
     growth: Mapping = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    #: 比べた通常の投稿の cohort の証拠の段階 (``insufficient_data`` / ``hypothesis`` / ...)。
+    evidence: str = EVIDENCE_INSUFFICIENT
 
     @property
     def mode(self) -> str:
@@ -509,6 +511,7 @@ class PerformanceFeedback:
             "lane": LANE_REGULAR,
             "checkpoint": self.checkpoint,
             "cohort_n": self.cohort_n,
+            "evidence": self.evidence,
             "currently_supported_patterns": list(self.supported),
             "weak_patterns": list(self.weak),
             "insufficient_evidence_patterns": list(self.insufficient),
@@ -534,6 +537,82 @@ class PerformanceFeedback:
                               "component": p["component"], "direction": p["direction"],
                               "evidence": p["evidence"]}
                              for p in (*self.supported, *self.weak)]}  # fmt: skip
+
+
+    def freeze(self) -> dict:
+        """生成の依頼に固定する形 (prompt を作った時点の参考、``FROZEN_FEEDBACK_SCHEMA``)。
+
+        ``content`` をそのまま持つので、保存の時に指紋を計算し直して確かめられる
+        (``thaw``)。指紋は ``content`` の正規の JSON の sha256 (``as_of`` は入らない)。
+        """
+
+        return {"frozen_schema": FROZEN_FEEDBACK_SCHEMA, "used_in_generation": True,
+                "schema": FEEDBACK_SCHEMA, "fingerprint": self.fingerprint, "mode": self.mode,
+                "evaluated_at": self.as_of, "checkpoint": self.checkpoint,
+                "evidence": self.evidence, "content": self.content()}  # fmt: skip
+
+    @classmethod
+    def thaw(cls, frozen: Mapping) -> PerformanceFeedback:
+        """``freeze`` の逆。形が違えば ``ValueError`` (推測で埋めない)。"""
+
+        content = frozen.get("content") if isinstance(frozen, Mapping) else None
+        if not isinstance(content, Mapping) or content.get("schema") != FEEDBACK_SCHEMA:
+            raise ValueError("the frozen performance feedback could not be read")
+        return cls(
+            as_of=str(frozen.get("evaluated_at") or ""),
+            checkpoint=content.get("checkpoint"),
+            cohort_n=int(content.get("cohort_n") or 0),
+            supported=tuple(content.get("currently_supported_patterns") or ()),
+            weak=tuple(content.get("weak_patterns") or ()),
+            insufficient=tuple(content.get("insufficient_evidence_patterns") or ()),
+            context=tuple(content.get("context_observations") or ()),
+            growth=dict(content.get("growth_observations") or {}),
+            notes=tuple(content.get("notes") or ()),
+            evidence=str(content.get("evidence") or EVIDENCE_INSUFFICIENT),
+        )
+
+
+#: 生成の依頼に固定した参考の形。
+FROZEN_FEEDBACK_SCHEMA = "threads-performance-feedback-frozen/1"
+#: 参考を使わない依頼 (``use_in_generation=false`` など) の固定の形。指紋は持たない。
+FEEDBACK_NOT_USED = {"frozen_schema": FROZEN_FEEDBACK_SCHEMA, "used_in_generation": False}
+
+
+def freeze_for_request(feedback: PerformanceFeedback | None) -> dict:
+    """prompt に渡した参考を依頼に固定する。渡していなければ「使っていない」と明示する。"""
+
+    return feedback.freeze() if feedback is not None else dict(FEEDBACK_NOT_USED)
+
+
+def verify_frozen(frozen: Mapping, *, prompt: str | None) -> PerformanceFeedback | None:
+    """保存の前に、固定した参考と実際に provider へ渡した prompt が合うかを確かめる。
+
+    - 使っていない依頼: prompt に参考の節があれば不一致。``None`` を返す。
+    - 使った依頼: 固定した中身から指紋を計算し直して一致すること、prompt の参考の節が
+      その中身から作ったものと同じ (中立なら節が無い) こと。合えば参考を返す。
+    不一致は ``ValueError`` (黙って別の参考に差し替えない)。
+    """
+
+    header = FEEDBACK_PROMPT_HEADER
+    if not frozen.get("used_in_generation"):
+        if prompt is not None and header in prompt:
+            raise ValueError("the request says no performance feedback was used, but the "
+                             "prompt carries a performance feedback section")
+        return None
+    feedback = PerformanceFeedback.thaw(frozen)
+    if feedback.fingerprint != frozen.get("fingerprint"):
+        raise ValueError(f"performance feedback fingerprint mismatch (frozen "
+                         f"{str(frozen.get('fingerprint'))[:16]}, content "
+                         f"{feedback.fingerprint[:16]})")  # fmt: skip
+    if prompt is not None:
+        section = "\n".join(render_feedback_sections(feedback))
+        if section and section not in prompt:
+            raise ValueError("the prompt sent to the provider does not carry the frozen "
+                             "performance feedback")
+        if not section and header in prompt:
+            raise ValueError("the frozen performance feedback is neutral, but the prompt "
+                             "carries a performance feedback section")
+    return feedback
 
 
 def supported_values_for(style_policy, measurement_policy) -> dict[str, tuple[str, ...]]:
@@ -602,6 +681,7 @@ def build_feedback(report: Mapping, *, supported_values: Mapping[str, Sequence[s
         as_of=as_of, checkpoint=checkpoint, cohort_n=int(regular.get("comparable", 0)),
         supported=tuple(supported), weak=tuple(weak), insufficient=tuple(insufficient),
         context=tuple(context), growth=growth, notes=tuple(notes),
+        evidence=str(regular.get("evidence") or EVIDENCE_INSUFFICIENT),
     )
 
 
@@ -618,6 +698,9 @@ def _statement(pattern: Mapping) -> str:
             "原因ではなく、観測された傾向。")
 
 
+FEEDBACK_PROMPT_HEADER = "## 過去の成績からの補助の参考 (観測された傾向。仮説)"
+
+
 def render_feedback_sections(feedback: PerformanceFeedback | None) -> list[str]:
     """prompt に足す節。中立・参考なしなら空 (prompt は変わらない)。"""
 
@@ -626,7 +709,7 @@ def render_feedback_sections(feedback: PerformanceFeedback | None) -> list[str]:
     usable = [p for p in (*feedback.supported, *feedback.weak) if p.get("actionable")]
     if not usable:
         return []
-    lines = ["## 過去の成績からの補助の参考 (観測された傾向。仮説)",
+    lines = [FEEDBACK_PROMPT_HEADER,
              "事実・記事の根拠・文体の規則が優先。",
              "これは補助の参考で、決まりではない。"]  # fmt: skip
     for p in usable:
@@ -776,7 +859,9 @@ def filter_posts(report: Mapping, *, lane: str | None = None, topic: str | None 
 __all__ = [
     "ACTIONABLE_DIMENSIONS", "COMPONENTS", "CONTEXT_DIMENSIONS", "DIRECTION_HIGHER",
     "DIRECTION_LOWER", "DIRECTION_NONE", "EVIDENCE_DESCRIPTIVE", "EVIDENCE_HYPOTHESIS",
-    "EVIDENCE_INSUFFICIENT", "EVIDENCE_PRELIMINARY", "EvidenceThresholds", "FEEDBACK_SCHEMA",
+    "EVIDENCE_INSUFFICIENT", "EVIDENCE_PRELIMINARY", "EvidenceThresholds", "FEEDBACK_NOT_USED",
+    "FEEDBACK_PROMPT_HEADER", "FEEDBACK_SCHEMA", "FROZEN_FEEDBACK_SCHEMA", "freeze_for_request",
+    "verify_frozen",
     "LANE_GROWTH", "LANE_REGULAR", "LANE_UNKNOWN", "MODE_ADVISORY", "MODE_NEUTRAL", "NO_TOPIC",
     "PerformanceFeedback", "PostInput", "SCHEMA_VERSION", "analyze_post", "build_analysis",
     "build_feedback", "checkpoint_counts", "comparison_checkpoint", "components_of",

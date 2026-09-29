@@ -32,7 +32,8 @@ from app.models.threads_observer import (
 )
 from app.social.threads.observer import selectors as sel
 
-POLICY_PATH = Path("app/config/threads_observation_policy.json")
+#: 作業ディレクトリに依らない (ほかの方針のファイルと同じく、このパッケージの位置から)。
+POLICY_PATH = Path(__file__).resolve().parents[3] / "config" / "threads_observation_policy.json"
 PLAN_SOURCES = (SOURCE_FOR_YOU, SOURCE_SEARCH, SOURCE_TOPIC_FOR_YOU, SOURCE_KNOWN_ACCOUNT)
 #: 見つけた出どころの近さ (BizFluxLab の関心に近い順)。知っているアカウントの選び方に使う。
 DISCOVERY_RELEVANCE = (SOURCE_SEARCH, SOURCE_TOPIC_FOR_YOU, SOURCE_FOR_YOU, SOURCE_KNOWN_ACCOUNT)

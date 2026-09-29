@@ -312,6 +312,8 @@ class ThreadsProposalService:
         learning_as_of: datetime | None = None,
         expected_guidance: str | None = None,
         generation_brief: dict | None = None,
+        frozen_feedback: dict | None = None,
+        request_prompt: str | None = None,
     ) -> list[ThreadsPostProposal]:
         """検査を通った案だけを ``awaiting_approval`` として保存する。
 
@@ -331,10 +333,25 @@ class ThreadsProposalService:
         provenance = self.learning_guidance(as_of=learning_as_of or now).provenance(
             verified_against_prompt=expected_guidance is not None
         )
-        feedback = self.performance_feedback(as_of=learning_as_of or now)
-        if feedback is not None:
-            # T6.5: 使った補助の参考の小さな来歴 (中立でも、使ったかどうかを残す)。
-            provenance = {**provenance, "performance_feedback": feedback.provenance()}
+        if frozen_feedback is not None:
+            # 依頼に固定した参考 (prompt を作った時点) だけを使う。今の参考には差し替えない。
+            # 実際に provider へ渡した prompt と合わなければ保存しない (fail closed)。
+            from app.social.threads.performance_analysis import verify_frozen
+
+            try:
+                used = verify_frozen(frozen_feedback, prompt=request_prompt)
+            except ValueError as exc:
+                raise ThreadsProposalError(f"performance feedback mismatch: {exc}") from None
+            provenance = {**provenance, "performance_feedback": (
+                {**used.provenance(), "frozen_at_prompt": True,
+                 "verified_against_prompt": request_prompt is not None}
+                if used is not None else {"used_in_generation": False,
+                                          "frozen_at_prompt": True})}  # fmt: skip
+        else:
+            feedback = self.performance_feedback(as_of=learning_as_of or now)
+            if feedback is not None:
+                # T6.5: 使った補助の参考の小さな来歴 (中立でも、使ったかどうかを残す)。
+                provenance = {**provenance, "performance_feedback": feedback.provenance()}
         extra_warnings: list[str] = []
         if generation_brief:
             extra_warnings = list(generation_brief.get("warnings") or [])
