@@ -16,7 +16,7 @@ DB に書かない。WordPress・Threads・OpenAI・メールに触れない。
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import inspect, select
@@ -188,36 +188,20 @@ class GrowthMeasurementService:
     def _coverage(self, now: datetime) -> dict[str, gm.SourceCoverage]:
         if self._coverage_provider is not None:
             return dict(self._coverage_provider(now))
-        from app.operations.policy import get_policy as get_ops_policy
-        from app.operations.source_health import evaluate_source_refresh
-        from app.services.operations_source_health_service import collect_source_freshness
+        from app.services.source_health_service import SourceHealthService
 
-        policy = get_ops_policy()
-        today = local_effective_date(now, self._tz)
+        # C10-A: 出所の状態は 1 か所 (``SourceHealthService``) で決める (data-through の規則・
+        # 観測の時点より後の日を使わない・GA4 の設定が無ければ使えない、を含む)。
+        statuses = SourceHealthService(self._session, settings=self._settings,
+                                       timezone=self._tz).collect(now=now)
         out = {}
-        for name, f in collect_source_freshness(self._session).items():
-            if name not in gm.ARTICLE_SOURCES:
+        for name in gm.ARTICLE_SOURCES:
+            status = statuses.get(name)
+            if status is None:
                 continue
-            if not f.ever_imported:
-                state = "unavailable"
-            elif evaluate_source_refresh(freshness=f, today=today, now=now, policy=policy):
-                state = "stale"
-            else:
-                state = "fresh"
-            if name == gm.SRC_GA4 and not (getattr(self._settings, "ga4_property_id", None)
-                                           or "").strip():
-                state = "unavailable"
-            # 観測の時点より後の日は、届いていても使わない。
-            through = f.coverage_through
-            if through is None and f.last_successful_import_at is not None and (
-                    name == gm.SRC_AFFILIATE):
-                # クリックは cursor で取り込む: 取り込んだ日の前の日までは全部届いている。
-                through = local_effective_date(f.last_successful_import_at,
-                                               self._tz) - timedelta(days=1)
-            if through is not None and through > today:
-                through = today
-            out[name] = gm.SourceCoverage(name, through, _iso(f.last_successful_import_at),
-                                          state)  # fmt: skip
+            through = date.fromisoformat(status.data_through) if status.data_through else None
+            out[name] = gm.SourceCoverage(name, through, status.observed_at,
+                                          status.legacy_state or "fresh")  # fmt: skip
         return out
 
     def _article(self, anchor, lifecycle, names, now) -> tuple[list[dict], dict]:

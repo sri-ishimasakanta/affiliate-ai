@@ -48,7 +48,12 @@ SRC_AFFILIATE = "affiliate_clicks"
 SRC_THREADS = "threads_insights"
 ARTICLE_SOURCES = (SRC_SEARCH_CONSOLE, SRC_GA4, SRC_AFFILIATE)
 #: 取り込みの遅れの目安 (日)。この日数までは「まだ届いていない」を待つ (それを過ぎたら古い)。
-EXPECTED_LAG_DAYS = {SRC_SEARCH_CONSOLE: 3, SRC_GA4: 2, SRC_AFFILIATE: 1}
+#: C10-A: 数字は 1 か所 (``operations_policy.json`` の imports と ``source_policy.json``) にだけ
+#: 置き、``app.analysis.sources.expected_lag_days`` で読む。
+def expected_lag_days(name: str) -> int:
+    from app.analysis.sources import expected_lag_days as central
+
+    return central(name) or 1
 #: 出所ごとの指標 (届いていない出所の値は None にする。0 にしない)。
 SOURCE_METRICS = {
     SRC_SEARCH_CONSOLE: ("impressions", "clicks", "position"),
@@ -186,7 +191,7 @@ class SourceCoverage:
 
     @property
     def expected_lag_days(self) -> int:
-        return EXPECTED_LAG_DAYS.get(self.name, 1)
+        return expected_lag_days(self.name)
 
     def as_dict(self) -> dict:
         return {"name": self.name,
@@ -387,7 +392,7 @@ class MeasuredAnchor:
 
 
 __all__ = ["ARTICLE_SOURCES", "EFFECTIVE_EVENTS", "EV_ARTICLE_PUBLISHED", "EV_CHANGE_APPLIED",
-           "EV_THREADS_PUBLISHED", "EXPECTED_LAG_DAYS", "FINAL_STATES", "Lifecycle",
+           "EV_THREADS_PUBLISHED", "FINAL_STATES", "Lifecycle",
            "MEASUREMENT_SCHEMA", "MeasuredAnchor", "RECHECK", "SOURCE_METRICS", "SRC_AFFILIATE",
            "SRC_GA4", "SRC_SEARCH_CONSOLE", "SRC_THREADS", "SourceCoverage", "Stage",
            "THREADS_HOURS", "WORKFLOWS", "WF_ARTICLE", "WF_CHANGE_REQUEST", "WF_PREPARATION",

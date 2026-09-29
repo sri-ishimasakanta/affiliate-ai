@@ -1,0 +1,57 @@
+{
+  "policy_version": "source-policy-1",
+  "note": "C10-A central source definitions. The four import sources (search_console, ga4, affiliate_clicks, make_commissions) take their lag and staleness numbers from operations_policy.json imports.* (single source of truth; not repeated here). Sources without an import config define their numbers here. access: local = derived from local data only; cached = external data already stored locally (reading it makes no call); refresh = how new external data arrives (never triggered by analysis).",
+  "sources": {
+    "search_console": {
+      "provider": "google_search_console",
+      "access": "cached",
+      "refresh": "operations pipeline (daily import_search_console)",
+      "import_config": "search_console"
+    },
+    "ga4": {
+      "provider": "google_analytics_4",
+      "access": "cached",
+      "refresh": "operations pipeline (daily import_ga4)",
+      "import_config": "ga4",
+      "requires_setting": "ga4_property_id"
+    },
+    "affiliate_clicks": {
+      "provider": "wordpress_go_redirect",
+      "access": "cached",
+      "refresh": "operations pipeline (daily import_affiliate_clicks, cursor based)",
+      "import_config": "affiliate_clicks",
+      "expected_lag_days": 1,
+      "data_through_rule": "cursor import: fully covered through the day before the last successful import"
+    },
+    "make_commissions": {
+      "provider": "make_affiliate_api",
+      "access": "cached",
+      "refresh": "operations pipeline (daily import_make_commissions)",
+      "import_config": "make_commissions"
+    },
+    "google_ads": {
+      "provider": "google_ads_keyword_planner",
+      "access": "cached",
+      "refresh": "manual (scripts/run_keyword_analysis.py --collect-auto-signals); analysis never calls Google Ads",
+      "expected_lag_days": 0,
+      "stale_after_days": 45,
+      "usable_when": "a keyword has a stored google_ads signal observed within stale_after_days"
+    },
+    "threads_insights": {
+      "provider": "threads_graph_api",
+      "access": "cached",
+      "refresh": "resident worker insights_refresh (read-only)",
+      "expected_lag_days": 0,
+      "stale_after_hours": 48,
+      "usable_when": "a matched observation near the checkpoint exists (T6.5 rules)"
+    },
+    "url_inspection": {
+      "provider": "google_search_console_url_inspection",
+      "access": "cached",
+      "refresh": "operations pipeline weekly check_indexability (inspect_on_weekly); analysis never calls URL Inspection",
+      "expected_lag_days": 0,
+      "stale_after_days": 8,
+      "usable_when": "the latest inspecting check_indexability run is within stale_after_days"
+    }
+  }
+}

@@ -480,6 +480,7 @@ class OperationsRunner:
         )
 
     def _step_check_indexability(self, *, profile, **_kwargs) -> StepOutcome:
+        from app.seo.index_state import RAW_FIELDS as RAW_INDEX_FIELDS
         from app.services.article_indexability_report_service import (
             ArticleIndexabilityReportService,
         )
@@ -497,6 +498,9 @@ class OperationsRunner:
                 "sitemap_state": row.sitemap_state,
                 "google_index_state": row.google_index_state,
                 "issues": list(row.live_issues),
+                # C10-A: URL Inspection の生の値 (URL を含まないものだけ。無ければ入れない)。
+                **{k: row.google_facts.get(k) for k in RAW_INDEX_FIELDS
+                   if row.google_facts.get(k) is not None},
             }
             for row in report.articles
         ]

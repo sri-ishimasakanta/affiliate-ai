@@ -32,7 +32,6 @@ from app.models import (
     TP_OPEN_STATES,
     Article,
     Keyword,
-    OperationsStepRun,
     ThreadsPostProposal,
     ThreadsPublication,
     WordPressContentUpdateRun,
@@ -101,7 +100,7 @@ class GrowthEvidenceService:
         trusted = get_revenue_policy().trusted_measurement_start_at
         seo_rows = {a.article_id: a for a in seo.articles}
         rev_rows = {a.article_id: a for a in revenue.articles}
-        index_rows, index_observed = self._index_snapshot()
+        index_rows, index_observed = self._index_snapshot(now)
         updates = self._last_updates()
         articles = self._session.scalars(select(Article).order_by(Article.id)).all()
         keywords = {k.id: k for k in self._session.scalars(select(Keyword).order_by(Keyword.id))}
@@ -238,37 +237,33 @@ class GrowthEvidenceService:
             return {}
 
     def _freshness(self, now: datetime) -> tuple[dict[str, str], dict[str, dict]]:
-        from app.operations.policy import get_policy as get_ops_policy
-        from app.operations.source_health import evaluate_source_refresh
-        from app.services.operations_source_health_service import collect_source_freshness
+        """C9 の鮮度の言葉 (fresh / stale / unavailable)。判定は ``SourceHealthService`` だけ。"""
 
-        policy = get_ops_policy()
-        today = now.astimezone(self._tz).date()
-        states, detail = {}, {}
-        for name, f in collect_source_freshness(self._session).items():
-            detail[name] = f.as_dict()
-            if not f.ever_imported:
-                states[name] = ga.UNAVAILABLE
-            elif evaluate_source_refresh(freshness=f, today=today, now=now, policy=policy):
-                states[name] = ga.STALE
-            else:
-                states[name] = "fresh"
-        if not (getattr(self._settings, "ga4_property_id", None) or "").strip():
-            states["ga4"] = ga.UNAVAILABLE
-        return states, detail
+        from app.services.source_health_service import SourceHealthService
 
-    def _index_snapshot(self) -> tuple[dict[int, dict], str | None]:
-        row = self._session.scalars(
-            select(OperationsStepRun)
-            .where(OperationsStepRun.step_name == "check_indexability",
-                   OperationsStepRun.status == "succeeded")
-            .order_by(OperationsStepRun.id.desc()).limit(1)
-        ).first()  # fmt: skip
-        if row is None or not isinstance(row.result_json, dict):
-            return {}, None
-        items = {int(a["article_id"]): a for a in row.result_json.get("articles") or []
-                 if isinstance(a, dict) and a.get("article_id") is not None}  # fmt: skip
-        return items, _iso(row.finished_at)
+        raw, states = SourceHealthService(self._session, settings=self._settings,
+                                          timezone=self._tz).import_freshness(now=now)
+        detail = {name: f.as_dict() for name, f in raw.items()}
+        return {k: (ga.UNAVAILABLE if v == "unavailable" else ga.STALE if v == "stale" else v)
+                for k, v in states.items()}, detail
+
+    def _index_snapshot(self, now: datetime | None = None) -> tuple[dict[int, dict], str | None]:
+        """C10-A: 記事ごとに **URL Inspection をした** 最新の確認 (``IndexStateService``)。
+
+        C9 までは最新の実行 (日ごとの確認は ``GSC_UNKNOWN`` だけ) を読んでいた。
+        """
+
+        from app.services.index_state_service import IndexStateService
+
+        observations, meta = IndexStateService(self._session).latest(now=now)
+        items = {}
+        for aid, o in observations.items():
+            items[aid] = {"article_id": aid, "google_index_state": o.raw_status.get(
+                "google_index_state"), "normalized_status": o.normalized_status,
+                "inspected": o.inspected, "freshness_state": o.freshness_state,
+                "observed_at": o.observed_at, "last_crawl": o.last_crawl,
+                "data_source": o.data_source, **o.site_checks}  # fmt: skip
+        return items, meta.get("latest_inspected_at")
 
     def _last_updates(self) -> dict[int, str]:
         rows = self._session.execute(

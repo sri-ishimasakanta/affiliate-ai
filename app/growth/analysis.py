@@ -327,16 +327,26 @@ def keyword_source(score: Mapping | None, *, age_days: int | None) -> SourceEvid
 def index_source(row: Mapping | None, *, observed_at: str | None) -> SourceEvidence:
     """索引の状態。保存済みの ``check_indexability`` の結果だけ (外に問い合わせない)。"""
 
+    from app.seo.index_state import KNOWN_STATES, normalize_index_state
+
     if not row:
         return SourceEvidence("index", UNAVAILABLE, "no saved indexability observation",
                               "operations_step_runs[check_indexability]")  # fmt: skip
     state = row.get("google_index_state")
-    known = bool(state) and state != "GSC_UNKNOWN"
+    # C10-A: 正規化した状態 (索引されていない ≠ 分からない)。古い調べは古いと言う。
+    normalized = row.get("normalized_status") or normalize_index_state(
+        state, row, inspected=bool(state) and state != "GSC_UNKNOWN")
+    known = normalized in KNOWN_STATES
+    stale = known and row.get("freshness_state") == "stale"
     return SourceEvidence(
-        "index", USABLE if known else INSUFFICIENT,
-        f"google index state {state}" if known else "live/sitemap only (no URL inspection)",
-        "operations_step_runs[check_indexability]", observed_at=observed_at,
-        metrics={k: row.get(k) for k in ("live_state", "sitemap_state", "google_index_state")},
+        "index", STALE if stale else USABLE if known else INSUFFICIENT,
+        (f"google index state {state} ({normalized})" + (" — inspection is stale" if stale
+                                                         else "")) if known
+        else "live/sitemap only (no URL inspection)",
+        "operations_step_runs[check_indexability]", observed_at=row.get("observed_at")
+        or observed_at,
+        metrics={k: row.get(k) for k in ("live_state", "sitemap_state", "google_index_state",
+                                         "normalized_status", "inspected", "last_crawl")},
         maturity=state,
     )  # fmt: skip
 
