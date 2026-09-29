@@ -469,6 +469,28 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-stage1-observation-pilot-t65b3",
+        "area": "threads/analytics",
+        "decision": (
+            "T6.5B.3: 段階 1 の複数の画面の保存つきの試験を 1 回だけ行い、26 件を保存した。"
+            "段階 2 (50 件 / 日) は人の許可を待つ"
+        ),
+        "rationale": (
+            "最初の dry-run で本文とメディアの読み違い (4 つの形) が見つかったので、形で直して"
+            " (T6.5B.3a) dry-run を最後までやり直し、画面と照らしてから保存した"
+        ),
+        "evidence": ["docs/operations/threads-trend-intelligence.md"],
+        "phrase": "**保存は 1 回だけ**",
+        "resulting_state": (
+            "run 2 = 26 件 (5 つの手順すべて succeeded・重複 0・text_clean 26・画面との食い違い 0、"
+            "4 件は画面に描かれず目では未確認)。run 1 は変わっていない。使える投稿 31 件で"
+            " descriptive_only"
+        ),
+        "follow_up": (
+            "段階 2 (50 件 / 日) は人の許可が要る。許可のときに方針の current_stage を 1 にする"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (
