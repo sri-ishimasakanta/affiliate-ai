@@ -90,13 +90,32 @@ def test_no_production_code_reads_the_note() -> None:
     assert 'section("automatic_publication").get("note")' not in source
 
 
-def test_only_the_note_changed_in_the_committed_policy() -> None:
+#: T7B の後に意図して足した動作の変更 (これ以外は T7B と同じでなければならない)。
+#: C9: Growth opportunity の評価を有効にする (``worker.subsystems`` の中。値はコードの既定)。
+INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B = {"growth_opportunity_evaluation": {"enabled": True}}
+
+
+def test_the_committed_policy_is_t7b_plus_only_the_note_and_the_c9_enablement() -> None:
     data = json.loads(POLICY.read_text(encoding="utf-8"))
     note = data["automatic_publication"].pop("note")
+    subsystems = data["worker"]["subsystems"]
+    # 意図した変更は、決まった場所 (worker.subsystems) に、決まった値だけ。
+    added = {name: subsystems.pop(name) for name in INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B}
+    assert added == INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B
+    # それを除けば T7B の時点の policy (note を除いて正規化) と同じ: 公開・承認・在庫・Growth の
+    # ほかの設定は何も変わっていない。
     canonical = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
     assert hashlib.sha256(canonical).hexdigest() == BEHAVIOUR_SHA256
     assert data["automatic_publication"] == {"enabled": True, "preflight_read": True}
     assert "Enabled in production" in note and not docs_health.note_contradicts_value(True, note)
+
+
+def test_the_growth_opportunity_evaluation_is_enabled_in_the_worker_namespace() -> None:
+    raw = json.loads(POLICY.read_text(encoding="utf-8"))
+    # policy.subsystem() が読むのは worker.subsystems だけ。トップレベルに置くと読まれない。
+    assert "subsystems" not in raw
+    policy = load_operations_policy(POLICY)
+    assert policy.subsystem("growth_opportunity_evaluation") == {"enabled": True}
 
 
 def test_a_contradicting_note_is_stale_and_clears_after_correction(tmp_path) -> None:

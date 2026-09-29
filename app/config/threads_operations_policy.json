@@ -60,6 +60,9 @@
         "interval_minutes": 360,
         "min_interval_minutes": 60,
         "note": "Low-frequency. Runs only when the worker is started with --maintain-proposal-stock. Material queue changes pull it forward, never sooner than min_interval_minutes after the last run."
+      },
+      "growth_opportunity_evaluation": {
+        "enabled": true
       }
     }
   },

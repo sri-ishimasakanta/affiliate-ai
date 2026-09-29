@@ -37,22 +37,30 @@ class _Settings2(_Settings):
     ga4_property_id = None
 
 
-def _policy(**section):
+_COMMITTED = object()
+
+
+def _policy(section=None):
+    """``section=None``: 節を消す (コードの既定)。``_COMMITTED``: コミットした policy のまま。"""
+
     base = _committed_policy()
+    if section is _COMMITTED:
+        return base
     worker = dict(base.raw.get("worker") or {})
     subsystems = dict(worker.get("subsystems") or {})
+    subsystems.pop(SUBSYSTEM_GROWTH_OPPORTUNITY, None)
     if section:
         subsystems[SUBSYSTEM_GROWTH_OPPORTUNITY] = section
     worker["subsystems"] = subsystems
     return replace(base, raw={**base.raw, "worker": worker})
 
 
-def _service(session, **section):
+def _service(session, section=None, **values):
     settings = _Settings2()
     return ThreadsWorkerService(_factory(session), settings=settings,
                                 threads_service=ThreadsService(settings,
                                                                client=_ExplodingClient()),
-                                policy=_policy(**section))  # fmt: skip
+                                policy=_policy(section if section is not None else values))
 
 
 def _article(session):
@@ -69,12 +77,22 @@ def _other_tables(session) -> dict:
             if not n.startswith("growth_action_")}
 
 
-def test_the_subsystem_is_disabled_by_default(session) -> None:
+def test_the_code_default_is_disabled(session) -> None:
+    assert ThreadsWorkerService.GROWTH_OPPORTUNITY_DEFAULTS == {
+        "enabled": False, "interval_minutes": 1440, "check_interval_minutes": 60,
+        "min_interval_minutes": 360, "write_history": True}  # fmt: skip
     state = _service(session).build_schedule(_NOW).state(SUBSYSTEM_GROWTH_OPPORTUNITY)
     assert (state.enabled, state.next_run_at) == (False, None)
     assert "disabled by policy" in state.disabled_reason
-    enabled = _service(session, enabled=True).build_schedule(_NOW)
-    assert enabled.state(SUBSYSTEM_GROWTH_OPPORTUNITY).next_run_at == _NOW
+
+
+def test_the_committed_policy_enables_it_with_the_code_defaults(session) -> None:
+    service = _service(session, _COMMITTED)
+    state = service.build_schedule(_NOW).state(SUBSYSTEM_GROWTH_OPPORTUNITY)
+    assert (state.enabled, state.next_run_at) == (True, _NOW)  # first_run_at = now
+    config = service._growth_opportunity_config()
+    assert (config["check_interval_minutes"], config["interval_minutes"],
+            config["min_interval_minutes"], config["write_history"]) == (60, 1440, 360, True)
 
 
 def test_heavy_evaluation_runs_on_the_interval_and_writes_only_history(session) -> None:
