@@ -1,0 +1,43 @@
+{
+  "policy_version": "system-health-1",
+  "note": "C10-3 / C10-F system health. Only actionable problems (warning / error) become operations alerts (source c10_health); info items appear in summaries only. Health alerts are recorded by the daily operations monitoring step (06:30 JST), not overnight, are kept out of the daily incident email (operations_run_id is not set), re-notify at most every renotify_after_hours, and resolve automatically when the condition clears.",
+  "renotify_after_hours": 168,
+  "nightly": {
+    "grace_hours_after_schedule": 3,
+    "stale_after_hours": 36,
+    "explosion_factor": 3
+  },
+  "worker": {
+    "lock_name": "threads_worker",
+    "stopped_after_minutes": 45,
+    "log_error_window_hours": 24
+  },
+  "workflow": {
+    "review_backlog_days": 7,
+    "handoff_stuck_days": 14,
+    "change_request_stuck_days": 14,
+    "proposal_awaiting_hours": 72,
+    "conversion_failure_window_days": 7
+  },
+  "severity": {
+    "nightly_missed": "warning",
+    "nightly_failed": "warning",
+    "nightly_stale": "warning",
+    "nightly_never_run": "info",
+    "nightly_candidate_explosion": "info",
+    "google_ads_refresh_backlog": "info",
+    "worker_stopped": "error",
+    "worker_log_errors": "warning",
+    "source_stale_url_inspection": "warning",
+    "source_stale_threads_insights": "warning",
+    "source_stale_google_ads": "info",
+    "growth_review_backlog": "info",
+    "handoff_stuck": "warning",
+    "change_request_stuck": "info",
+    "threads_proposal_awaiting": "info",
+    "conversion_failures": "warning",
+    "measurements_due": "info",
+    "fact_refresh_needed": "info",
+    "schema_mismatch": "error"
+  }
+}

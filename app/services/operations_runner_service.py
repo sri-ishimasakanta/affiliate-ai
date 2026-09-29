@@ -153,11 +153,14 @@ class OperationsRunner:
         settings,
         policy: OperationsPolicy | None = None,
         step_overrides: dict | None = None,
+        system_health_factory=None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
         self._policy = policy or get_policy()
         self._overrides = step_overrides or {}
+        # C10-F: 本番の入口 (run_operations.py) だけが渡す。渡さなければ健康の警告は記録しない。
+        self._system_health_factory = system_health_factory
 
     # -- public ---------------------------------------------------------------
     def plan(self, *, profile: str, now: datetime | None = None) -> OperationsOutcome:
@@ -633,8 +636,11 @@ class OperationsRunner:
         from app.services.operations_monitoring_service import OperationsMonitoringService
 
         with self._session_factory() as session:
+            health = None
+            if self._system_health_factory is not None:
+                health = self._system_health_factory(session, settings=self._settings)
             result = OperationsMonitoringService(
-                session, settings=self._settings, policy=self._policy
+                session, settings=self._settings, policy=self._policy, system_health=health
             ).evaluate(outcome=outcome, now=now, today=effective_date)
         return StepOutcome(
             step_name=STEP_MONITORING,

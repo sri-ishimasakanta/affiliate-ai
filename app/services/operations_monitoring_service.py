@@ -50,11 +50,13 @@ class OperationsMonitoringService:
         settings,
         policy: OperationsPolicy | None = None,
         notifiers=None,
+        system_health=None,
     ) -> None:
         self._session = session
         self._settings = settings
         self._policy = policy or get_policy()
         self._notifiers = notifiers
+        self._system_health = system_health
 
     def _threads_health_drafts(self) -> list:
         """Threads 連携の故障だけを草案にする。失敗しても監視全体を壊さない。"""
@@ -125,6 +127,7 @@ class OperationsMonitoringService:
         alert_outcome = OperationsAlertService(
             self._session, policy=self._policy, notifiers=notifiers
         ).record_and_notify(drafts, operations_run_id=outcome.run_id, now=now)
+        health = self._sync_system_health(now=now, notifiers=notifiers)
 
         return {
             "alerts_evaluated": len(drafts),
@@ -138,7 +141,19 @@ class OperationsMonitoringService:
             "candidate_changes": len(changes),
             "source_freshness": {k: v.as_dict() for k, v in freshness.items()},
             "notifier_names": [getattr(n, "name", "?") for n in notifiers],
+            "system_health": health,
         }
+
+    def _sync_system_health(self, *, now, notifiers) -> dict | None:
+        """C10-F: 行動が要る健康の問題だけを警告にする。失敗しても監視全体を壊さない。"""
+
+        if self._system_health is None:
+            return None
+        try:
+            return self._system_health.sync_alerts(now=now, notifiers=notifiers)
+        except Exception as exc:  # noqa: BLE001 - 健康の点検の失敗で日々の監視を止めない
+            self._session.rollback()
+            return {"error": f"{type(exc).__name__}: {exc}"[:300]}
 
     # -- facts ----------------------------------------------------------------
     def _source_freshness(self):

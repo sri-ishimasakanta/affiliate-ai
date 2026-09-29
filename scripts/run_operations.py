@@ -69,7 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.acknowledge or args.resolve:
         return _change_alert(policy, args.acknowledge, args.resolve)
 
-    runner = OperationsRunner(SessionLocal, settings=settings, policy=policy)
+    from app.services.system_health_service import SystemHealthService
+
+    runner = OperationsRunner(SessionLocal, settings=settings, policy=policy,
+                              system_health_factory=SystemHealthService)
     if not args.execute:
         outcome = runner.plan(profile=args.profile)
     else:

@@ -145,11 +145,21 @@ class OperationsAlertService:
         if SEVERITY_ORDER.get(draft.severity, 0) < minimum:
             outcome.suppressed_by_severity += 1
             return False
+        cooldown = float(self._policy.cooldown_hours)
+        if draft.source == "c10_health":
+            # C10-3: システムの健康の警告は、人が確認済みにしたら知らせない・知らせ直しは長め
+            # (ほかの出所の警告の動きは変えない)。
+            from app.operations.system_health import load_health_policy
+
+            if row.status == "acknowledged":
+                outcome.suppressed_by_cooldown += 1
+                return False
+            cooldown = float(load_health_policy().get("renotify_after_hours", cooldown))
         if is_new or row.last_notified_at is None:
             return True
         last = row.last_notified_at
         last = last if last.tzinfo else last.replace(tzinfo=UTC)
-        if now - last < timedelta(hours=self._policy.cooldown_hours):
+        if now - last < timedelta(hours=cooldown):
             outcome.suppressed_by_cooldown += 1
             return False
         return True
