@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-30 (C10-3).
+Last updated: 2026-09-30 (N track planning; development order C10 → N1…N8 → C11).
 
 ---
 
@@ -33,8 +33,14 @@ Last updated: 2026-09-30 (C10-3).
 | **C10-3** Site Growth Orchestrator + Operations (C10-E + C10-F) | **COMPLETED** | DEPLOYED (read-only orchestration, discovery promotion CLI, health + alerts from the 06:30 monitoring step, `system_status.py`); no migration |
 | C10-E Site Growth Orchestrator | **COMPLETED** | action matrix DEPLOYED; body `text_edit` apply **PENDING HUMAN** (first production apply); meta description write **PENDING HUMAN** (first production write); affiliate placement **DEFERRED → C11** |
 | C10-F Operations | **COMPLETED** | DEPLOYED; Growth digest first email **PENDING HUMAN**; mobile Growth review **DEFERRED** (relay deploy = human) |
-| **C10 Growth platform** | **COMPLETED** (closed; pending activations listed under C10-3) | — |
-| **C11** Affiliate Revenue Attribution | **NEXT** | — |
+| **C10 Growth platform** | **COMPLETED** (CLOSED; activation pending items kept under *C10 activation pending*) | — |
+| **N1** note pilot (first human-reviewed piece) | **NEXT** | build: local only; Done needs a human note account + the first human publication |
+| N2–N8 (note workflow → measurement → distribution → paid pilot → products → audience → tool pilot) | PLANNED | see *N — Additional revenue track* and [n-track-plan.md](operations/n-track-plan.md) |
+| C11 Affiliate Revenue Attribution | PLANNED (after N8) | — |
+
+**Development order (human decision, 2026-09-30):** C10 (CLOSED) → N1 → N2 → N3 → N4 → N5 →
+N6 → N7 → N8 → C11. The T6.5C–H Threads trend-intelligence phases stay PLANNED and are not
+placed in this order.
 
 ---
 
@@ -284,21 +290,74 @@ promotion, health model, `system_status.py`, autonomy classes A–E, automation 
   nightly task to a stored-password logon if it must run while logged off
 
 ### C10 closure
-C10 is closed. What remains is human activation, not development: the first body text_edit apply,
-the first meta description write, the first Growth digest email, the mobile review relay deploy,
-and any future Google Ads refresh runs. Affiliate placement apply moves to C11.
+C10 is CLOSED. What remains is human activation, not development (listed below). Affiliate
+placement apply moves to C11.
 
-## C11 — Affiliate Revenue Attribution — NEXT
+### C10 activation pending (human-gated; kept after closure)
+| Item | State | Human stop |
+|---|---|---|
+| body `text_edit` first production apply | implemented, `text_edit_apply_enabled: false` | first production apply |
+| meta description first production write | implemented, `meta_description_apply_enabled: false` | first production write (new WordPress write form) |
+| Growth digest first real email | readiness re-checked, `sending_enabled: false` | first Growth digest production email |
+| mobile Growth Action review | DEFERRED (CHECK migration + relay redeploy) | production migration + relay / WordPress deployment |
+| Google Ads refresh runs | batched backlog, PLAN by default (0 terms waiting on 2026-09-30) | each `--execute` run |
+| discovery promotion | CLI ready, 26 tracked, 0 promoted | each promotion (one at a time) |
+| nightly task logon mode | runs only while the user is logged on (see below) | changing the logon / credentials |
+
+### Known operating constraints (checked from the sources on 2026-09-30)
+- **Nightly analysis runs only while the user is logged on.** `affiliate-ai-nightly-analysis` is
+  registered with an Interactive logon (like `affiliate-ai-threads-worker`), daily 03:30 JST,
+  IgnoreNew, StartWhenAvailable, WakeToRun off, no start on battery. If nobody is logged on at
+  03:30 the run does not happen. The authentication mode is intentionally unchanged; switching to
+  a stored-password logon is a human decision in the Task Scheduler UI.
+- **06:30 health monitoring conditions.** The C10-F health sync runs inside the `evaluate_monitoring`
+  step of `scripts/run_operations.py` (the only entry point that passes `system_health_factory`),
+  which both profiles run: `affiliate-ai-operations-daily` Mon–Sat 06:30 and
+  `affiliate-ai-operations-weekly` Sunday 07:30 JST. Both tasks use a stored-password logon (they
+  run whether or not the user is logged on), IgnoreNew, StartWhenAvailable (a missed run starts
+  when the PC is available again), WakeToRun off (the PC must be awake), no start on battery,
+  72 h limit. A failing health probe is swallowed and never fails the monitoring step. Observed:
+  run 12 (2026-09-30 06:30) recorded `system_health = {recorded: 0, notified: 0, resolved: 0,
+  healthy: true}`.
+- Consequence: a nightly run missed because nobody was logged on is detected by the next 06:30
+  health check (`nightly_missed`, 3 h grace after 03:30) and notified once; a stopped worker is
+  detected the same way (`worker_stopped`).
+
+## C11 — Affiliate Revenue Attribution — PLANNED (after N8)
 - article-level attribution (needs tracking / provider configuration changes: human decision)
 - readiness assessed in C10-A (`analyze_signal_health.py --section attribution`): per-click
   reference (SubID / clickref) passed back by the ASP, stored on clicks and read by the
   commission import; commission import tagged / filtered by program; no historical backfill
 
-## N — Additional revenue track (note channel)
-- N0 note channel foundation — COMPLETED (see `docs/project-roadmap.json`)
-- N1 note pilot — PLANNED
-- N2 repeatable production and review workflow — PLANNED
-- N3 operationalization and measurement — PLANNED
+## N — Additional revenue track (note channel first)
+
+Full definitions (Purpose / Entry Criteria / Scope / Out of Scope / External Dependencies /
+Buildable Now / Requires Real Service or Real Data / Human Stop Conditions / Definition of Done /
+Outputs / Next-phase dependencies) and the dependency graph:
+[n-track-plan.md](operations/n-track-plan.md). N4–N8 were defined by Claude on 2026-09-30 from
+the track's purpose (no earlier definition existed); the human may revise them.
+
+**Ground rule:** nothing is built against a provider, API, file format or sales report the
+project has not actually observed, and no sales / readers / subscribers are fabricated or
+estimated. Provider-independent foundations are built now; each phase's Done waits for real
+evidence (build-complete ≠ Done).
+
+| Phase | Status | Buildable now (local only) | Waits for (real gate) |
+|---|---|---|---|
+| N0 note channel foundation | **COMPLETED** | — | — |
+| **N1** note pilot: first human-reviewed piece | **NEXT** | topic refresh, review packet, hash-bound approval, publication record | G1 note account (human), G2 first human publication |
+| N2 repeatable production and review workflow | PLANNED | durable note ledger (migration rehearsed; apply = human), loop CLI, dedupe, cadence plan | G3 ≥3 real publications |
+| N3 operationalization and measurement | PLANNED | channel-agnostic manual metrics / revenue ledger, small-sample summaries | G4 real reader numbers; GA4 source dimension = new query pattern (human) |
+| N4 cross-channel distribution (note ↔ WordPress ↔ Threads) | PLANNED | link planner, link convention, Threads announcement request (off) | real note URLs; Threads-links-to-note and UTM decisions |
+| N5 paid note pilot | PLANNED | free / paid boundary model + checks, manual sales entry | G5 paid content enabled on note (financial: human only) |
+| N6 own digital products | PLANNED | product spec, packaging of own documents, checks | G6 platform + seller account + real product files + real sales |
+| N7 owned audience (membership / newsletter) | PLANNED | series planning only | G7 platform, privacy policy, consent, real subscribers |
+| N8 tool / SaaS pilot + N-track review | PLANNED | assessment document, N-track review queries | G8 hosting, billing, terms, real users |
+
+Continuous development in the current environment is possible for the N1 → N4 builds and the
+narrow N5 / N6 builds; the first real gate (G1/G2: a human note account and one human
+publication) blocks every Done from N1 onward, so it is the external preparation worth starting
+first.
 
 ## T6.5 — Threads trend intelligence (tracked in `docs/project-roadmap.json`)
 - T6.5C Breakout Detector, T6.5D Pattern Miner, T6.5E Velocity, T6.5F Cross Validation,
@@ -311,8 +370,9 @@ and any future Google Ads refresh runs. Affiliate placement apply moves to C11.
 
 ## Deferred (cross-cutting)
 
-- Mirror the C9 / C10 / C11 units into `docs/project-roadmap.json` (the machine ledger currently
-  covers T / W / N / T7; adding units needs evidence files and updated project-state tests).
+- Mirror the C9 units (and the C10 sub-units) into `docs/project-roadmap.json`. Since
+  2026-09-30 the ledger has C10 (complete), N1–N8 and C11 (planned) with `next_phase` N1; C9 and
+  the C10-A…F sub-units are still tracked only here.
 - Mobile Growth Action review (relay redeploy) — see C9-A.
 - Growth digest scheduled trigger — see C9-A.
 - Affiliate placement change-request apply — C11 (text edit and meta description apply paths were
