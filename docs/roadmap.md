@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-30 (C9-C; C9 closed).
+Last updated: 2026-09-30 (C10-A).
 
 ---
 
@@ -25,7 +25,8 @@ Last updated: 2026-09-30 (C9-C; C9 closed).
 | C9-B Safe Downstream Handoffs | **COMPLETED** | migration `4fe83827d695` **DEPLOYED** (2026-09-29); targeted Threads consumption **ENABLED** (`consume_in_stock_maintenance: true`) |
 | C9-C Measurement Feedback Hardening | **COMPLETED** | DEPLOYED (worker-local follow-up measurement, read-only; no migration) |
 | **C9 Growth Engine (A–C)** | **COMPLETED** (closed) | remaining capabilities are placed explicitly below (C9-B limits → C10-D/E) |
-| C10-A Analysis Foundation | **NEXT** | — |
+| C10-A Analysis Foundation | **COMPLETED** | DEPLOYED (read-only foundation; commercial_intent v2 backfilled 30 keywords from stored data; no migration, no new external calls) |
+| C10-B Content Intelligence | **NEXT** | — |
 
 ---
 
@@ -178,13 +179,24 @@ outcomes (T6.5F/G), attribution of revenue to articles (C11).
 
 ## C10 — Growth platform (PLANNED; declared by the human in T7A: T7 before C10, only after maturity)
 
-### C10-A Analysis Foundation — NEXT
-- Google Ads `commercial_intent` signal
-- URL / index state (URL Inspection coverage beyond the saved snapshot)
-- freshness / data quality
-- affiliate attribution readiness
+### C10-A Analysis Foundation — COMPLETED
 
-### C10-B Content Intelligence — PLANNED
+Detail: `docs/operations/analysis-foundation.md`. No migration; analysis never calls external
+providers.
+
+| Component | Implementation | Production |
+|---|---|---|
+| Google Ads `commercial_intent` | COMPLETED: the existing deterministic signal hardened to normalizer v2 (zero bids / UNSPECIFIED competition are missing, not zero; outlier cap; quality flags; search volume not an input; organic difficulty not conflated) + PLAN-by-default re-derivation from stored values | DEPLOYED: 30 keywords re-derived from stored Google Ads values (30 appended signals, 3 value changes, 0 rescores, 0 API calls); **PENDING HUMAN**: 12 keywords without stored Google Ads metrics need the existing bulk fetch (`run_keyword_analysis.py`) |
+| URL / index state | COMPLETED: provider-neutral raw vs normalized state; latest *inspecting* run is used (daily `GSC_UNKNOWN` no longer overrides it); staleness; raw inspection fields kept by the weekly step | DEPLOYED: uses the already-operating weekly URL Inspection (existing read-only scope; no new call pattern); 25 articles known (24 indexed, 1 discovered-not-indexed) |
+| Source freshness / data quality | COMPLETED: one `SourceStatus` contract (fresh / waiting / stale / missing / insufficient / provider_error) for 7 sources; numbers only in `operations_policy.json` + `source_policy.json`; C9 evidence and C9-C measurement use it | DEPLOYED (worker reloaded); findings: Make commissions `insufficient` (imports succeed, 0 rows) |
+| Affiliate attribution readiness | COMPLETED (assessment): truth table + per-program readiness; clicks A_direct, Make commissions B_provider, nothing allocated to articles | assessment only; C11 needs a per-click reference (SubID / clickref) = human decision; 13 of 21 trusted clicks are flagged as possible instrumentation bursts (not excluded) |
+| Unified evidence contract + operator CLI | COMPLETED: per-component `CandidateEvidence` (no composite score) with access class and a per-provider batched refresh plan; `scripts/analyze_signal_health.py` | DEPLOYED (read-only) |
+
+Kept for later units: search_demand stores 0.0 for no-volume keywords (missing semantics →
+C10-B); C6 is not fed index state in the pipeline (`INDEXING_FOLLOWUP` → C10-B/C); Make commission
+program tagging (C11).
+
+### C10-B Content Intelligence — NEXT
 - Topic Cluster, Content Gap, Continuous Keyword Discovery
 - article types: comparison, roundup, how-to, practical workflow, implementation, pricing,
   informational, category landing
@@ -203,6 +215,9 @@ outcomes (T6.5F/G), attribution of revenue to articles (C11).
 
 ## C11 — Affiliate Revenue Attribution — PLANNED
 - article-level attribution (needs tracking / provider configuration changes: human decision)
+- readiness assessed in C10-A (`analyze_signal_health.py --section attribution`): per-click
+  reference (SubID / clickref) passed back by the ASP, stored on clicks and read by the
+  commission import; commission import tagged / filtered by program; no historical backfill
 
 ## N — Additional revenue track (note channel)
 - N0 note channel foundation — COMPLETED (see `docs/project-roadmap.json`)
