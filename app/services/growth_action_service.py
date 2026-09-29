@@ -331,7 +331,10 @@ class GrowthActionHistory:
                          "reasons": item.reasons})  # fmt: skip
             if item.supersedes_id is not None:
                 old = self._session.get(GrowthActionCandidate, item.supersedes_id)
-                old.status, old.status_changed_at = GA_SUPERSEDED, now
+                if old.status != GA_CONVERTED:
+                    # 変換済みの版は converted のまま残す (変換の記録と結びついているため)。
+                    # 新しい版とのつながりは superseded_by_id で分かる。
+                    old.status, old.status_changed_at = GA_SUPERSEDED, now
                 old.superseded_by_id = row.id
                 self._event(old.id, None, GAE_SUPERSEDED, now,
                             {"superseded_by": row.id,

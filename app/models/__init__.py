@@ -125,6 +125,7 @@ from app.models.ga4_import_run import (
 from app.models.ga4_page_daily import Ga4PageDaily
 from app.models.growth_action import (
     GrowthActionCandidate,
+    GrowthActionConversion,
     GrowthActionEvent,
     GrowthActionReview,
 )
@@ -523,6 +524,7 @@ __all__ = [
     "WP_RUN_STATUSES",
     "WP_RUN_TERMINAL_STATUSES",
     "GrowthActionCandidate",
+    "GrowthActionConversion",
     "GrowthActionEvent",
     "GrowthActionReview",
     "WordPressContentUpdateReconciliation",

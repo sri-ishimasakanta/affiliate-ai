@@ -81,9 +81,22 @@ GAE_REJECTED = "rejected"
 GAE_REVIEW_STALE = "review_stale"
 GAE_DISMISSED = "dismissed"
 GAE_CONVERSION_PLANNED = "conversion_planned"
+#: C9 Batch 3: 承認した候補を既存の流れの **手元の** 依頼に渡した / 渡す前の検査で断った /
+#: 渡す途中で失敗した (外には書かない)。
+GAE_CONVERSION_EXECUTED = "conversion_executed"
+GAE_CONVERSION_REFUSED = "conversion_refused"
+GAE_CONVERSION_FAILED = "conversion_failed"
 GAE_TYPES = (GAE_OBSERVED, GAE_AVAILABILITY_CHANGED, GAE_SUPERSEDED, GAE_NOT_OBSERVED,
              GAE_REVIEW_REQUESTED, GAE_APPROVED, GAE_REJECTED, GAE_REVIEW_STALE, GAE_DISMISSED,
-             GAE_CONVERSION_PLANNED)  # fmt: skip
+             GAE_CONVERSION_PLANNED, GAE_CONVERSION_EXECUTED, GAE_CONVERSION_REFUSED,
+             GAE_CONVERSION_FAILED)  # fmt: skip
+#: C9 Batch 2 の時点の出来事の種類 (migration の downgrade で使う)。
+GAE_TYPES_V1 = GAE_TYPES[:10]
+
+# -- 変換 (C9 Batch 3) -------------------------------------------------------------------------
+GAC_CREATED = "created"  # 変換で手元の依頼を新しく作った
+GAC_LINKED_EXISTING = "linked_existing"  # 同じ内容の依頼がすでにあった (作らずに結んだ)
+GAC_STATUSES = (GAC_CREATED, GAC_LINKED_EXISTING)
 
 
 def _in(values) -> str:
@@ -168,6 +181,46 @@ class GrowthActionReview(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now())  # fmt: skip
 
 
+class GrowthActionConversion(Base):
+    """承認した版を、既存の流れの手元の依頼 (例: ChangeRequest) へ渡した記録。
+
+    成功した変換だけを 1 行で持つ (``idempotency_key`` は一意: 同じ変換を 2 回しても 2 つ目の
+    依頼は作らない)。断った・失敗した試みは ``growth_action_events`` に残す。**外への書き込みは
+    記録しない** (変換は外に書かない。依頼の承認・適用はその流れの人の判断)。
+    """
+
+    __tablename__ = "growth_action_conversions"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_growth_action_conversions_idempotency"),
+        Index("ix_growth_action_conversions_candidate", "candidate_id"),
+        CheckConstraint(f"status IN ({_in(GAC_STATUSES)})", name="growth_action_conversion_status"),
+    )  # fmt: skip
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("growth_action_candidates.id", ondelete="RESTRICT"), nullable=False)  # fmt: skip
+    review_id: Mapped[int] = mapped_column(
+        ForeignKey("growth_action_reviews.id", ondelete="RESTRICT"), nullable=False)  # fmt: skip
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    target_workflow: Mapped[str] = mapped_column(String(64), nullable=False)
+    candidate_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: 実行の直前に固定した変換の計画と、その hash。
+    plan_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    plan_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    #: 作った / 結んだ依頼の種類と ID (例: ``change_request`` と ``[12]``)。
+    downstream_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    downstream_ids_json: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    #: 実際に書いた手元の表 (外の書き込みは常に無い)。
+    local_writes_json: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    executed_by: Mapped[str] = mapped_column(String(64), nullable=False, default="human")
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now())  # fmt: skip
+
+
 class GrowthActionEvent(Base):
     """出来事 (追記だけ)。"""
 
@@ -190,6 +243,8 @@ class GrowthActionEvent(Base):
 
 
 __all__ = [
+    "GAC_CREATED", "GAC_LINKED_EXISTING", "GAC_STATUSES", "GAE_CONVERSION_EXECUTED",
+    "GAE_CONVERSION_FAILED", "GAE_CONVERSION_REFUSED", "GAE_TYPES_V1", "GrowthActionConversion",
     "GAE_APPROVED", "GAE_AVAILABILITY_CHANGED", "GAE_CONVERSION_PLANNED", "GAE_DISMISSED",
     "GAE_NOT_OBSERVED", "GAE_OBSERVED", "GAE_REJECTED", "GAE_REVIEW_REQUESTED",
     "GAE_REVIEW_STALE", "GAE_SUPERSEDED", "GAE_TYPES", "GAR_APPROVED", "GAR_PENDING",

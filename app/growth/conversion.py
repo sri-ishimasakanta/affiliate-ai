@@ -18,6 +18,40 @@ MANUAL = "manual_only"  # 人が手で見る (自動の入口は無い)
 UNSUPPORTED = "unsupported"  # このシステムに自然な入口が無い
 NOT_APPLICABLE = "not_applicable"  # レビュー・実行の対象ではない (情報)
 
+# -- 実行の形 (C9 Batch 3) -----------------------------------------------------------------------
+#: 承認のあと ``--execute`` で、既存の流れの **手元の** 依頼を作ってよい (外には書かない)。
+EXEC_LOCAL_HANDOFF = "local_handoff"
+#: 計画を示すだけ (手元にも依頼を作らない。変換済みにもしない)。
+EXEC_PLAN_ONLY = "plan_only"
+#: 安全な入口が無い (実行すれば断る)。
+EXEC_UNSUPPORTED = "unsupported"
+#: 対象ではない。
+EXEC_NOT_APPLICABLE = "not_applicable"
+EXECUTION_MODES = (EXEC_LOCAL_HANDOFF, EXEC_PLAN_ONLY, EXEC_UNSUPPORTED, EXEC_NOT_APPLICABLE)
+#: 対応の表 (報告と試験のため): 行動 → (実行の形, いま足りないもの)。
+CONVERSION_MATRIX = {
+    ga.REVIEW_INTERNAL_LINKS: (EXEC_LOCAL_HANDOFF, None),
+    ga.CREATE_NEW_ARTICLE: (EXEC_PLAN_ONLY,
+                            "a durable article-planning request entity does not exist"),
+    ga.CREATE_GROWTH_POST: (EXEC_PLAN_ONLY, "the Growth lane owns generation (daily call cap, "
+                                            "purpose gate); nothing to hand off"),
+    ga.CREATE_REGULAR_THREADS_POST: (EXEC_UNSUPPORTED,
+                                     "needs a targeted GenerationRequest adapter (article + "
+                                     "angle) inside the proposal stock rules"),
+    ga.CREATE_THREADS_ALTERNATIVE_ANGLE: (EXEC_UNSUPPORTED,
+                                          "needs a targeted GenerationRequest adapter (article "
+                                          "+ angle) inside the proposal stock rules"),
+    ga.REVIEW_AFFILIATE_PLACEMENT: (EXEC_UNSUPPORTED,
+                                    "affiliate_link_change is representable but not generated "
+                                    "in change requests v1; placement stays manual"),
+    ga.UPDATE_EXISTING_ARTICLE: (EXEC_UNSUPPORTED,
+                                 "text_edit is representable but not generated in v1"),
+    ga.IMPROVE_SEARCH_SNIPPET: (EXEC_UNSUPPORTED,
+                                "no meta/snippet change generator or update path exists"),
+    ga.WAIT_FOR_MORE_DATA: (EXEC_NOT_APPLICABLE, None),
+    ga.INVESTIGATE_DATA_QUALITY: (EXEC_NOT_APPLICABLE, None),
+}  # fmt: skip
+
 
 @dataclass(frozen=True)
 class ConversionPlan:
@@ -29,12 +63,22 @@ class ConversionPlan:
     note: str
     #: この変換そのものが外に書くか (どの入口も既定は PLAN で、書かない)。
     writes_on_plan: bool = False
+    #: ``--execute`` で何をしてよいか (``EXEC_*``)。
+    execution_mode: str = EXEC_NOT_APPLICABLE
+    #: 実行できないときの、いま足りないもの。
+    missing: str | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
 
 
 def plan_conversion(candidate: Mapping) -> ConversionPlan:
+    plan = _plan_conversion(candidate)
+    mode, missing = CONVERSION_MATRIX.get(plan.action_type, (EXEC_NOT_APPLICABLE, None))
+    return ConversionPlan(**{**asdict(plan), "execution_mode": mode, "missing": missing})
+
+
+def _plan_conversion(candidate: Mapping) -> ConversionPlan:
     action = candidate["action_type"]
     aid = candidate.get("article_id")
     kid = candidate.get("keyword_id")
@@ -85,5 +129,6 @@ def plan_conversion(candidate: Mapping) -> ConversionPlan:
                           "informational: not a review or execution target")
 
 
-__all__ = ["LANE", "MANUAL", "NOT_APPLICABLE", "SUPPORTED", "UNSUPPORTED", "ConversionPlan",
-           "plan_conversion"]
+__all__ = ["CONVERSION_MATRIX", "EXECUTION_MODES", "EXEC_LOCAL_HANDOFF", "EXEC_NOT_APPLICABLE",
+           "EXEC_PLAN_ONLY", "EXEC_UNSUPPORTED", "LANE", "MANUAL", "NOT_APPLICABLE", "SUPPORTED",
+           "UNSUPPORTED", "ConversionPlan", "plan_conversion"]

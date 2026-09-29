@@ -171,6 +171,7 @@ def test_all_tables_registered() -> None:
         "growth_action_candidates",
         "growth_action_reviews",
         "growth_action_events",
+        "growth_action_conversions",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",

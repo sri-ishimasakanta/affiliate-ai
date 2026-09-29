@@ -121,3 +121,59 @@ subsystem `growth_opportunity_evaluation` (`threads_operations_policy.json` の
 
 履歴の表が無ければ何もしない (理由を返す)。本番で使うには、migration の適用と方針の有効化
 (worker の再起動) が要る。
+
+## 承認した行動の変換と効果の観測 (C9 Batch 3)
+
+```bash
+uv run python scripts/convert_growth_action.py <growth_action_id>            # PLAN (書かない)
+uv run python scripts/convert_growth_action.py <growth_action_id> --execute  # 手元の依頼だけ
+uv run python scripts/analyze_growth_action_outcomes.py list                  # 読むだけ
+uv run python scripts/analyze_growth_action_outcomes.py show <id> --checkpoint 7d
+```
+
+### 対応の表 (`app/growth/conversion.py` の `CONVERSION_MATRIX`)
+
+| 行動 | 実行の形 | 先の流れ / いま足りないもの |
+|---|---|---|
+| `review_internal_links` | **local_handoff** | 保存済みの C6 の候補 (無ければ C6 の評価を保存。C6 がいまも提案していることを確かめてから) → `ChangeRequestService.propose_from_seo_candidate` → `change_requests` (awaiting_approval、`source_engine=seo` のまま)。**承認・適用はしない** |
+| `create_new_article` | plan_only | `export_article_plan.py` は読むだけの計画。手元の「記事の計画の依頼」の実体が無いので、変換済みにしない |
+| `create_growth_post` | plan_only | Growth の枠が生成を持つ (1 日の呼び出しの上限・目的の検査)。渡すものが無い |
+| `create_regular_threads_post` / `create_threads_alternative_angle` | unsupported | 在庫の保守の規則の中で記事と切り口を指定する GenerationRequest の入口が要る |
+| `review_affiliate_placement` | unsupported | `affiliate_link_change` は表せるが v1 では作らない (配置は人) |
+| `update_existing_article` | unsupported | `text_edit` は表せるが v1 では作らない |
+| `improve_search_snippet` | unsupported | meta / snippet の変更の生成・更新の経路が無い |
+| `wait_for_more_data` / `investigate_data_quality` | not_applicable | 情報 |
+
+### 変換の約束 (`growth-action-conversion/1`)
+
+計画: 版・指紋・レビュー・行動・先の流れ・対象 (レビューに固定した内部リンクの先)・実行の形・
+前提・止める理由・予定の手元の書き込み・外の書き込み (常に無し)・idempotency key・plan hash。
+
+`--execute` の直前に全部を確かめ、どれかが違えば断る (`conversion_refused` の出来事に理由):
+承認済みのレビュー / 固定した指紋と写しの hash が合う / 最新の版 / superseded でない / いまの評価が
+同じ指紋の候補を出している / いま動ける / 止める理由がレビューのときと同じ / その記事に開いている
+変更の依頼が無い。途中の失敗は `conversion_failed` (何も変換済みにしない)。
+
+冪等: `growth_action_conversions.idempotency_key` (一意) と `change_requests.idempotency_key`。
+同じ変換の 2 回目は前の結果を返す (書かない)。
+
+### 記録 (migration `74dbecaa4bb2`、**本番にはまだ適用していない**)
+
+`growth_action_conversions` (成功した変換だけ: 版・レビュー・先の種類と ID・計画と hash・書いた
+手元の表・実行した時刻)。出来事に `conversion_executed` / `conversion_refused` /
+`conversion_failed` を足す。downgrade は変換の記録が 1 行でもあれば止まる。表が無い DB では PLAN
+だけが動き、`--execute` は理由つきで断る。
+
+### その先と効果
+
+- 先の状態は読むだけ: 変更の依頼の状態・最新の決定・適用。**変換 ≠ 適用**、**承認 ≠ 公開**。
+- `effective_at` は実際の適用の成功 (`change_applications.finished_at`) だけ。承認・変換の時刻は
+  使わない。まだなら `None` で、観測は `waiting`。
+- 窓 24h / 72h / 7d / 14d / 28d は `ChangeEffectService` (同じ長さの前後の窓、GSC の取り込みの
+  遅れ、信頼できるクリックだけ、`causal_claim=none`) を使う。状態: waiting / insufficient /
+  observable / stale_data / completed_window。観測の文は「変更後の窓では X を観測」「変更前の窓との
+  差は Y」だけ。1 つの点数・勝ち負けは作らない。
+- 閉じた輪: 変換した版は同じ証拠なら出てこない (`suppressed_completed`)。新しい証拠は新しい版
+  (変換済みの版は converted のまま、`superseded_by_id` でつながる)。開いている変更の依頼は、同じ
+  記事の WordPress の行動を「既存の仕事が担う」にする (同じ記事の同時の編集を避ける)。
+- worker は変換しない (評価と手元の履歴の更新だけ、Batch 2 のまま)。

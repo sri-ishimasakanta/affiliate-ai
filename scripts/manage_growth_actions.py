@@ -142,11 +142,13 @@ def _run(args, session, settings, as_of) -> int:
             _emit(args, payload, render_refresh(payload))
             return 0
         entry = _find(entries, args.target)
+        link = linkage(session, settings, entry.get("id"))
         if command == "show":
-            _emit(args, entry, render_entry(entry))
+            _emit(args, {**entry, "linkage": link}, render_entry(entry) + render_linkage(link))
         else:
             conversion = plan_conversion(entry).as_dict()
-            _emit(args, {**entry, "conversion": conversion}, render_explain(entry, conversion))
+            _emit(args, {**entry, "conversion": conversion, "linkage": link},
+                  render_explain(entry, conversion) + render_linkage(link))  # fmt: skip
         return 0
     history = GrowthActionHistory(session)
     reviews = GrowthActionReviewService(session)
@@ -155,6 +157,7 @@ def _run(args, session, settings, as_of) -> int:
             raise GrowthActionError("growth action history tables are missing (migration "
                                     "74bfaf6c9c9f is not applied)")
         payload = history.history(int(args.target))
+        payload["linkage"] = linkage(session, settings, int(args.target))
         _emit(args, payload, json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         return 0
     if not args.execute:
@@ -177,6 +180,68 @@ def _run(args, session, settings, as_of) -> int:
         row = reviews.dismiss(args.candidate_id, reason=args.reason)
         print(f"growth action {row.id} dismissed")
     return 0
+
+
+def linkage(session, settings, candidate_id) -> dict:
+    """レビュー・変換・変換の先の状態・実際の変化の時刻・最新の観測 (読むだけ)。"""
+
+    from sqlalchemy import select
+
+    from app.models.growth_action import GrowthActionConversion, GrowthActionReview
+    from app.services.growth_action_conversion_service import (
+        GrowthActionConversionService,
+        GrowthActionOutcomeService,
+        conversions_ready,
+    )
+
+    out = {"review": None, "conversion": None, "downstream": [], "latest_outcome": None}
+    if candidate_id is None or not GrowthActionHistory(session).tables_ready():
+        return out
+    review = session.scalars(select(GrowthActionReview).where(
+        GrowthActionReview.candidate_id == candidate_id)).first()  # fmt: skip
+    if review is not None:
+        out["review"] = {"id": review.id, "status": review.status,
+                         "decided_at": review.decided_at.isoformat() if review.decided_at
+                         else None}  # fmt: skip
+    if not conversions_ready(session):
+        return out
+    conversion = session.scalars(select(GrowthActionConversion).where(
+        GrowthActionConversion.candidate_id == candidate_id)).first()  # fmt: skip
+    if conversion is None:
+        return out
+    service = GrowthActionConversionService(session, settings=settings)
+    out["conversion"] = {"id": conversion.id, "status": conversion.status,
+                         "downstream_type": conversion.downstream_type,
+                         "downstream_ids": list(conversion.downstream_ids_json),
+                         "executed_at": conversion.executed_at.isoformat()}  # fmt: skip
+    out["downstream"] = service.downstream(conversion)
+    outcomes = GrowthActionOutcomeService(session, settings=settings)
+    anchors = [a for a in outcomes.anchors() if a.growth_action_id == candidate_id]
+    if anchors:
+        result = outcomes.outcome(anchors[0]).as_dict()
+        reached = [c for c in result["checkpoints"] if c["state"] != "waiting"]
+        out["latest_outcome"] = {"measurement_state": result["measurement_state"],
+                                 "checkpoint": (reached[-1] if reached
+                                                else result["checkpoints"][0])}  # fmt: skip
+    return out
+
+
+def render_linkage(link: dict) -> str:
+    lines = ["", f"review: {_v(link['review'])}"]
+    if link["conversion"]:
+        c = link["conversion"]
+        lines.append(f"conversion #{c['id']}: {c['status']} → {c['downstream_type']} "
+                     f"{c['downstream_ids']} at {c['executed_at']}")
+    else:
+        lines.append("conversion: none")
+    for d in link["downstream"]:
+        lines.append(f"downstream {d['type']} #{d['id']}: {d['state']}; effective_at "
+                     f"{d.get('effective_at') or '— (not applied)'}")
+    if link["latest_outcome"]:
+        o = link["latest_outcome"]
+        lines.append(f"latest outcome: {o['measurement_state']} "
+                     f"({o['checkpoint']['name']}: {o['checkpoint']['state']})")
+    return "\n".join(lines)
 
 
 def _v(value) -> str:
