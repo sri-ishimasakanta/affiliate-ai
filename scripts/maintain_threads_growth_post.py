@@ -11,6 +11,11 @@ JST の 1 日に 1 本まで。その日の提案があれば、何度実行し�
 別の書き方で書き直す。T6.3.3c より前の記録がある日は呼び直さない。
 フォロワー数は ``--collect-followers`` のときだけ Threads から 1 回読む (読むだけ)。
 記事の無い提案を保存する migration (``c4d2e8f1a9b3``) の前の DB では、PLAN だけが動く。
+
+    # 人が許した、今日 1 回だけの同じ日のやり直し (T6.3.3c より前の記録の日だけ。前の試みは
+    # 残し、前の呼び出しも 1 日の上限 4 回に数える。承認・公開はしない)
+    uv run python scripts/maintain_threads_growth_post.py --execute --collect-followers \
+        --allow-same-day-growth-retry 2026-09-29
 """
 
 from __future__ import annotations
@@ -44,7 +49,24 @@ def main(
         help="生成の直前にフォロワー数を Threads から 1 回読む (読むだけ。--execute のときだけ)",
     )
     parser.add_argument("--json", dest="json_path", help="結果を JSON で書き出すパス")
+    parser.add_argument(
+        "--allow-same-day-growth-retry",
+        dest="same_day_retry",
+        metavar="YYYY-MM-DD",
+        help="人が許した、今日 (JST) 1 回だけの同じ日のやり直し (--execute のときだけ。"
+        "T6.3.3c より前の記録の日だけに効き、上限は前の呼び出しを数えたまま)",
+    )
     args = parser.parse_args(argv)
+    same_day_retry = None
+    if args.same_day_retry is not None:
+        if not args.execute:
+            parser.error("--allow-same-day-growth-retry needs --execute")
+        from datetime import date as _date
+
+        try:
+            same_day_retry = _date.fromisoformat(args.same_day_retry)
+        except ValueError:
+            parser.error("--allow-same-day-growth-retry needs a date (YYYY-MM-DD)")
 
     if session_factory is None:
         from app.config.database import SessionLocal
@@ -61,6 +83,7 @@ def main(
         # client を作るだけでは呼ばない (PLAN でも本当の判断を出すために作る)。
         "client": build_responses_client(settings),
         "collect_followers": args.collect_followers,
+        "same_day_retry": same_day_retry,
         **(overrides or {}),
     }
     if args.collect_followers and "threads_service" not in options:
@@ -77,7 +100,7 @@ def main(
     keys = (
         "date_jst", "due", "reason", "active_proposal", "published_today",
         "follower_target", "follower_target_reached", "created", "model_calls",
-        "model_calls_today", "model_call_budget", "outcome", "strategy",
+        "model_calls_today", "model_call_budget", "outcome", "strategy", "same_day_retry",
     )  # fmt: skip
     for key in keys:
         if key in result:

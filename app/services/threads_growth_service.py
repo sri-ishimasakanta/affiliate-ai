@@ -22,7 +22,14 @@ T6.3.3c: 目的は「その日に、検査を通った提案を 1 本」。候�
 - 呼び出しの上限・使える書き方が尽きた → 提案なしで止める (``growth_generation_exhausted``)
 
 検査は弱めない (似ている度合いの上限も同じ)。T6.3.3c より前の記録 (書き方の版が無い) の日は、
-呼び直さない (2026-09-29 の記録はそのまま)。呼び出しごとの記録を ``data/threads-growth`` に残す。
+呼び直さない。呼び出しごとの記録を ``data/threads-growth`` に残す。
+
+**人が許した同じ日のやり直し** (``same_day_retry``、``OVERRIDE_SAME_DAY_RETRY``): 管理用 CLI の
+``--allow-same-day-growth-retry <今日の日付>`` だけが渡す (worker は渡さない)。**今日**・
+**T6.3.3c より前の形の記録**・今日の提案も公開もまだ無い、のときだけ効く。前の試みは消さずに
+そのまま残し (記録の中の ``legacy_record`` と、同じ中身の別ファイル)、前の呼び出しも 1 日の上限に
+数える (上限は 0 に戻らない)。検査・承認・1 日 1 本の公開は変わらない。やり直し中の日は、worker が
+続きを呼ばない。
 """
 
 from __future__ import annotations
@@ -88,6 +95,10 @@ FOLLOWER_READ_LABELS = {
 FOLLOWERS_FILE = "followers.json"
 STATUS_FILE = "status.json"
 RECORD_SUFFIX = ".openai.json"
+#: 人が許した同じ日のやり直しの印 (記録と呼び出しに残す)。
+OVERRIDE_SAME_DAY_RETRY = "human_authorized_same_day_retry"
+#: やり直しの前の記録の、そのままの写し (消さない・上書きしない)。
+LEGACY_COPY_SUFFIX = ".legacy-t633.openai.json"
 
 
 class ThreadsGrowthService:
@@ -102,6 +113,7 @@ class ThreadsGrowthService:
         collect_followers: bool = False,
         follower_target: int = GROWTH_FOLLOWER_TARGET,
         enabled: bool = GROWTH_POSTS_ENABLED,
+        same_day_retry=None,
     ) -> None:
         self._session = session
         self._tz = timezone
@@ -113,6 +125,8 @@ class ThreadsGrowthService:
         self._enabled = enabled
         #: T6.4: 最後にフォロワー数を読んだ結果 (理由の ID と日本語。値・秘密は入れない)。
         self._follower_read: dict | None = None
+        #: 人が許した同じ日のやり直しの日付 (管理用 CLI だけが渡す)。
+        self._same_day_retry = same_day_retry
 
     # -- facts ---------------------------------------------------------------------------
     def growth_proposals(self) -> list[ThreadsPostProposal]:
@@ -180,7 +194,14 @@ class ThreadsGrowthService:
             "model_call_budget": gs.MAX_GROWTH_MODEL_CALLS_PER_DAY,
         }
         reason = None
-        if not self._enabled:
+        operator_retry = self._same_day_retry is not None and self._same_day_retry == day
+        if self._same_day_retry is not None:
+            out["same_day_retry"] = {"requested_for": str(self._same_day_retry),
+                                     "applies": operator_retry}  # fmt: skip
+        if self._same_day_retry is not None and not operator_retry:
+            reason = (f"the same-day retry was allowed for {self._same_day_retry}, not today "
+                      f"({day}); refused")  # fmt: skip
+        elif not self._enabled:
             reason = "disabled by policy"
         elif now < start:
             reason = "before 07:00 JST"
@@ -188,7 +209,7 @@ class ThreadsGrowthService:
             reason = f"today's growth post already exists (proposal {existing.id})"
         elif out["published_today"]:
             reason = "a growth post was already published today"
-        elif (finished := _finished(self._record(day))) is not None:
+        elif (finished := _finished(self._record(day), operator_retry=operator_retry)) is not None:
             reason = finished
         elif out["follower_target_reached"]:
             reason = (
@@ -377,7 +398,12 @@ class ThreadsGrowthService:
         """
 
         rid = day.isoformat()
-        record = self._record(day) or {
+        existing = self._record(day)
+        if existing and existing.get("strategy_policy_version") is None:
+            if self._same_day_retry != day:  # pragma: no cover - plan() で止まる
+                return None, 0, "today's growth generation was already attempted", None
+            existing = self._convert_legacy(existing, rid)
+        record = existing or {
             "request_id": f"growth-{rid}",
             "content_kind": CONTENT_KIND_ACCOUNT_GROWTH,
             "date_jst": rid,
@@ -417,6 +443,8 @@ class ThreadsGrowthService:
                 entry["repair_reasons"] = redact(feedback[1])[:1500]
             if direction:
                 entry["retry_direction"] = direction
+            if record.get("override"):
+                entry["override"] = OVERRIDE_SAME_DAY_RETRY
             calls.append(entry)
             record.update(result="in_progress", updated_at=_now())
             self._write_record(rid, record)  # 呼ぶ前に残す (落ちても数は戻らない)
@@ -480,6 +508,71 @@ class ThreadsGrowthService:
             entry["failure_class"] = gs.classify_validation(reason_ids)
             self._write_record(rid, record)
         return self._finish(record, gs.MODEL_CALL_BUDGET_EXHAUSTED, made)
+
+    def _convert_legacy(self, legacy: dict, rid: str) -> dict:
+        """人が許した同じ日のやり直し: T6.3.3 の記録を、消さずに T6.3.3c の形へ移す。
+
+        前の呼び出しは、そのまま 1 日の上限に数える (``legacy`` の印つき)。元の記録は中身そのままを
+        ``legacy_record`` に入れ、同じバイトの写しを別ファイルに残す (上書きしない)。
+        """
+
+        copy = self._dir / f"{rid}{LEGACY_COPY_SUFFIX}"
+        original = self._dir / f"{rid}{RECORD_SUFFIX}"
+        if not copy.exists():
+            copy.write_bytes(original.read_bytes())
+        brief = legacy.get("brief") or {}
+        family = gs.LEGACY_ANGLE_FAMILY.get(str(brief.get("angle")), str(brief.get("angle")))
+        strategy = {"family": family, "hook": "legacy", "cta": "legacy", "structure": "legacy",
+                    "signature": f"{family}+legacy+legacy+legacy"}  # fmt: skip
+        calls = []
+        for old in legacy.get("history") or []:
+            validation = old.get("validation") or {}
+            similarity = ((validation.get("audit") or {}).get("similarity")) or {}
+            reason_ids = validation.get("reason_ids") or []
+            if str(old.get("result", "")).startswith("failed:"):
+                failure = gs.classify_provider(str(old["result"]).split(":", 1)[1])
+            elif validation.get("ok"):
+                failure = None
+            else:
+                failure = gs.classify_validation(reason_ids)
+            calls.append({
+                "ordinal": len(calls) + 1, "call_index": len(calls) + 1, "attempt_index": 1,
+                "purpose": old.get("purpose"), "legacy": True, "strategy": dict(strategy),
+                "at": old.get("at"), "result": old.get("result"), "validation": validation,
+                "failure_class": failure,
+                "similarity": {"max": similarity.get("max_similarity"),
+                               "compared": similarity.get("blocked_by")
+                               or (similarity.get("top") or [{}])[0].get("ref"),
+                               "threshold": similarity.get("threshold")},
+                "usage": old.get("usage") or {}, "http_attempts": old.get("http_attempts") or [],
+                "output": old.get("output"),
+            })  # fmt: skip
+        remaining = max(0, gs.MAX_GROWTH_MODEL_CALLS_PER_DAY - len(calls))
+        return {
+            "request_id": legacy.get("request_id") or f"growth-{rid}",
+            "content_kind": CONTENT_KIND_ACCOUNT_GROWTH,
+            "date_jst": rid,
+            "strategy_policy_version": gs.GROWTH_STRATEGY_POLICY_VERSION,
+            "generator_version": GROWTH_GENERATOR_VERSION,
+            "daily_call_budget": gs.MAX_GROWTH_MODEL_CALLS_PER_DAY,
+            "model": self._client.model,
+            "result": "in_progress",
+            "outcome": None,
+            "override": {
+                "type": OVERRIDE_SAME_DAY_RETRY,
+                "date_jst": rid,
+                "authorized_via": "scripts/maintain_threads_growth_post.py "
+                                  "--allow-same-day-growth-retry",
+                "applied_at": _now(),
+                "legacy_calls": len(calls),
+                "starting_remaining_budget": remaining,
+                "legacy_result": legacy.get("result"),
+                "legacy_reason": legacy.get("reason"),
+                "legacy_copy": copy.name,
+            },
+            "legacy_record": legacy,
+            "history": calls,
+        }  # fmt: skip
 
     def _finish(self, record: dict, why: str, made: int, *, reason: str | None = None):
         """その日を提案なしで終える (もう呼ばない)。"""
@@ -629,16 +722,25 @@ def _calls(record: dict | None) -> list[dict]:
     return list((record or {}).get("history") or [])
 
 
-def _finished(record: dict | None) -> str | None:
-    """その日の生成が終わっていれば理由 (もう呼ばない)、続けてよければ ``None``。"""
+def _finished(record: dict | None, *, operator_retry: bool = False) -> str | None:
+    """その日の生成が終わっていれば理由 (もう呼ばない)、続けてよければ ``None``。
+
+    ``operator_retry``: 人が許した同じ日のやり直し (管理用 CLI) で、今日の分として呼ばれた。
+    T6.3.3c より前の形の記録の日だけ、続けてよい (上限は前の呼び出しを数えたまま)。
+    """
 
     if not record:
         return None
     if record.get("unreadable"):
         return "today's growth generation record is unreadable (no regeneration)"
     if record.get("strategy_policy_version") is None:
-        # T6.3.3c より前の記録 (2026-09-29 など): 1 回の試みで終わった日。呼び直さない。
+        # T6.3.3c より前の記録: 1 回の試みで終わった日。人が許したやり直しの時だけ続ける。
+        if operator_retry:
+            return None
         return "today's growth generation was already attempted (no regeneration)"
+    if record.get("override") and not operator_retry and not record.get("outcome"):
+        return ("today's growth generation is under a human-authorized same-day retry; "
+                "the worker does not continue it")  # fmt: skip
     if record.get("outcome"):
         return f"today's growth generation is finished ({record['outcome']})"
     if len(_calls(record)) >= gs.MAX_GROWTH_MODEL_CALLS_PER_DAY:
@@ -666,6 +768,9 @@ def _next_action(day, calls: list[dict], families, history):
         return None if strategy is None else ("initial", strategy, None, None)
     previous = gs.Strategy.from_dict(last.get("strategy"))
     failure = last.get("failure_class")
+    if last.get("legacy"):
+        # T6.3.3 の試み (書き方の記録なし): 書き直さない。別の書き方で新しく書く。
+        previous = None
     if failure == gs.PROVIDER_TRANSIENT and previous is not None:
         # 前の回は provider の一時的な失敗 (候補を見ていない): 同じ書き方でもう一度。
         return (last.get("purpose") or "initial", previous, None, last.get("retry_direction"))
