@@ -120,6 +120,14 @@ def card(
     )
 
 
+def layout_of(*boxes: tuple[str, str, float, float], height: float = 1000) -> dict:
+    """``(handle, code, top, bottom)`` の並び → ページが返す位置の形 (画面の中の座標)。"""
+
+    return {"viewport": {"width": 1280, "height": height},
+            "cards": [{"top": top, "bottom": bottom, "hrefs": [f"/@{handle}/post/{code}"]}
+                      for handle, code, top, bottom in boxes]}  # fmt: skip
+
+
 def page(*cards: str) -> str:
     return f"<html><body><main>{''.join(cards)}</main></body></html>"
 
@@ -168,11 +176,15 @@ class FakePage:
     """読むだけの偽のページ。URL ごとに、スクロールのたびに次の HTML を返す。
 
     押す・書く操作は持たない (本物の ``PlaywrightPage`` と同じ)。開いた URL は本物と同じく
-    ``check_url`` を通す。
+    ``check_url`` を通す。``layouts`` (T6.5B.4): URL ごとに、HTML と同じ順の投稿のまとまりの位置
+    (``layout_of``)。無ければ ``layout()`` は ``None`` (位置が読めないページ)。
     """
 
-    def __init__(self, pages: dict[str, list[str] | str], *, default: str | None = None) -> None:
+    def __init__(self, pages: dict[str, list[str] | str], *, default: str | None = None,
+                 layouts: dict[str, list[dict] | dict] | None = None) -> None:  # fmt: skip
         self.pages = {k: ([v] if isinstance(v, str) else list(v)) for k, v in pages.items()}
+        self.layouts = {k: ([v] if isinstance(v, dict) else list(v))
+                        for k, v in (layouts or {}).items()}  # fmt: skip
         self.default = default
         self.visited: list[str] = []
         self.scrolls = 0
@@ -209,6 +221,12 @@ class FakePage:
 
     def screenshot(self, path: Path) -> None:
         self.screenshots.append(path)
+
+    def layout(self) -> dict | None:
+        frames = self.layouts.get(self._url or "")
+        if not frames:
+            return None
+        return frames[min(self._index, len(frames) - 1)]
 
     def close(self) -> None:
         self.closed = True

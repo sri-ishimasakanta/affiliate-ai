@@ -168,7 +168,11 @@ def author_breakouts(
     metrics: Sequence[str] = ("likes", "replies"),
     min_sample: int = MIN_AUTHOR_SAMPLE,
 ) -> list[dict]:
-    """投稿ごとの、投稿者の基準との比 (leave-one-out)。``posts`` は最新の観測を持つ行。"""
+    """投稿ごとの、投稿者の基準との比 (leave-one-out)。``posts`` は最新の観測を持つ行。
+
+    ``breakouts`` (T6.5B.4): 伸びた候補になった指標ごとの結果 (``breakout_entry``)。表示は
+    これだけを使う (どの指標で伸びたかを、表示の側で決め直さない)。
+    """
 
     by_author: dict[str, list[Mapping]] = defaultdict(list)
     for post in posts:
@@ -188,8 +192,24 @@ def author_breakouts(
                 breakout_ratio(value, baseline["median"]) if baseline["sufficient"] else None
             )
             row[f"{metric}_breakout"] = classify_breakout(value, baseline)
+        row["breakouts"] = [breakout_entry(row, metric) for metric in metrics
+                            if row[f"{metric}_breakout"] == BREAKOUT_CANDIDATE]  # fmt: skip
         out.append(row)
     return out
+
+
+def breakout_entry(row: Mapping, metric: str) -> dict:
+    """1 つの指標の伸びた候補: 指標・その投稿の値・投稿者の中央値・比・比べた投稿の数。"""
+
+    baseline = row[f"author_{metric}_baseline"]
+    return {
+        "metric": metric,
+        "value": row[metric],
+        "baseline_median": baseline["median"],
+        "ratio": row[f"{metric}_breakout_ratio"],
+        "baseline_n": baseline["n"],
+        "min_sample": baseline["min_sample"],
+    }
 
 
 __all__ = [
@@ -198,7 +218,7 @@ __all__ = [
     "MIN_GROUP_SAMPLE", "EXTERNAL_MIN_USABLE_POSTS", "GROUP_CANDIDATE_MIN",
     "GROUP_STRONGER_MIN", "EVIDENCE_CANDIDATE_PATTERN", "EVIDENCE_INSUFFICIENT_SAMPLE",
     "EVIDENCE_STRONGER_DESCRIPTIVE", "group_evidence",
-    "author_baseline", "author_breakouts", "breakout_ratio",
+    "author_baseline", "author_breakouts", "breakout_entry", "breakout_ratio",
     "INSUFFICIENT_SAMPLE", "OBSERVED_HIGHER", "OBSERVED_LOWER", "classify_breakout",
     "group_summary", "median_or_none", "observed_extremes",
 ]  # fmt: skip

@@ -19,6 +19,10 @@ global_trending が無い・計画の数が段階の上限と上限 100 以内�
 ブラウザの置き場所 (``PLAYWRIGHT_BROWSERS_PATH``) がある・``--store`` なら DB が期待する
 revision で観察の表がある。実行の後、ログインが要った / 画面の形が違った / 勘定が合わなかった
 手順があれば ``--store`` でも保存しない。
+画面の証拠 (T6.5B.4): ``--screenshots`` なら読むたびに見えている画面を撮り、受け入れた投稿が
+どの画面に写っていたかを ``visual_audit`` に出す (保存するなら実行の ``artifacts_json`` にも)。
+段階 2 以上の ``--store`` は ``--screenshots`` が必要で、受け入れた投稿のすべてに画面の証拠が
+無ければ保存しない (証拠があること ≠ 人が照らしたこと。照らすのは保存の後の確認)。
 知っているアカウントの候補は、DB の観察の記録を読むだけで作る (``--offline`` なら読まない)。
 既定の段階は 3 (通常の目安 90 件)。いま実行してよい段階は方針の rollout に従う (人の許可)。
 """
@@ -84,11 +88,14 @@ def render(plan, policy: dict) -> str:
 
 EXIT_GATE = 3
 EXIT_NOT_STORED = 4
+#: この段階から、保存には画面の証拠 (スクロールごとの画面と、投稿 → 画面の対応) が要る。
+VISUAL_AUDIT_REQUIRED_FROM_STAGE = 2
 
 
 def gate_problems(
     plan, policy: dict, *, store: bool, profile_dir: Path, browsers_path: str | None,
     db_revision: str | None, expected_revision: str | None, tables_present: bool | None,
+    screenshots: bool = False,
 ) -> list[str]:
     """ブラウザを開く前に確かめること (空なら通れる)。"""
 
@@ -106,6 +113,9 @@ def gate_problems(
     if store and plan.stage > current + 1:
         problems.append(f"stage {plan.stage} cannot be stored yet (current stage {current}; "
                         "one stage at a time)")  # fmt: skip
+    if store and plan.stage >= VISUAL_AUDIT_REQUIRED_FROM_STAGE and not screenshots:
+        problems.append(f"stage {plan.stage} stored runs need --screenshots (per-scroll visual "
+                        "audit)")  # fmt: skip
     limits = policy["page_limits"]
     for step in plan.steps:
         if step.source_type in NOT_SUBSTITUTED:
@@ -170,9 +180,11 @@ def _db_facts(session_factory) -> tuple[str | None, bool]:
 def _post_rows(result) -> list[dict]:
     from app.social.threads.observer.normalize import normalize_body
 
+    visual = result.visual_summary()["posts"]
     rows = []
     for item in result.posts:
         record = item.record
+        evidence = visual.get(record.external_post_key, {})
         rows.append({
             "source_type": item.source_type, "source_query": item.source_query,
             "external_post_key": record.external_post_key, "author_handle": record.author_handle,
@@ -184,8 +196,18 @@ def _post_rows(result) -> list[dict]:
             "normalization_flags": list(normalize_body(record.body_text).normalization_flags),
             "media_diagnostics": record.media_diagnostics,
             "numeric_facts_count": record.features.get("numeric_facts_count"),
+            "visual_evidence_available": evidence.get("visual_evidence_available", False),
+            "audit_frames": evidence.get("audit_frames", []),
         })  # fmt: skip
     return rows
+
+
+def _visual_overview(visual: dict) -> dict:
+    """画面の証拠の勘定の要約 (投稿ごとの対応は ``--show-posts`` と保存した実行の記録)。"""
+
+    return {k: v for k, v in visual.items() if k not in ("posts", "sources")} | {
+        "sources": [{k: v for k, v in src.items() if k != "frames"} | {"frames": len(src["frames"])}
+                    for src in visual["sources"]]}  # fmt: skip
 
 
 def main(argv: list[str] | None = None, *, session_factory=None, now: datetime | None = None,
@@ -248,6 +270,7 @@ def main(argv: list[str] | None = None, *, session_factory=None, now: datetime |
         browsers_path=browsers_path if browsers_path is not None
         else os.environ.get("PLAYWRIGHT_BROWSERS_PATH"),
         db_revision=revision, expected_revision=expected, tables_present=present,
+        screenshots=args.screenshots,
     )  # fmt: skip
     record = {"plan": plan.as_dict(), "mode": "store" if args.store else "dry_run"}
     if problems:
@@ -281,9 +304,17 @@ def main(argv: list[str] | None = None, *, session_factory=None, now: datetime |
                    "topic_list": ({k: v for k, v in out.result.topic_accounting.items()
                                    if k != "sequence"} if out.result.topic_accounting else None),
                    "provenance_multi": {k: v for k, v in out.provenance.items() if len(v) > 1},
-                   "screenshots": out.result.screenshots})  # fmt: skip
+                   "screenshots": out.result.screenshots,
+                   "visual_audit": _visual_overview(out.result.visual_summary())})  # fmt: skip
     if args.show_posts:
         record["posts"] = _post_rows(out.result)
+    visual = out.result.visual_summary()
+    if (args.store and plan.stage >= VISUAL_AUDIT_REQUIRED_FROM_STAGE
+            and visual["accepted_posts"] and not visual["complete"]):  # fmt: skip
+        # 受け入れた投稿のどれかに画面の証拠が無い → 保存しない (値を捨てて数を合わせない)。
+        missing = len(visual["posts_without_visual_evidence"])
+        blocking = [*blocking, {"source_type": "visual_audit", "query": None,
+                                "status": f"visual_evidence_missing={missing}"}]  # fmt: skip
     stored = False
     if args.store and not blocking and out.result.status != "login_required":
         from app.services.threads_observer_service import record_run

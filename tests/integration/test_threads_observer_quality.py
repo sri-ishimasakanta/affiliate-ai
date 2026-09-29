@@ -140,7 +140,7 @@ def test_a_new_run_stores_complete_candidate_accounting(session: Session) -> Non
     assert accounting["candidate_cards"] == 7
     assert accounting["complete"] is True and accounting["equality_holds"] is True
     assert accounting["by_reason"] == {"accepted": 5, "filtered_over_limit": 2}
-    assert run.collector_version == sel.COLLECTOR_VERSION == "t6.5b-collector-4"
+    assert run.collector_version == sel.COLLECTOR_VERSION == "t6.5b-collector-5"
     [quality] = build_report(session, now=T0)["external"]["run_quality"]
     assert quality["candidate_completeness"] == "complete"
     assert quality["text_quality"] == "clean"

@@ -21,6 +21,21 @@ from app.services.threads_trend_analysis_service import build_report  # noqa: E4
 
 EXIT_OK = 0
 
+#: 伸びた候補の指標の表示名 (値は ``breakouts`` の ``metric``)。
+METRIC_LABELS_JA = {"likes": "いいね", "replies": "返信"}
+
+
+def breakout_lines(item: dict) -> list[str]:
+    """伸びた候補の行 (T6.5B.4)。**構造の結果 (``breakouts``) の値をそのまま出す** (指標を
+    決め直さない・計算し直さない)。候補になった指標ごとに 1 行。基準の足りない指標は出さない。"""
+
+    return [
+        f"  伸びた候補: @{item['author_handle']} {METRIC_LABELS_JA[entry['metric']]} "
+        f"{entry['value']} (通常中央値 {entry['baseline_median']}・倍率 {entry['ratio']}倍・"
+        f"比較対象 {entry['baseline_n']}投稿) {item['external_post_key']}"
+        for entry in item["breakouts"]
+    ]
+
 
 def render(report: dict) -> str:
     lines = [f"Threads の傾向 (読むだけ・{report['as_of']})", ""]
@@ -48,11 +63,7 @@ def render(report: dict) -> str:
         lines.append(f"  投稿者 {ext['authors']} 人 "
                      f"(基準を作れた {ext['authors_with_baseline']} 人)")  # fmt: skip
         for item in ext["candidate_breakouts"]:
-            lines.append(
-                f"  伸びた候補: @{item['author_handle']} いいね {item['likes']} "
-                f"(投稿者の中央値 {item['author_likes_baseline']['median']}、"
-                f"{item['likes_breakout_ratio']} 倍) {item['external_post_key']}"
-            )
+            lines.extend(breakout_lines(item))
         topics = ", ".join(t["topic"] for t in ext["repeated_trending_topics"]) or "なし"
         # 一覧は Threads の「おすすめのトピック」(このアカウント向け)。「トレンド」ではない。
         lines.append(f"  繰り返し出た一覧のトピック (おすすめのトピック): {topics}")

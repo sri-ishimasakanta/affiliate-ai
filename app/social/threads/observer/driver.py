@@ -1,8 +1,9 @@
 """読むだけのブラウザの操作 (T6.5B)。**押す・書く・送る操作は、この型に存在しない。**
 
 使えるのは: 許可した Threads の URL を開く / 決まった量だけスクロールする / 待つ / HTML を
-読む / 画面を保存する、だけ。いいね・返信・フォロー・再投稿・引用・DM・投稿・ログインの自動入力の
-方法は作らない (型に無いので、呼び出す道も無い)。
+読む / 投稿のまとまりの位置を読む (決まった読むだけの script) / 画面を保存する、だけ。
+いいね・返信・フォロー・再投稿・引用・DM・投稿・ログインの自動入力の方法は作らない (型に無いので、
+呼び出す道も無い)。任意の script を実行する方法も作らない。
 
 Playwright は実際に観察するときだけ読み込む (試験では使わない)。ブラウザのプロファイルは
 ``data/threads-observer/browser-profile`` (git に入らない)。ログインは人が画面で行う。
@@ -18,6 +19,29 @@ from app.social.threads.observer import selectors as sel
 
 DEFAULT_PROFILE_DIR = Path("data/threads-observer/browser-profile")
 SCROLL_PIXELS = 2400
+#: 見えている画面の大きさ (T6.5B.4)。高さは 1 回のスクロール (``SCROLL_PIXELS``) より大きくし、
+#: 続けて撮った画面が重なるようにする (間の投稿が、どの画面にも写らないことが無いように)。
+#: 幅は既定 (1280) のまま (画面の形を変えない)。
+VIEWPORT = {"width": 1280, "height": 2700}
+
+#: 投稿のまとまり (いちばん外側だけ) の、画面の中の位置と、そのまとまり自身の投稿のリンク
+#: (時刻を含むリンクを先に)。**読むだけ** (DOM を変えない・押さない)。
+_LAYOUT_JS = """() => {
+  const sel = 'div[data-pressable-container="true"]';
+  const cards = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (el.parentElement && el.parentElement.closest(sel)) continue;
+    const own = Array.from(el.querySelectorAll('a[href*="/post/"]'))
+      .filter((a) => a.closest(sel) === el);
+    const timed = own.filter((a) => a.querySelector('time'));
+    const hrefs = timed.concat(own.filter((a) => !a.querySelector('time')))
+      .map((a) => a.getAttribute('href'));
+    if (!hrefs.length) continue;
+    const r = el.getBoundingClientRect();
+    cards.push({top: r.top, bottom: r.bottom, hrefs});
+  }
+  return {viewport: {width: window.innerWidth, height: window.innerHeight}, cards};
+}"""
 
 
 class ObserverError(RuntimeError):
@@ -36,6 +60,10 @@ class ReadOnlyPage(Protocol):
     def content(self) -> str: ...
 
     def screenshot(self, path: Path) -> None: ...
+
+    def layout(self) -> dict | None:
+        """投稿のまとまりの位置 (``visual_audit.layout_from`` の形)。読めなければ ``None``。"""
+        ...
 
 
 def check_url(url: str) -> str:
@@ -65,7 +93,8 @@ class PlaywrightPage:
         profile_dir.mkdir(parents=True, exist_ok=True)
         self._pw = sync_playwright().start()
         self._context = self._pw.chromium.launch_persistent_context(
-            str(profile_dir), headless=headless, locale="ja-JP", timezone_id="Asia/Tokyo"
+            str(profile_dir), headless=headless, locale="ja-JP", timezone_id="Asia/Tokyo",
+            viewport=VIEWPORT,
         )
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(timeout_ms)
@@ -96,8 +125,12 @@ class PlaywrightPage:
 
     def screenshot(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # 監査のため、集めた投稿が画面と照らせるようにページ全体を撮る。
-        self._page.screenshot(path=str(path), full_page=True)
+        # 見えている画面だけを撮る (T6.5B.4)。ページ全体の 1 枚では、画面の外の投稿が描かれずに
+        # 白いまま残った (T6.5B.3)。証拠は、スクロールごとの画面の並びで数える。
+        self._page.screenshot(path=str(path), full_page=False)
+
+    def layout(self) -> dict | None:
+        return self._page.evaluate(_LAYOUT_JS)
 
     def wait_for_human(self) -> None:  # pragma: no cover - 人がログインする間だけ
         """人が画面でログインし、ブラウザを閉じるまで待つ (入力はしない)。"""
@@ -112,4 +145,5 @@ class PlaywrightPage:
             self._pw.stop()
 
 
-__all__ = ["DEFAULT_PROFILE_DIR", "ObserverError", "PlaywrightPage", "ReadOnlyPage", "check_url"]
+__all__ = ["DEFAULT_PROFILE_DIR", "VIEWPORT", "ObserverError", "PlaywrightPage", "ReadOnlyPage",
+           "check_url"]  # fmt: skip

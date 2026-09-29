@@ -59,6 +59,8 @@ def record_run(session: Session, result: CollectionResult, *,
              "scrolls": result.scrolls,
              # T6.5B.1: 候補ごとの結果と理由 (勘定が合うか)。件数の上限の意味は collector。
              "candidate_accounting": result.accounting_summary(),
+             # T6.5B.4: 受け入れた投稿の画面の証拠 (候補の勘定とは別。照らした結果ではない)。
+             "visual_audit": result.visual_summary(),
              **(extra_artifacts or {})}
         ),  # fmt: skip
     )

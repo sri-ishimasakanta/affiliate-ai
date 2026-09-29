@@ -491,6 +491,27 @@ DECISIONS = (
         ),
     },
     {
+        "id": "threads-stage2-visual-audit-t65b4",
+        "area": "threads/analytics",
+        "decision": (
+            "T6.5B.4: 外の観察の画面の証拠をスクロールごとの画面で数え、段階 2 以上の保存は、"
+            "受け入れた投稿のすべてに画面の証拠があるときだけにする。証拠と照合を分ける"
+        ),
+        "rationale": (
+            "段階 1 ではページ全体の 1 枚の画面で 26 件中 4 件が描かれず、目で確かめられなかった。"
+            "50 件 / 日の前に、どの投稿がどの画面に写っていたかを残す"
+        ),
+        "evidence": ["docs/operations/threads-trend-intelligence.md"],
+        "phrase": "**画面の証拠は保存の前に揃える**",
+        "resulting_state": (
+            "collector-5・visual audit t6.5b-visual-audit-1・照合の記録 (run 2 = 22/26)・"
+            "伸びた候補は指標ごとに表示。migration なし。段階 2 は動かしていない"
+        ),
+        "follow_up": (
+            "最初の 50 件の保存 (段階 2) は人の許可が要る。保存の後に照合を記録してから続ける"
+        ),
+    },
+    {
         "id": "threads-localization-t64",
         "area": "threads/presentation",
         "decision": (

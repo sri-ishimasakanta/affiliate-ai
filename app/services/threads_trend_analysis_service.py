@@ -38,7 +38,6 @@ from app.social.threads.observer.normalize import (
     normalize_body,
 )
 from app.social.threads.trends import (
-    BREAKOUT_CANDIDATE,
     DESCRIPTIVE_NOTE,
     EXTERNAL_MIN_USABLE_POSTS,
     MIN_AUTHOR_SAMPLE,
@@ -250,11 +249,9 @@ def build_report(
     )
     rows = external_post_rows(session)
     breakouts = author_breakouts(rows, min_sample=min_author_sample)
-    candidates = [
-        b for b in breakouts
-        if BREAKOUT_CANDIDATE in (b["likes_breakout"], b["replies_breakout"])
-    ]  # fmt: skip
-    candidates.sort(key=lambda b: -(b["likes_breakout_ratio"] or b["replies_breakout_ratio"] or 0))
+    # 伸びた候補 = どれかの指標で candidate_breakout (``breakouts`` に指標ごとの結果)。
+    candidates = [b for b in breakouts if b["breakouts"]]
+    candidates.sort(key=lambda b: -max(e["ratio"] for e in b["breakouts"]))
     authors = Counter(r["author_handle"] for r in rows if r["author_handle"])
     topics = [
         {"topic": t.topic_name, "observations": t.observations,

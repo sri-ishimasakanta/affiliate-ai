@@ -5,8 +5,11 @@
 - ログインの画面なら、そこで止めて ``login_required`` (人がログインする)。
 - 画面の形が違えば (DOM drift)、そこで止めて ``dom_unrecognized``。その実行で集めたものは
   **全部捨てる** (壊れた値を残さない)。
-- スクリーンショットは任意 (出どころのページごとに、最初に読んだ状態 (並びが落ち着いた後) と、
-  最後の確かめの読みの状態)。投稿ごとには撮らない。
+- スクリーンショットは任意。撮るなら (T6.5B.4) **読むたびに見えている画面を 1 枚** (frame 0 =
+  最初の読み・frame N = スクロール N のあと・最後の確かめの読み)。投稿のまとまりの位置も一緒に
+  読み、受け入れた投稿がどの画面に写っていたかを数える (``visual_audit``。候補の勘定とは別)。
+  受け入れた投稿がまだ画面の下にはみ出して写っていなければ、**上限の中の残りのスクロール** で
+  写しに行く (スクロールの上限は増やさない。増えた候補は ``filtered_over_limit`` で勘定する)。
 
 **まとまりの勘定** (T6.5B.1): 読んだ投稿の候補 (まとまり) には、1 つずつ決まった結果と理由を
 付ける (``OUTCOME_*`` / ``REASON_*``)。候補の数 = 結果ごとの数の合計。さらに、投稿の時刻の
@@ -58,6 +61,14 @@ from app.social.threads.observer.parser import (
     ExternalPostRecord,
     parse_page,
     parse_trending_topics,
+)
+from app.social.threads.observer.visual_audit import (
+    FRAME_FINAL_CHECK,
+    FRAME_INITIAL,
+    FRAME_SCROLL,
+    VisualLedger,
+    layout_from,
+    merge_run,
 )
 
 ACCOUNTING_VERSION = "t6.5b-card-accounting-1"
@@ -143,6 +154,14 @@ class CollectionResult:
     accounting: list[dict] = field(default_factory=list)
     #: トピックの一覧の候補の勘定 (投稿の候補とは別に数える)。
     topic_accounting: dict | None = None
+    #: 出どころごとの画面の証拠 (``VisualLedger.summary``、T6.5B.4)。画面を撮ったときだけ。
+    visual_audit: list[dict] = field(default_factory=list)
+    screenshots_enabled: bool = False
+
+    def visual_summary(self) -> dict:
+        """受け入れた投稿の画面の証拠の勘定 (実行全体)。"""
+
+        return merge_run(self.visual_audit, enabled=self.screenshots_enabled)
 
     def accounting_summary(self) -> dict:
         by_outcome: Counter = Counter()
@@ -238,8 +257,10 @@ def collect(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> CollectionResult:
     limits = {**sel.LIMITS, **(limits or {})}
+    shoot = plan.screenshots and screenshot_dir is not None
     result = CollectionResult(started_at=clock(), source_types=plan.source_types(),
-                              item_limit=int(limits["run_total"]))  # fmt: skip
+                              item_limit=int(limits["run_total"]),
+                              screenshots_enabled=shoot)  # fmt: skip
     try:
         if plan.for_you:
             _feed(page, result, sel.for_you_url(), SOURCE_FOR_YOU, None,
@@ -310,16 +331,17 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
     page.goto(url)
     result.pages_opened += 1
     ledger = _Ledger(source_type, query)
+    visual = VisualLedger(source_type, query)
     gathered: list[ExternalPostRecord] = []
     shoot = plan.screenshots and shot_dir is not None
     attempt = 0
     for attempt in range(int(limits["max_scrolls"]) + 1):
         html = _settled(page)
-        if shoot and attempt == 0:
-            # 最初に読む状態 (並びが落ち着いた後・スクロールの前) を撮り、**撮った直後にもう一度
-            # 読んで、その読みを使う** (画面の保存と読んだものを同じ時点にそろえる)。
-            _shot(page, result, shot_dir, shot_name)
-            after_shot = page.content()
+        if shoot:
+            # 並びが落ち着いた状態を撮り、**撮った直後にもう一度読んで、その読みを使う** (画面の
+            # 保存と読んだものを同じ時点にそろえる)。スクロールのたびに 1 枚 (T6.5B.4)。
+            after_shot = _capture(page, result, visual, shot_dir, shot_name, attempt,
+                                  FRAME_INITIAL if attempt == 0 else FRAME_SCROLL)  # fmt: skip
             if parse_page(after_shot, limit=0).anchor_keys != parse_page(html, limit=0).anchor_keys:
                 ledger.changed_during_screenshot += 1
             html = after_shot
@@ -346,7 +368,10 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
                     reason = REASON_FILTERED_OVER_LIMIT
             ledger.add(cid, key=card.key, reason=reason, frame=attempt, index=card.index,
                        handle=card.handle)  # fmt: skip
-        if ledger.accepted() >= want or attempt == int(limits["max_scrolls"]):
+        if attempt == int(limits["max_scrolls"]):
+            break
+        if ledger.accepted() >= want and not (
+                shoot and visual.missing_below(r.external_post_key for r in gathered)):  # fmt: skip
             break
         page.scroll()
         result.scrolls += 1
@@ -354,8 +379,11 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
     # 画面を保存するなら、撮った直後に読む (最後の画面と最後の読みを同じ時点にそろえる)。
     page.wait(SETTLE_MS)
     if shoot:
-        _shot(page, result, shot_dir, f"{shot_name}-final")
-    final = parse_page(page.content(), limit=0)
+        final_html = _capture(page, result, visual, shot_dir, shot_name, attempt + 1,
+                              FRAME_FINAL_CHECK, scroll=attempt)  # fmt: skip
+    else:
+        final_html = page.content()
+    final = parse_page(final_html, limit=0)
     accepted_keys = {r.external_post_key for r in gathered}
     for card in final.cards:
         if card.record is not None and card.key in accepted_keys:
@@ -375,6 +403,8 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
                     ledger.anchor_keys.add(key)
     summary = ledger.summary()
     result.accounting.append(summary)
+    if shoot:
+        result.visual_audit.append(visual.summary([r.external_post_key for r in gathered]))
     if not summary["complete"]:
         raise _Stop(RUN_ACCOUNTING_MISMATCH,
                     f"{source_type}: candidate accounting mismatch "
@@ -382,6 +412,33 @@ def _feed(page, result, url, source_type, query, per_source, limits, plan, shot_
     result.rejected += summary["by_outcome"].get(OUTCOME_MALFORMED, 0)
     for record in gathered:
         result.posts.append(CollectedPost(source_type, query, record))
+
+
+def _layout(page):
+    """投稿のまとまりの位置を読む (読むだけ)。読めないページ (偽のページ等) は ``None``。"""
+
+    read = getattr(page, "layout", None)
+    if read is None:
+        return None
+    try:
+        return layout_from(read())
+    except Exception:  # noqa: BLE001 - 位置が読めないことも記録する (証拠なし)
+        return None
+
+
+def _capture(page, result, visual: VisualLedger, shot_dir: Path, name: str, frame: int,
+             kind: str, *, scroll: int | None = None) -> str:  # fmt: skip
+    """位置を読む → 画面を撮る → HTML と位置をもう一度読む。撮った直後の HTML を返す。"""
+
+    before = _layout(page)
+    file = f"{name}/frame-{frame:03d}.png"
+    path = shot_dir / file
+    page.screenshot(path)
+    result.screenshots[f"{name}/frame-{frame:03d}"] = str(path)
+    html = page.content()
+    visual.add_frame(file, kind=kind, scroll=frame if scroll is None else scroll,
+                     before=before, after=_layout(page))  # fmt: skip
+    return html
 
 
 def _shot(page, result, shot_dir: Path, name: str) -> None:

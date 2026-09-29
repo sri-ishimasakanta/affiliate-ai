@@ -1,0 +1,156 @@
+{
+ "schema": "threads-observation-review-1",
+ "note": "Screenshot cross-check results for stored observer runs (T6.5B.4). Written by the post-run data-quality review; never derived from stored rows and never rewrites them. visual_evidence_available = the card was painted in a captured screenshot; visual_crosscheck = result of comparing the screenshot with the stored values (matched / mismatch / not_reviewed). visual_verified means matched only. No post text or handles are recorded here.",
+ "runs": [
+  {
+   "run_id": 2,
+   "stage": 1,
+   "day": "2026-09-29",
+   "collector_version": "t6.5b-collector-4",
+   "screenshot_mode": "full_page_before_t6.5b.4",
+   "frame_audit_recorded": false,
+   "reviewed_at": "2026-09-29T11:15+09:00",
+   "reviewed_by": "post-run data-quality review (screenshot cross-check)",
+   "stored_posts": 26,
+   "screenshot_crosschecked": 22,
+   "screenshot_not_painted": 4,
+   "disagreements_among_reviewed": 0,
+   "posts": {
+    "threads:Dd2kKd5E97p": {
+     "source_type": "for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2RDeME5wK": {
+     "source_type": "for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2NeZtjjDL": {
+     "source_type": "for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2HWe_EzKS": {
+     "source_type": "for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2VdGAEmSc": {
+     "source_type": "for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2kMOkky11": {
+     "source_type": "for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd1Ih1AEUia": {
+     "source_type": "for_you",
+     "visual_evidence_available": false,
+     "visual_crosscheck": "not_reviewed",
+     "note": "not_painted_in_full_page_screenshot"
+    },
+    "threads:Dd2IufSkxA1": {
+     "source_type": "for_you",
+     "visual_evidence_available": false,
+     "visual_crosscheck": "not_reviewed",
+     "note": "not_painted_in_full_page_screenshot"
+    },
+    "threads:Dd0U-pxElLs": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:DdOOL7lgRX7": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd1SCa8lFs5": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2lLero_jz": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2fdCUE7PF": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd0ntXiFH40": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:DdPfwB6E4o5": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:DdzvZjejKWc": {
+     "source_type": "search",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2kNYAEkoJ": {
+     "source_type": "topic_for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:DZ7PhJXkx5Q": {
+     "source_type": "topic_for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Ddth1mVGFBq": {
+     "source_type": "topic_for_you",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:DX19RqfgUhX": {
+     "source_type": "topic_for_you",
+     "visual_evidence_available": false,
+     "visual_crosscheck": "not_reviewed",
+     "note": "not_painted_in_full_page_screenshot"
+    },
+    "threads:DZO-hNVGeHh": {
+     "source_type": "topic_for_you",
+     "visual_evidence_available": false,
+     "visual_crosscheck": "not_reviewed",
+     "note": "not_painted_in_full_page_screenshot"
+    },
+    "threads:DV8UZqLkjOs": {
+     "source_type": "known_account",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:DV8UZjOEnq_": {
+     "source_type": "known_account",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2dKHIErjS": {
+     "source_type": "known_account",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2cVFfEq7B": {
+     "source_type": "known_account",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    },
+    "threads:Dd2Yd4yEsNz": {
+     "source_type": "known_account",
+     "visual_evidence_available": true,
+     "visual_crosscheck": "matched"
+    }
+   }
+  }
+ ]
+}

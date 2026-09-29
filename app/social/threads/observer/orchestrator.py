@@ -130,7 +130,9 @@ def execute_plan(
     screenshots: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> OrchestrationResult:
-    merged = CollectionResult(started_at=clock(), item_limit=plan.stage_cap)
+    shoot = screenshots and screenshot_dir is not None
+    merged = CollectionResult(started_at=clock(), item_limit=plan.stage_cap,
+                              screenshots_enabled=shoot)  # fmt: skip
     out = OrchestrationResult(plan=plan, result=merged)
     stopped = False
     for index, step in enumerate(plan.steps):
@@ -198,6 +200,15 @@ def _merge(merged: CollectionResult, sub: CollectionResult, index: int) -> None:
         if source not in merged.source_types:
             merged.source_types.append(source)
     merged.accounting.extend(sub.accounting)
+    # 画面の証拠 (T6.5B.4): 画面の file は実行の画面のフォルダからの相対 (``step<N>/...``)。
+    prefix = f"step{index + 1}/"
+    for audit in sub.visual_audit:
+        merged.visual_audit.append({
+            **audit,
+            "frames": [{**f, "file": prefix + f["file"]} for f in audit["frames"]],
+            "posts": {k: {**v, "audit_frames": [prefix + f for f in v["audit_frames"]]}
+                      for k, v in audit["posts"].items()},
+        })  # fmt: skip
     if sub.topic_accounting is not None:
         merged.topic_accounting = sub.topic_accounting
     merged.trending_topics.extend(sub.trending_topics)

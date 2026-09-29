@@ -67,8 +67,8 @@ def test_other_urls_are_refused(url: str) -> None:
 
 def test_the_browser_page_has_no_interaction_methods() -> None:
     public = {name for name, _ in inspect.getmembers(PlaywrightPage) if not name.startswith("_")}
-    assert public == {"goto", "scroll", "wait", "content", "screenshot", "wait_for_human",
-                      "close"}
+    assert public == {"goto", "scroll", "wait", "content", "screenshot", "layout",
+                      "wait_for_human", "close"}
     for name in public:
         assert not any(name == word or name.startswith(f"{word}_") for word in FORBIDDEN), name
 
@@ -173,14 +173,16 @@ def test_screenshots_are_optional_and_per_page(tmp_path: Path) -> None:
     fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
     collect(fake, CollectionPlan(for_you=True), screenshot_dir=tmp_path)
     assert fake.screenshots == []
-    # 足りたらスクロールしない → 最初に読んだ状態と、最後の確かめの読みの状態の 2 枚。
+    # 足りたらスクロールしない → 最初に読んだ画面 (frame 0) と、最後の確かめの読みの画面の 2 枚
+    # (T6.5B.4: 出どころのフォルダの中に frame-NNN.png)。
     fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
     result = collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path,
                      limits={"for_you": 2})  # fmt: skip
     assert fake.scrolls == 0
-    assert fake.screenshots == [tmp_path / "for_you.png", tmp_path / "for_you-final.png"]
-    assert result.screenshots == {"for_you": str(tmp_path / "for_you.png"),
-                                  "for_you-final": str(tmp_path / "for_you-final.png")}  # fmt: skip
+    frames = [tmp_path / "for_you" / "frame-000.png", tmp_path / "for_you" / "frame-001.png"]
+    assert fake.screenshots == frames
+    assert result.screenshots == {"for_you/frame-000": str(frames[0]),
+                                  "for_you/frame-001": str(frames[1])}  # fmt: skip
     assert result.posts[0].source_type == SOURCE_FOR_YOU
 
 
@@ -201,8 +203,10 @@ def test_a_scrolled_page_is_shot_before_and_after(tmp_path: Path) -> None:
     fake = FakePage({sel.for_you_url(): page(*_cards("a", 2))})
     result = collect(fake, CollectionPlan(for_you=True, screenshots=True), screenshot_dir=tmp_path)
     assert fake.scrolls == sel.LIMITS["max_scrolls"]
-    assert fake.screenshots == [tmp_path / "for_you.png", tmp_path / "for_you-final.png"]
-    assert set(result.screenshots) == {"for_you", "for_you-final"}
+    # 読むたびに 1 枚 (frame 0 + スクロール 3 回) + 最後の確かめの読みの 1 枚。
+    names = [f"for_you/frame-{n:03d}" for n in range(sel.LIMITS["max_scrolls"] + 2)]
+    assert fake.screenshots == [tmp_path / f"{n}.png" for n in names]
+    assert list(result.screenshots) == names
 
 
 class _RecordingPlaywrightPage:
