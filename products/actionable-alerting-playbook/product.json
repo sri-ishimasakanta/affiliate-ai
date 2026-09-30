@@ -1,0 +1,58 @@
+{
+  "schema": "product-spec/1",
+  "id": "actionable-alerting-playbook",
+  "version": "0.1.0",
+  "title": "小さな運用の通知設計：行動が要るときだけ知らせる",
+  "target_user": "サイトや自動化を1人で運用し、通知が多すぎて見なくなった人",
+  "problem": "正常の通知や同じ障害の繰り返しで、本当に必要な通知が埋もれ、止まっていることに気づけない",
+  "intended_outcome": "警告にする条件・同じ問題のまとめ方・知らせ直しの間隔・自動で閉じる条件を、自分の運用に合わせて決められる",
+  "reusable_scope": "定期実行・常駐プログラム・データの取り込みを持つ小規模な運用全般。監視の製品やサービスには依存しない",
+  "site_specific_excluded": [
+    "このサイトの点検の名前・時刻・閾値の実際の値",
+    "このサイトの通知先とメールの設定",
+    "このサイトで起きた障害の具体的な記録"
+  ],
+  "format": "guide_bundle",
+  "license": "未定 (人が決める)",
+  "distribution": null,
+  "assets": [
+    {
+      "path": "assets/guide.md",
+      "kind": "guide",
+      "title": "行動が要るときだけ知らせる通知の手引き",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "decision:c10-health-actionable-only"
+        },
+        {
+          "ref": "phase:C10"
+        },
+        {
+          "ref": "doc:docs/operations/site-growth-operations.md",
+          "phrase": "auto-resolved"
+        }
+      ]
+    },
+    {
+      "path": "assets/checklist.md",
+      "kind": "checklist",
+      "title": "通知の設計チェックリスト",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "decision:c10-health-actionable-only"
+        },
+        {
+          "ref": "doc:docs/operations/site-growth-operations.md",
+          "phrase": "Only `warning` and `error` findings become operations alerts."
+        }
+      ]
+    }
+  ],
+  "known_limitations": [
+    "監視の仕組みそのもの (コード・サービス) は含まない",
+    "閾値の例は出発点であり、推奨値ではない",
+    "通知を減らせば障害が減る、とは言えない (見落としを減らすための設計)"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "product-spec/1",
+  "id": "small-sample-measurement-guide",
+  "version": "0.1.0",
+  "title": "少ないデータで結論を出さない：小さなメディアの計測の手引き",
+  "target_user": "投稿や記事の数がまだ少なく、数字の読み方に迷っている運営者",
+  "problem": "数本の結果から「効いた」「効かない」と決めつけ、判断を誤ったり、良い施策をやめてしまったりする",
+  "intended_outcome": "標本の大きさと期間を必ず書き、比べられる条件がそろうまで結果を仮説として扱う記録の仕方ができる",
+  "reusable_scope": "SNS・ブログ・note など、数がまだ少ない発信の計測全般。分析ツールには依存しない",
+  "site_specific_excluded": [
+    "このサイトの投稿数・閲覧数などの実際の数字",
+    "このサイトの分析のコードと閾値"
+  ],
+  "format": "guide_bundle",
+  "license": "未定 (人が決める)",
+  "distribution": null,
+  "assets": [
+    {
+      "path": "assets/guide.md",
+      "kind": "guide",
+      "title": "少ないデータを扱う手引き",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "phase:T5"
+        },
+        {
+          "ref": "doc:docs/operations/threads-performance-analysis.md",
+          "phrase": "本数が少ない間は仮説"
+        }
+      ]
+    },
+    {
+      "path": "assets/checklist.md",
+      "kind": "checklist",
+      "title": "数字を書く前のチェックリスト",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "doc:docs/operations/threads-performance-analysis.md",
+          "phrase": "原因ではない"
+        }
+      ]
+    }
+  ],
+  "known_limitations": [
+    "統計の検定の方法は扱わない (判断を急がないための記録の型まで)",
+    "何本・何日あれば十分か、は目安であり一律の正解ではない"
+  ]
+}

@@ -193,6 +193,8 @@ def check(product: Product, sources: SourceBundle, *, policy: dict, settings=Non
             errors.append(f"{key} is required")
     if not spec.get("site_specific_excluded"):
         warnings.append("site_specific_excluded is empty (say what was left out)")
+    if not spec.get("known_limitations"):
+        warnings.append("known_limitations is empty (say what the product does not do)")
     if spec.get("distribution"):
         errors.append("distribution is decided outside the product (distribution workstream)")
     terms = site_terms(policy, settings=settings)

@@ -22,10 +22,20 @@
       "title": "承認の門のチェックリスト (20項目)",
       "site_specific": false,
       "sources": [
-        {"ref": "decision:threads-human-approval-required"},
-        {"ref": "decision:c10-growth-approval-never-applies"},
-        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "Autonomy classification (A–E)"},
-        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "There is no approve-all entry point."}
+        {
+          "ref": "decision:threads-human-approval-required"
+        },
+        {
+          "ref": "decision:c10-growth-approval-never-applies"
+        },
+        {
+          "ref": "doc:docs/operations/site-growth-operations.md",
+          "phrase": "Autonomy classification (A–E)"
+        },
+        {
+          "ref": "doc:docs/operations/site-growth-operations.md",
+          "phrase": "There is no approve-all entry point."
+        }
       ]
     },
     {
@@ -34,9 +44,16 @@
       "title": "5つの自動化の段階で作業を分ける手引き",
       "site_specific": false,
       "sources": [
-        {"ref": "phase:C10"},
-        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "Automation boundary."},
-        {"ref": "decision:threads-no-catch-up-burst"}
+        {
+          "ref": "phase:C10"
+        },
+        {
+          "ref": "doc:docs/operations/site-growth-operations.md",
+          "phrase": "Automation boundary."
+        },
+        {
+          "ref": "decision:threads-no-catch-up-burst"
+        }
       ]
     },
     {
@@ -45,9 +62,20 @@
       "title": "承認の方針の設定例 (既定はすべて安全側)",
       "site_specific": false,
       "sources": [
-        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "never applies anything"},
-        {"ref": "decision:c10-growth-approval-never-applies"}
+        {
+          "ref": "doc:docs/operations/site-growth-operations.md",
+          "phrase": "never applies anything"
+        },
+        {
+          "ref": "decision:c10-growth-approval-never-applies"
+        }
       ]
     }
+  ],
+  "known_limitations": [
+    "特定のサービス (CMS・SNS) の設定手順は含まない。各サービスの画面や API の操作は利用者の環境による",
+    "承認の hash の計算や自動実行のコードは含まない (考え方・確認表・設定の例まで)",
+    "この分け方で事故がなくなる、収益が上がる、とは言えない (観測した結果ではない)",
+    "設定例の数値 (1 日の上限・間隔・知らせ直しの時間) は例であり、推奨値ではない"
   ]
 }

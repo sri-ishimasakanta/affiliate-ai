@@ -1,0 +1,55 @@
+{
+  "schema": "product-spec/1",
+  "id": "project-state-handoff-template",
+  "version": "0.1.0",
+  "title": "AIとの開発を引き継ぐための「今の状態」レポートの作り方",
+  "target_user": "AIのコーディング支援と長く開発を続ける個人開発者",
+  "problem": "セッションや担当が変わるたびに、どこまで終わって何が本番で動いているかが分からなくなり、古いメモを信じて誤る",
+  "intended_outcome": "観測した事実を古い文章より優先し、出どころと鮮度を付けた「今の状態」のレポートを、テンプレートに沿って作れる",
+  "reusable_scope": "本番の環境とドキュメントを持つ、個人や小さなチームのソフトウェア開発全般",
+  "site_specific_excluded": [
+    "このプロジェクトのフェーズ名・コミット・本番の値",
+    "このプロジェクトの報告の生成のコード"
+  ],
+  "format": "guide_bundle",
+  "license": "未定 (人が決める)",
+  "distribution": null,
+  "assets": [
+    {
+      "path": "assets/template.md",
+      "kind": "template",
+      "title": "「今の状態」レポートのテンプレート",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "phase:T7"
+        },
+        {
+          "ref": "decision:project-state-live-outranks-stale-prose"
+        },
+        {
+          "ref": "doc:docs/operations/project-state.md",
+          "phrase": "観測した本番の状態と実行の設定は、古い文章より強い"
+        }
+      ]
+    },
+    {
+      "path": "assets/guide.md",
+      "kind": "guide",
+      "title": "レポートを作る・読むときの手引き",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "decision:project-state-docs-never-mutate-production"
+        },
+        {
+          "ref": "decision:project-state-live-outranks-stale-prose"
+        }
+      ]
+    }
+  ],
+  "known_limitations": [
+    "レポートを自動で作るコードは含まない (型と手順まで)",
+    "出どころの強さの順番は例であり、環境ごとに決め直す必要がある"
+  ]
+}

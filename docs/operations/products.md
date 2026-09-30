@@ -96,17 +96,37 @@ reproducible build → release candidate → human release gate
 
   It records the manifest in `records.json`. Distribution is still a separate human decision.
 
+## Review packet (for the human H4 / H5 decisions)
+
+`manage_products.py packet <id>` writes `reports/products/<id>/<version>/review-packet.md`. It
+covers:
+
+- target user, problem and outcome;
+- the included files (bytes and hashes);
+- the evidence / source mapping, with whether each source resolves;
+- reusable knowledge and the excluded site-specific material;
+- the redaction and quality results;
+- the reproducibility check;
+- the known limitations;
+- the expected distribution format;
+- what to check for the H4 quality review, the H4 content approval and the H5 release approval,
+  with the exact commands and hashes.
+
+It approves nothing.
+
 ## Current state (2026-09-30)
 
-- Knowledge candidates: 4 reusable and eligible, plus 1 site-specific (not a product).
-- First product: `approval-gated-automation-kit` 0.1.0. It is a Japanese guide bundle: a
-  20-item checklist, a guide to the five automation stages, and an approval-policy config
-  example.
-  - Check: 0 errors and 0 warnings, 8 sources traced.
-  - A release candidate is built and reproducible (`verify` true).
-- **PENDING human:**
-  - the quality review;
-  - the content approval (H4);
-  - the release gate (H5).
+All four products are 0.1.0. Each checks with 0 errors and 0 warnings, has a reproducible
+release candidate and has a review packet.
 
-  Claude does not record these.
+| Product | Assets | Sources traced |
+|---|---|---|
+| `approval-gated-automation-kit` | 20-item checklist, five-stage guide, approval-policy config example | 8 |
+| `actionable-alerting-playbook` | alerting guide, alerting checklist | 4 |
+| `project-state-handoff-template` | "current state" report template, how-to guide | 4 |
+| `small-sample-measurement-guide` | small-sample guide, "before you write a number" checklist | 3 |
+
+Every spec now states its `known_limitations`.
+
+**PENDING human, for every product:** the quality review and content approval (H4) and the
+release gate (H5). Claude does not record them.

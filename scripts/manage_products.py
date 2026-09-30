@@ -9,6 +9,7 @@
     uv run python scripts/manage_products.py verify <id>         # 作り直して同じバイトか
     uv run python scripts/manage_products.py approve-release <id> --manifest-hash <sha> --by <name>
     uv run python scripts/manage_products.py status <id>
+    uv run python scripts/manage_products.py packet <id>         # H4 / H5 の確認用のまとめ
 
 人の記録は ``products/<id>/records.json`` に足す (commit する)。リリースの候補の zip と manifest は
 ``reports/products/<id>/<version>/`` (git 管理外)。承認は「リリースしてよい」であって、販売・公開
@@ -79,7 +80,7 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None, settings=
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("candidates")
-    for name in ("check", "plan", "build", "verify", "status"):
+    for name in ("check", "plan", "build", "verify", "status", "packet"):
         sub.add_parser(name).add_argument("product_id")
     review = sub.add_parser("review")
     review.add_argument("product_id")
@@ -163,6 +164,19 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None, settings=
                                    "(sources or content changed); build again")  # fmt: skip
             emit(rec.record_release_approval(product, stored, manifest_hash=args.manifest_hash,
                                              by=args.by, now=now))  # fmt: skip
+        elif args.command == "packet":
+            from app.products import packet as pk
+
+            first = pb.build_candidate(product, result["sources"], policy=policy, terms=terms)
+            again = pb.build_candidate(product, result["sources"], policy=policy, terms=terms)
+            text = pk.render(product, result, first,
+                             reproducible=first["package"] == again["package"])  # fmt: skip
+            out = _candidate_dir(root, product)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "review-packet.md").write_text(text, encoding="utf-8")
+            emit({"review_packet": str(out / "review-packet.md"),
+                  "content_hash": product.content_hash,
+                  "manifest_hash": first["manifest_hash"], "check_ok": result["ok"]})
         elif args.command == "status":
             records = rec.load_records(product)
             emit({"product_id": product.id, "version": product.version,

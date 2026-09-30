@@ -52,11 +52,37 @@ def _check(root: Path, policy=None):
     return product, check(product, load_sources(root), policy=policy or load_policy())
 
 
-def test_the_committed_product_passes_its_checks() -> None:
-    product = load_product(REPO, PID)
-    result = check(product, load_sources(REPO), policy=load_policy())
-    assert result["ok"], result["errors"]
-    assert len(result["sources"]) >= 4
+def test_every_committed_product_passes_its_checks() -> None:
+    from app.products.spec import list_products
+
+    ids = list_products(REPO)
+    assert PID in ids and len(ids) >= 4
+    for pid in ids:
+        product = load_product(REPO, pid)
+        result = check(product, load_sources(REPO), policy=load_policy())
+        assert result["ok"], (pid, result["errors"])
+        assert result["warnings"] == [], (pid, result["warnings"])
+        assert len(result["sources"]) >= 3, pid
+        assert not (REPO / "products" / pid / "records.json").exists(), pid  # 人の記録はまだ無い
+
+
+def test_the_review_packet_has_every_section_and_approves_nothing(tmp_path) -> None:
+    from app.products import packet as pk
+
+    root = _repo(tmp_path)
+    product, result = _check(root)
+    candidate = pb.build_candidate(product, result["sources"], policy=load_policy(), terms=[])
+    text = pk.render(product, result, candidate, reproducible=True)
+    for heading in ("Target user", "Problem solved", "Product contents / included files",
+                    "Evidence / source mapping", "Reusable knowledge",
+                    "Excluded site-specific material", "Redaction / security result",
+                    "Quality validation result", "Known limitations",
+                    "Expected distribution format", "H4 quality approval",
+                    "H4 content approval", "H5 release approval"):
+        assert f"## {heading}" in text, heading
+    assert product.content_hash in text and candidate["manifest_hash"] in text
+    assert "quality review NOT done" in text and "not decided" in text
+    assert rec.load_records(product) == []  # まとめを作っても承認はしない
 
 
 def test_candidates_are_evidence_backed_and_skip_site_specific(tmp_path) -> None:
@@ -86,7 +112,7 @@ def _edit(root: Path, rel: str, old: str, new: str) -> None:
     ("product.json", '"site_specific": false', '"site_specific": true', "site-specific assets"),
     ("product.json", '"phrase": "Automation boundary."', '"phrase": "no such phrase"',
      "no longer there"),
-    ("product.json", '{"ref": "phase:C10"}', '{"ref": "phase:Z9"}', "not a complete phase"),
+    ("product.json", '"ref": "phase:C10"', '"ref": "phase:Z9"', "not a complete phase"),
 ])
 def test_checks_catch_unsafe_or_untraceable_content(tmp_path, rel, old, new, match) -> None:
     root = _repo(tmp_path)
