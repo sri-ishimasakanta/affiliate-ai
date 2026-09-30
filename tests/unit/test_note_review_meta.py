@@ -55,7 +55,7 @@ def test_published_note_text_is_in_the_duplication_corpus(tmp_path) -> None:
     assert internal_corpus(root)["note-external:n1"] == "公開済みの本文"
 
 
-def test_evidence_can_be_added_from_the_decision_log_without_changing_the_hash(tmp_path) -> None:
+def test_decision_log_evidence_keeps_the_content_hash(tmp_path) -> None:
     from app.social.note.sources import load_sources
 
     root, _path, draft = _draft(tmp_path)
