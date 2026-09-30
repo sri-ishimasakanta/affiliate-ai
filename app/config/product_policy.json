@@ -1,0 +1,8 @@
+{
+  "policy_version": "product-policy-1",
+  "note": "N4 / N5 product lifecycle. Everything is local: products are specified, checked, built into reproducible release candidates and approved by a human. Distribution (listing, selling, uploading) is a separate workstream and a human stop condition; no provider is assumed. site_specific_terms are flagged in reusable assets; the WordPress host from the local settings is added at check time and never written anywhere.",
+  "site_specific_terms": ["BizFluxLab", "affiliate_ai.db", "affiliate-ai-threads-worker", "affiliate-ai-operations-daily", "affiliate-ai-nightly-analysis"],
+  "min_asset_chars": 300,
+  "max_package_bytes": 5000000,
+  "text_suffixes": [".md", ".txt", ".json", ".yaml", ".yml", ".csv"]
+}
