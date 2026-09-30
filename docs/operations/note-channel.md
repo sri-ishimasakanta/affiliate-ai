@@ -44,6 +44,32 @@ N1・N2・N3 は宣言だけで、まだリポジトリに作業は無い。N0 �
 
 2026-09-30 に N 系の順番を C10 → N1 → … → N8 → C11 とし、N4〜N8 (知識の商品化・デジタル商品の自動化・システムの製品化・SaaS の検証・SaaS / サービス。人が 2026-09-30 に正式に定義) を加えた。note と WordPress・Threads のつなぎと有料 note の記録は N1〜N4 に置いた。各段階の定義 (目的・入る条件・範囲・今作れるもの・本物のサービスやデータが要るもの・人の確認点・完了の定義) と依存の図は [n-track-plan.md](n-track-plan.md)。
 
+## N1: 1 本を人と仕上げて記録する (`scripts/manage_note_piece.py`)
+
+公開は人が note の編集画面で行う。この CLI は `reports/note/drafts/` に記録するだけで、note・
+WordPress・Threads・DB には触れない (ネットワークも LLM も使わない)。
+
+```bash
+uv run python scripts/propose_note_content.py --draft top          # 下書きを作る
+uv run python scripts/manage_note_piece.py packet <draft_id>       # 確認用 (.packet.md) と貼り付け用 (.txt)
+uv run python scripts/manage_note_piece.py edit <draft_id> --from edited.md   # 人が直した本文
+uv run python scripts/manage_note_piece.py access-mode <draft_id> free|paid   # 既定は free
+uv run python scripts/manage_note_piece.py submit <draft_id>       # review_ready (誤りがあれば拒む)
+uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha> --by <name> [--links-approved]
+uv run python scripts/manage_note_piece.py record-publication <draft_id> --url https://note.com/...     --observed-at 2026-10-01T19:00:00+09:00 --content-hash <sha>
+```
+
+- 人が直した Markdown (`# 題名` と `## 見出し`) を取り込むと、承認は消え、検査をやり直す
+  (秘密・内部の値は誤り、内部の言葉は警告)。証拠の一覧は生成した版のままなので、事実の文は
+  人が確かめ直す。
+- 承認は `review_ready` の本文の hash に結びつく。外部リンクがあれば `--links-approved` が要る。
+  承認には公開の形 (free / paid)・リンクの一覧と hash が入る。
+- 公開の記録は、承認した hash と同じ本文を人が公開したときだけ。URL は https で、
+  `app/config/note_channel_policy.json` の `publication_url_hosts` の host に限る。
+- **有料 (paid) は記録するだけ。** 値段を決める・販売を始めるのは人が note で行う (人の確認点)。
+- C10 の出来事 (Growth の承認は書き込みではない・発見した語は Keyword ではない・通知は行動が
+  要るときだけ) も候補の話題になった。
+
 ## 下書きの形 (`app/social/note/models.py`)
 
 - `NoteCandidate`: id・型・仮の題名・前提・出来事の ID (source event)・フェーズ・根拠

@@ -664,6 +664,49 @@ DECISIONS = (
         "resulting_state": "published は公開の証拠 (URL) が無ければ付けられない",
         "follow_up": None,
     },
+    {
+        "id": "c10-growth-approval-never-applies",
+        "area": "growth",
+        "decision": (
+            "C10: Growth の承認だけでは何も書き換えない。書き込みはそれぞれの承認と反映の手順を通る"
+        ),
+        "rationale": (
+            "次の打ち手の提案 (Growth Action) と、本文・メタ・リンクの書き込みは別の判断。"
+            "既存の変更依頼の承認 (hash つき) と反映の手順をそのまま使う"
+        ),
+        "evidence": ["docs/operations/site-growth-operations.md", "3f3d309"],
+        "phrase": "A Growth approval alone never applies anything.",
+        "resulting_state": (
+            "行動の表を本番に出した。本文の更新とメタディスクリプションの書き込みは実装済み・無効"
+        ),
+        "follow_up": "最初の本番の反映は人が決める",
+    },
+    {
+        "id": "c10-discovery-candidate-not-keyword",
+        "area": "growth",
+        "decision": "C10: 発見した語は Keyword ではない。Keyword にするのは人が 1 件ずつ",
+        "rationale": (
+            "夜の分析が見つけた語を自動で Keyword にすると、確かめていない語が記事の計画に入る。"
+            "証拠の指紋・重なり・重複を確かめてから人が選ぶ"
+        ),
+        "evidence": ["docs/operations/site-growth-operations.md", "3f3d309"],
+        "phrase": "A discovery candidate is not a Keyword.",
+        "resulting_state": "発見の候補 26 件を追跡、Keyword にしたものは 0 件 (2026-09-30)",
+        "follow_up": None,
+    },
+    {
+        "id": "c10-health-actionable-only",
+        "area": "operations",
+        "decision": "C10: 健康の点検は、行動が要る問題 (warning / error) だけを警告にする",
+        "rationale": (
+            "正常を毎日知らせると通知が読まれなくなる。同じ問題は日付を含まない指紋で 1 つにし、"
+            "知らせ直しは週 1 回まで、直れば自動で閉じる"
+        ),
+        "evidence": ["docs/operations/site-growth-operations.md", "3deee8d"],
+        "phrase": "Only `warning` and `error` findings become operations alerts.",
+        "resulting_state": "毎朝 06:30 の監視の段で記録。2026-09-30 は警告 0 件",
+        "follow_up": None,
+    },
 )
 
 

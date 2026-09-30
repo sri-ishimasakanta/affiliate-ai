@@ -19,6 +19,8 @@ CONTENT_TYPES = ("build_log", "decision_note", "experiment_result", "milestone_r
 CLAIM_KINDS = ("observed_fact", "decision", "hypothesis", "interpretation", "planned")
 SOURCED_KINDS = ("observed_fact", "decision")
 STATUSES = ("draft", "review_ready", "approved", "published", "rejected")
+#: N1: 公開の形。有料は「記録するだけ」(値段・販売の開始は人が note で行う)。既定は無料。
+ACCESS_MODES = ("free", "paid")
 TRANSITIONS = {
     "draft": ("review_ready", "rejected"),
     "review_ready": ("approved", "rejected", "draft"),
@@ -106,6 +108,8 @@ class NoteDraft:
     approval: dict | None = None
     publication: dict | None = None
     generator_version: str = GENERATOR_VERSION
+    access_mode: str = "free"
+    edited_by_human: bool = False
 
     @property
     def body(self) -> str:

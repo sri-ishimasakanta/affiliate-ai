@@ -90,7 +90,7 @@ def test_discovery_is_deterministic_and_ordered(tmp_path) -> None:
         parts = {k: v for k, v in c.score.items() if k not in ("total", "duplication_penalty")}
         assert c.score["total"] == sum(parts.values()) - c.score["duplication_penalty"]
         assert all(0 <= v <= 3 for v in parts.values())
-    assert 3 <= len(first) <= 8
+    assert 3 <= len(first) <= len(catalog.TOPICS)
 
 
 def test_candidates_come_from_w1_w2_t7_records(tmp_path) -> None:

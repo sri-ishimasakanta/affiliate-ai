@@ -353,7 +353,7 @@ evidence (build-complete ≠ Done).
 | Phase | Status | Buildable now (local only) | Waits for |
 |---|---|---|---|
 | N0 note channel foundation | **COMPLETED** | — | — |
-| **N1** note pilot: first human-reviewed piece | **NEXT** | C10 topics, review packet, access mode, approval + publication CLIs | G1 note account, G2 first human publication |
+| **N1** note pilot: first human-reviewed piece | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: C10 topics, review packet, access mode, approval + publication CLIs (`manage_note_piece.py`) | **PENDING** G1 note account, G2 first human publication |
 | N2 repeatable production and review workflow | PLANNED | note ledger + migration (rehearsed), sync / loop CLI, dedupe, cadence plan, link planner | M1 migration apply, G3 ≥3 publications |
 | N3 operationalization and measurement | PLANNED | manual metrics / revenue ledger, metric catalog, small-sample summaries | M1, G4 real reader numbers |
 | N4 Productized Knowledge | PLANNED | knowledge candidates, product specs, evidence traceability, redaction, quality checks | H4 human release approval |

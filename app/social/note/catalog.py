@@ -217,4 +217,52 @@ TOPICS = (
         "readability": 2,
         "lessons": (),
     },
+    {
+        "key": "growth-proposals-need-their-own-approval",
+        "type": "build_log",
+        "title": "AIが次の打ち手を提案しても、承認だけでは記事を書き換えない仕組み",
+        "premise": (
+            "分析が「この記事を直す」「この語で書く」と提案しても、"
+            "書き込みは別の承認と手順を通るようにした"
+        ),
+        "phases": ("C10",),
+        "decisions": ("c10-growth-approval-never-applies", "c10-discovery-candidate-not-keyword"),
+        "facts": (),
+        "docs": (
+            ("docs/operations/site-growth-operations.md", "never applies anything"),
+            ("docs/operations/site-growth-operations.md", "There is no approve-all entry point."),
+        ),
+        "why": "AIの提案をそのまま実行しない設計は、自動化を始める初心者にそのまま役立つ",
+        "duplication_risk": "low",
+        "readability": 2,
+        "lessons": (
+            (
+                "「提案を認める」ことと「書き込みを認める」ことは別の判断として分けた",
+                "c10-growth-approval-never-applies",
+            ),
+            (
+                "見つけた語はすぐ使わず、人が 1 つずつ選ぶ",
+                "c10-discovery-candidate-not-keyword",
+            ),
+        ),
+    },
+    {
+        "key": "alerts-only-when-action-needed",
+        "type": "decision_note",
+        "title": "監視の通知は「行動が要るときだけ」にした理由",
+        "premise": "毎日の点検の結果を全部知らせるのをやめ、直す必要があるときだけ知らせる形にした",
+        "phases": ("C10",),
+        "decisions": ("c10-health-actionable-only",),
+        "facts": (),
+        "docs": (("docs/operations/site-growth-operations.md", "auto-resolved"),),
+        "why": "通知が多すぎて読まれなくなる問題は、小さな運用でもよく起きる",
+        "duplication_risk": "low",
+        "readability": 3,
+        "lessons": (
+            (
+                "同じ問題は 1 つの通知にまとめ、直ったら自動で閉じる",
+                "c10-health-actionable-only",
+            ),
+        ),
+    },
 )

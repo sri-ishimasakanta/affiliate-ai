@@ -1,0 +1,6 @@
+{
+  "policy_version": "note-channel-1",
+  "note": "N1 note pilot. Publication is always done by the human in the note editor; this repository only records the evidence afterwards. The publication URL must be https and its host must be listed here (edit the list if the human's pieces live elsewhere). access_mode paid is recorded only: setting a price and starting sales are human actions on note and a human stop condition.",
+  "publication_url_hosts": ["note.com"],
+  "default_access_mode": "free"
+}
