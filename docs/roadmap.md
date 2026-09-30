@@ -33,14 +33,14 @@ Last updated: 2026-09-30 (N track planning; development order C10 → N1…N8 �
 | **C10-3** Site Growth Orchestrator + Operations (C10-E + C10-F) | **COMPLETED** | DEPLOYED (read-only orchestration, discovery promotion CLI, health + alerts from the 06:30 monitoring step, `system_status.py`); no migration |
 | C10-E Site Growth Orchestrator | **COMPLETED** | action matrix DEPLOYED; body `text_edit` apply **PENDING HUMAN** (first production apply); meta description write **PENDING HUMAN** (first production write); affiliate placement **DEFERRED → C11** |
 | C10-F Operations | **COMPLETED** | DEPLOYED; Growth digest first email **PENDING HUMAN**; mobile Growth review **DEFERRED** (relay deploy = human) |
-| **C10 Growth platform** | **COMPLETED** (CLOSED; activation pending items kept under *C10 activation pending*) | — |
+| **C10 Growth platform** | **COMPLETED** (CLOSED) | human-gated items kept under *C10 activation pending* and *C10 recurring human operations* |
 | **N1** note pilot (first human-reviewed piece) | **NEXT** | build: local only; Done needs a human note account + the first human publication |
-| N2–N8 (note workflow → measurement → distribution → paid pilot → products → audience → tool pilot) | PLANNED | see *N — Additional revenue track* and [n-track-plan.md](operations/n-track-plan.md) |
+| N2–N8 (note workflow → measurement → Productized Knowledge → Digital Product Automation → System Productization → SaaS Validation → SaaS / Service) | PLANNED | see *N — Additional revenue track* and [n-track-plan.md](operations/n-track-plan.md) |
 | C11 Affiliate Revenue Attribution | PLANNED (after N8) | — |
 
 **Development order (human decision, 2026-09-30):** C10 (CLOSED) → N1 → N2 → N3 → N4 → N5 →
-N6 → N7 → N8 → C11. The T6.5C–H Threads trend-intelligence phases stay PLANNED and are not
-placed in this order.
+N6 → N7 → N8 → (T6.5 re-evaluation checkpoint) → C11. The T6.5C–H Threads trend-intelligence
+phases stay PLANNED as a separate track that does not block this chain.
 
 ---
 
@@ -294,15 +294,23 @@ C10 is CLOSED. What remains is human activation, not development (listed below).
 placement apply moves to C11.
 
 ### C10 activation pending (human-gated; kept after closure)
+One-time activations. Each needs the human's decision; nothing here is enabled by code.
+
 | Item | State | Human stop |
 |---|---|---|
 | body `text_edit` first production apply | implemented, `text_edit_apply_enabled: false` | first production apply |
 | meta description first production write | implemented, `meta_description_apply_enabled: false` | first production write (new WordPress write form) |
 | Growth digest first real email | readiness re-checked, `sending_enabled: false` | first Growth digest production email |
-| mobile Growth Action review | DEFERRED (CHECK migration + relay redeploy) | production migration + relay / WordPress deployment |
-| Google Ads refresh runs | batched backlog, PLAN by default (0 terms waiting on 2026-09-30) | each `--execute` run |
-| discovery promotion | CLI ready, 26 tracked, 0 promoted | each promotion (one at a time) |
-| nightly task logon mode | runs only while the user is logged on (see below) | changing the logon / credentials |
+| mobile Growth Action review deployment | DEFERRED (CHECK migration + relay redeploy) | production migration + relay / WordPress deployment |
+| nightly task logon mode (only if needed) | Interactive logon: runs only while logged on (see below) | changing the logon / credentials |
+
+### C10 recurring human operations
+Normal, repeated operations, not pending activations.
+
+| Operation | How | Notes |
+|---|---|---|
+| Discovery candidate → Keyword promotion | `manage_discovery_candidates.py plan`, then `promote <id> --fingerprint … --execute` one at a time | 26 tracked, 0 promoted (2026-09-30); never automatic, no approve-all |
+| Google Ads refresh plan / execution | `refresh_google_ads_metrics.py` (PLAN), then `--execute --expect-terms N` | the one-time bulk refresh of the 38 terms is **done** (2026-09-30, 1 call). What remains is **recurring**: terms re-enter the plan when their evidence is older than 45 days or new discovery terms appear; `system_status.py nightly` shows the backlog. Each execution is a human run; **automating the refresh is not enabled** and would be a new automatic external call behaviour (a human decision). |
 
 ### Known operating constraints (checked from the sources on 2026-09-30)
 - **Nightly analysis runs only while the user is logged on.** `affiliate-ai-nightly-analysis` is
@@ -342,26 +350,38 @@ project has not actually observed, and no sales / readers / subscribers are fabr
 estimated. Provider-independent foundations are built now; each phase's Done waits for real
 evidence (build-complete ≠ Done).
 
-| Phase | Status | Buildable now (local only) | Waits for (real gate) |
+| Phase | Status | Buildable now (local only) | Waits for |
 |---|---|---|---|
 | N0 note channel foundation | **COMPLETED** | — | — |
-| **N1** note pilot: first human-reviewed piece | **NEXT** | topic refresh, review packet, hash-bound approval, publication record | G1 note account (human), G2 first human publication |
-| N2 repeatable production and review workflow | PLANNED | durable note ledger (migration rehearsed; apply = human), loop CLI, dedupe, cadence plan | G3 ≥3 real publications |
-| N3 operationalization and measurement | PLANNED | channel-agnostic manual metrics / revenue ledger, small-sample summaries | G4 real reader numbers; GA4 source dimension = new query pattern (human) |
-| N4 cross-channel distribution (note ↔ WordPress ↔ Threads) | PLANNED | link planner, link convention, Threads announcement request (off) | real note URLs; Threads-links-to-note and UTM decisions |
-| N5 paid note pilot | PLANNED | free / paid boundary model + checks, manual sales entry | G5 paid content enabled on note (financial: human only) |
-| N6 own digital products | PLANNED | product spec, packaging of own documents, checks | G6 platform + seller account + real product files + real sales |
-| N7 owned audience (membership / newsletter) | PLANNED | series planning only | G7 platform, privacy policy, consent, real subscribers |
-| N8 tool / SaaS pilot + N-track review | PLANNED | assessment document, N-track review queries | G8 hosting, billing, terms, real users |
+| **N1** note pilot: first human-reviewed piece | **NEXT** | C10 topics, review packet, access mode, approval + publication CLIs | G1 note account, G2 first human publication |
+| N2 repeatable production and review workflow | PLANNED | note ledger + migration (rehearsed), sync / loop CLI, dedupe, cadence plan, link planner | M1 migration apply, G3 ≥3 publications |
+| N3 operationalization and measurement | PLANNED | manual metrics / revenue ledger, metric catalog, small-sample summaries | M1, G4 real reader numbers |
+| N4 Productized Knowledge | PLANNED | knowledge candidates, product specs, evidence traceability, redaction, quality checks | H4 human release approval |
+| N5 Digital Product Automation | PLANNED | dependency tracking, stale detection, reproducible build, manifest, validation, release candidate, release gate | H5 human release gate on a real product |
+| N6 System Productization | PLANNED | coupling inventory, site profile, second local profile bootstrap + dry-run | — (Done is local) |
+| N7 SaaS Validation | PLANNED | pilot plan, metric catalog, go/no-go + SaaS / Managed / Hybrid decision template | G7 real pilot users |
+| N8 SaaS / Service | PLANNED | nothing (model not chosen) | the N7 decision, G8 |
 
-Continuous development in the current environment is possible for the N1 → N4 builds and the
-narrow N5 / N6 builds; the first real gate (G1/G2: a human note account and one human
-publication) blocks every Done from N1 onward, so it is the external preparation worth starting
-first.
+N4–N8 are the human's formal definitions (2026-09-30), replacing the provisional ones; the useful
+provisional elements were relocated (links → N1–N4 distribution, paid note → N1 / N4, digital
+products → N4 / N5, newsletter / membership → distribution workstream, tool pilot → N6 / N7,
+SaaS pilot → N7, SaaS / Service → N8). Product lifecycle (N4 / N5) is separate from
+distribution (its own workstream; no channel is assumed).
+
+Continuous development in the current environment is possible through the N1 → N7 builds; work
+stops only at the production migration (M1), the note account and publications (G1–G4), human
+release approvals (H4 / H5) and real pilot users (G7). Entry criteria do not freeze independent
+build work.
 
 ## T6.5 — Threads trend intelligence (tracked in `docs/project-roadmap.json`)
 - T6.5C Breakout Detector, T6.5D Pattern Miner, T6.5E Velocity, T6.5F Cross Validation,
-  T6.5G Strategy Recommendations, T6.5H Controlled Feedback — PLANNED
+  T6.5G Strategy Recommendations, T6.5H Controlled Feedback — PLANNED (kept)
+- **Separate, non-blocking track:** T6.5C–H are not part of the C10 → N1…N8 → C11 main chain and
+  never block it.
+- **Re-evaluation checkpoint `T6.5-review`:** at N8 completion or before C11 starts (whichever
+  comes first), the human re-evaluates T6.5C–H (keep, re-scope, or drop) with the Threads data
+  accumulated by then. The checkpoint is recorded in `docs/project-roadmap.json` as C11's
+  prerequisite.
 
 ## Intentionally excluded
 

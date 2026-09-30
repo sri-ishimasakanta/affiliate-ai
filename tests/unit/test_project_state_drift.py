@@ -521,7 +521,8 @@ def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
     for pid in (*(f"N{i}" for i in range(1, 9)), "C11"):
         assert status[pid] == "planned", pid  # まだ始めていない
     prereq = {p["id"]: p.get("prerequisites") for p in load_roadmap(REPO)["phases"]}
-    assert prereq["N1"] == ["N0", "C10"] and prereq["C11"] == ["N8"]
+    assert prereq["N1"] == ["N0", "C10"] and prereq["C11"] == ["T6.5-review"]
+    assert prereq["T6.5-review"] == ["N8"]  # T6.5C〜H の見直し (本線を止めない)
     for i in range(2, 9):
         assert prereq[f"N{i}"] == [f"N{i - 1}"]  # N1 → … → N8 → C11 の順
     assert "T6.5" not in status  # T6.5A〜H に分けた
