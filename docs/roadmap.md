@@ -358,7 +358,7 @@ evidence (build-complete ≠ Done).
 | N3 operationalization and measurement | PLANNED — build **COMPLETE** (2026-09-30) | done: `manual_metric_entries` (same migration), metric catalog, record / list / summary (`record_manual_metric.py`) | **PENDING** M1, G4 real reader numbers; GA4 source dimension = human decision |
 | N4 Productized Knowledge | PLANNED — build **COMPLETE** (2026-09-30) | done: knowledge candidates, product spec + traceability + redaction + quality checks, human records; first product `approval-gated-automation-kit` 0.1.0 checks clean ([products.md](operations/products.md)) | **PENDING** H4 human quality review + content approval |
 | N5 Digital Product Automation | PLANNED — build **COMPLETE** (2026-09-30) | done: source hashes, stale plan, reproducible zip + manifest, validation, release candidate (built, `verify` reproducible), release gate | **PENDING** H5 human release gate; distribution = separate human workstream |
-| N6 System Productization | PLANNED | coupling inventory, site profile, second local profile bootstrap + dry-run | — (Done is local) |
+| N6 System Productization | PLANNED — **DoD met for the read-only core** (2026-09-30) | done: coupling inventory, site profile (secret / data boundaries, fail-closed capabilities), bootstrap + network-guarded dry-run; `sites/example-local` passes 9/9 steps ([system-productization.md](operations/system-productization.md)) | remaining (not blocking): content-policy overlay per profile, injected sessions for 4 write services, log-path defaults |
 | N7 SaaS Validation | PLANNED | pilot plan, metric catalog, go/no-go + SaaS / Managed / Hybrid decision template | G7 real pilot users |
 | N8 SaaS / Service | PLANNED | nothing (model not chosen) | the N7 decision, G8 |
 

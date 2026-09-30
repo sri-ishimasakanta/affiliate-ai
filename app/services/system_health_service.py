@@ -28,8 +28,10 @@ _LOG_TIME = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}) threads
 class SystemHealthService:
     def __init__(self, session: Session, *, settings=None, worker_log: Path | None = None,
                  policy: dict | None = None, task_registered=None,
-                 schema_heads=None) -> None:  # fmt: skip
+                 schema_heads=None, expect_worker: bool = True) -> None:  # fmt: skip
         self._session = session
+        # N6: 常駐の worker を持たないサイト (手元の試しのプロファイル) は worker を見ない。
+        self._expect_worker = expect_worker
         # テストでは差し替える (schtasks / alembic を読まない)。
         self._task_registered_fn = task_registered or self._task_registered
         self._schema_heads_fn = schema_heads or self._schema_heads
@@ -50,7 +52,8 @@ class SystemHealthService:
     def evaluate(self, *, now: datetime | None = None) -> dict:
         now = ensure_aware(now or datetime.now(UTC))
         nightly, nightly_summary = self._nightly(now)
-        worker, worker_summary = self._worker(now)
+        worker, worker_summary = (self._worker(now) if self._expect_worker
+                                  else ([], {"expected": False}))  # fmt: skip
         data, data_summary = self._data(now)
         workflow, workflow_summary = self._workflow(now)
         db, db_summary = self._db()
