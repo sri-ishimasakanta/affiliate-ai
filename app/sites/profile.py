@@ -94,6 +94,12 @@ class SiteProfile:
         block = self.data.get("content_policy")
         return {k: self.resolve(v) for k, v in block.items()} if block else None
 
+    @property
+    def policies(self) -> dict[str, Path]:
+        """サイト自身の方針のファイル (アフィリエイト・キーワード・Threads)。無い名前は継ぐ。"""
+
+        return {k: self.resolve(v) for k, v in (self.data.get("policies") or {}).items()}
+
     def enabled(self, capability: str) -> bool:
         return bool((self.data.get("capabilities") or {}).get(capability))
 
@@ -145,6 +151,15 @@ def validate(data: dict, *, root: Path, production_database: Path | None) -> lis
         else:
             errors += [f"content_policy.{k}: {v} is missing" for k, v in policy.items()
                        if not (Path(v) if Path(v).is_absolute() else root / v).exists()]
+    overrides = data.get("policies") or {}
+    if overrides:
+        from app.sites.policies import policy_names
+
+        unknown = sorted(set(overrides) - set(policy_names()))
+        if unknown:
+            errors.append(f"unknown policies {unknown}")
+        errors += [f"policies.{k}: {v} is missing" for k, v in overrides.items()
+                   if not (Path(v) if Path(v).is_absolute() else root / v).exists()]
     if errors:
         return errors
     profile = SiteProfile(root=root, path=root, data=data)

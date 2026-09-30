@@ -40,7 +40,12 @@ class SystemHealthService:
 
             settings = get_settings()
         self._settings = settings
-        self._log = worker_log or WORKER_LOG
+        if worker_log is None:
+            # N6: 起動の .cmd と同じ AFFILIATE_AI_LOG_DIR (無ければ本番の既定 = WORKER_LOG)
+            from app.sites.paths import default_worker_log
+
+            worker_log = default_worker_log()
+        self._log = worker_log
         self._policy = policy or sh.load_health_policy()
 
     def _tz(self):

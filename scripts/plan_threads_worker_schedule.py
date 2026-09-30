@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None, *, settings=None) -> int:
     plan = build_threads_worker_task_plan(
         project_root=Path(__file__).resolve().parent.parent,
         profile=args.profile,
-        log_directory=str(scheduler.get("log_directory") or "D:\\Logs\\affiliate-ai"),
+        log_directory=scheduler.get("log_directory") or None,  # None: AFFILIATE_AI_LOG_DIR / 既定
         run_level=str(scheduler.get("run_level") or "LIMITED"),
     )
     secrets = [

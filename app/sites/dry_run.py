@@ -132,8 +132,18 @@ def dry_run(profile: SiteProfile, *, now: datetime | None = None) -> dict:
             registry=load_registry(policy["clusters"], policy["portfolio"]),
             seeds_path=policy["discovery_seeds"])
 
+    def site_policies(_session):
+        from app.sites.policies import load_all
+
+        loaded = load_all(profile.policies)
+        broken = {k: v["error"] for k, v in loaded.items() if not v["ok"]}
+        if broken:
+            raise ValueError(f"policy files do not load: {broken}")
+        return {k: v["source"] for k, v in loaded.items()}
+
     with network_guard(attempts):
         step("schema", _schema)
+        step("site_policies", site_policies)
         step("system_health", health)
         step("content_intelligence", lambda s: {
             "next_articles": len(intelligence(s).build(now=now).next_articles)})

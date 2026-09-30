@@ -18,6 +18,14 @@ from pathlib import Path
 
 DEFAULT_WORKER_LOG = Path(r"D:\Logs\affiliate-ai\threads-worker.log")
 TAIL_BYTES = 2_000_000
+
+
+def default_worker_log() -> Path:
+    """``AFFILIATE_AI_LOG_DIR`` があればその下、無ければ本番の既定 (``DEFAULT_WORKER_LOG``)。"""
+
+    from app.sites.paths import default_worker_log as _default
+
+    return _default()
 _STARTED = re.compile(r"^(?P<at>\S+) threads-worker INFO event=started (?P<fields>.*)$")
 _FIELD = re.compile(r"(\w+)=(\S+)")
 

@@ -124,7 +124,7 @@ def _read_live(ctx: StateContext):
 def _worker_start_record(ctx: StateContext, threads: dict) -> dict:
     """ロックを持つ pid の最後の起動の記録 (worker のログの末尾を読むだけ)。"""
 
-    path = ctx.worker_log_path or runtime_records.DEFAULT_WORKER_LOG
+    path = ctx.worker_log_path or runtime_records.default_worker_log()
     pid = (threads.get("worker") or {}).get("lock_pid")
     base = {"source": path.name, "lock_pid": pid, "freshness": "recorded"}
     try:

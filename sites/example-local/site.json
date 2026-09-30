@@ -31,5 +31,8 @@
     "clusters": "sites/example-local/policy/content_clusters.json",
     "portfolio": "sites/example-local/policy/content_portfolio.json",
     "discovery_seeds": "sites/example-local/policy/discovery_seeds.json"
+  },
+  "policies": {
+    "threads_growth_facts": "sites/example-local/policy/threads_growth_facts.json"
   }
 }

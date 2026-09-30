@@ -30,12 +30,17 @@ def build_threads_worker_task_plan(
     *,
     project_root: Path | str,
     profile: str = DEFAULT_PROFILE,
-    log_directory: str = "D:\\Logs\\affiliate-ai",
+    log_directory: str | None = None,
     run_level: str = "LIMITED",
     executable: str | None = None,
 ) -> ScheduledTaskPlan:
     if profile not in PROFILES:
         raise ValueError(f"unknown profile {profile!r}; expected one of {', '.join(PROFILES)}")
+    if log_directory is None:
+        # N6: 起動の .cmd と同じ AFFILIATE_AI_LOG_DIR (無ければ本番の既定 D:\Logs\affiliate-ai)
+        from app.sites.paths import default_log_dir
+
+        log_directory = str(default_log_dir())
     root = Path(project_root).resolve()
     launcher = str(root / LAUNCHER_RELATIVE_PATH).replace("/", "\\")
     task_action = f"{launcher} {profile}"

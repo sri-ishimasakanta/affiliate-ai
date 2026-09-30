@@ -126,3 +126,45 @@ def test_the_cli_refuses_an_invalid_profile(tmp_path, capsys) -> None:
     assert main(["validate", str(bad)], root=REPO,
                 production_database=(REPO / "affiliate_ai.db").resolve()) == 2
     assert "production database" in capsys.readouterr().out
+
+
+# == N6 hardening: per-site policies and log paths ===================================
+def test_site_policies_override_only_what_the_profile_names(tmp_path) -> None:
+    from app.sites.policies import load_all, policy_names
+
+    loaded = load_all({"threads_growth_facts":
+                       REPO / "sites/example-local/policy/threads_growth_facts.json"})
+    assert set(loaded) == set(policy_names()) and all(v["ok"] for v in loaded.values())
+    assert loaded["threads_growth_facts"]["source"] == "profile"
+    assert {v["source"] for k, v in loaded.items() if k != "threads_growth_facts"} == {
+        "inherited"}
+    broken = tmp_path / "facts.json"
+    broken.write_text('{"facts": [{"id": "x", "kind": "nope", "text": "t",'
+                      ' "valid_from": "2026-01-01", "valid_until": "2026-12-31"}]}',
+                      encoding="utf-8")
+    assert load_all({"threads_growth_facts": broken})["threads_growth_facts"]["ok"] is False
+
+
+@pytest.mark.parametrize("policies, match", [
+    ({"stripe_prices": "x.json"}, "unknown policies"),
+    ({"threads_style_policy": "missing.json"}, "is missing"),
+])
+def test_site_policy_paths_are_checked(policies, match) -> None:
+    errors = sp.validate(_data(policies=policies), root=REPO,
+                         production_database=REPO / "affiliate_ai.db")
+    assert any(match in e for e in errors), errors
+
+
+def test_log_defaults_follow_the_launcher_variable(monkeypatch, tmp_path) -> None:
+    from app.operations.threads_worker_task import build_threads_worker_task_plan
+    from app.project_state import runtime_records
+    from app.sites import paths
+
+    monkeypatch.delenv(paths.LOG_DIR_ENV, raising=False)
+    assert paths.default_worker_log() == runtime_records.DEFAULT_WORKER_LOG  # 本番は変わらない
+    plan = build_threads_worker_task_plan(project_root=REPO)
+    assert plan.log_path == str(runtime_records.DEFAULT_WORKER_LOG)
+    monkeypatch.setenv(paths.LOG_DIR_ENV, str(tmp_path))
+    assert runtime_records.default_worker_log() == tmp_path / "threads-worker.log"
+    assert build_threads_worker_task_plan(project_root=REPO).log_path == str(
+        tmp_path / "threads-worker.log")

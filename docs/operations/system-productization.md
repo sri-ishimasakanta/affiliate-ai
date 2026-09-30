@@ -19,9 +19,9 @@ unchanged:** production still reads `.env` and `app/config/*.json`.
 | account | WordPress user, Threads user / token, Google Ads customer, GA4 property, Search Console property, Make token | site + secret | fail-closed per capability; values only in the site's own env file |
 | path | `D:\Logs\affiliate-ai` hard-coded in `system_health_service.WORKER_LOG`, `project_state/runtime_records.py`, `operations/threads_worker_task.py`, `plan_threads_worker_schedule.py`; `D:\Backups\affiliate-ai` in runbooks | site | profile `paths.logs`; the services take the log path by injection (health does); the remaining defaults are listed for the next step |
 | provider | Google Ads, WordPress, Search Console, GA4, Threads, OpenAI, Make, SMTP / webhook | core adapters, site configuration | existing providers only; enabled per site with `capabilities`; no new adapters |
-| config | `app/config/*.json` (26 files) is loaded from fixed paths: operations, health, nightly, growth, change-apply and product policies (**core defaults**) next to content clusters, subjects, discovery / keyword seeds, affiliate catalog / match rules, Threads style / growth facts (**this site's content policy**) | mixed | the content-intelligence inputs (clusters, portfolio, discovery seeds) are **per profile** through the optional `content_policy` block (injected into content intelligence, the nightly plan and discovery; no loader changed). Without the block a profile inherits this site's `app/config` files, and the dry-run says so. Still global: affiliate catalog / match rules, keyword seeds, Threads style / growth facts (not used by the dry-run; next step). |
+| config | `app/config/*.json` (26 files) is loaded from fixed paths: operations, health, nightly, growth, change-apply and product policies (**core defaults**) next to content clusters, subjects, discovery / keyword seeds, affiliate catalog / match rules, Threads style / growth facts (**this site's content policy**) | mixed | the content-intelligence inputs (clusters, portfolio, discovery seeds) are **per profile** through the optional `content_policy` block (injected into content intelligence, the nightly plan and discovery; no loader changed). Without the block a profile inherits this site's `app/config` files, and the dry-run says so. Affiliate match fit / tiers / catalog hygiene, keyword idea seeds / expansion rules, Threads style policy / growth facts are **per profile** through the optional `policies` block (`app/sites/policies.py`; each file is parsed by its real loader; unnamed files are inherited and reported as such). The example site has its own empty Threads growth facts so it never reuses this site's public facts. Production still loads `app/config` unchanged. |
 | secret | `.env` (module-level `settings = get_settings()` in `app/config/settings.py`) | secret | profile Settings are built with `_env_file` = the site's env file or none; the production `.env` is refused; profiles cannot contain secret-like keys or values; every secret-like setting belongs to a capability (contract test) |
-| DB | `DATABASE_URL`; module-level `engine` / `SessionLocal` in `app/config/database.py`; 4 services open `SessionLocal` themselves (`affiliate_link_target_service`, `article_link_substitution_service`, `article_publication_artifact_service`, `wordpress_content_update_execution_service`) | site | one SQLite database per profile; the production path is refused; the dry-run uses only services that take an injected session. The 4 services are write paths and are not used by the dry-run; they need an injected session factory before multi-site writes. |
+| DB | `DATABASE_URL`; module-level `engine` / `SessionLocal` in `app/config/database.py`; services take an injected `Session` (correction, 2026-09-30: the 4 write services `affiliate_link_target_service`, `article_link_substitution_service`, `article_publication_artifact_service`, `wordpress_content_update_execution_service` were listed as opening `SessionLocal` themselves; source inspection shows they already take the session in `__init__` and mention `SessionLocal` only in comments) | site | one SQLite database per profile; the production path is refused; any service can run against a site by passing that site's session |
 | scheduler | `affiliate-ai-operations-daily/weekly`, `affiliate-ai-threads-worker`, `affiliate-ai-nightly-analysis`; `.cmd` launchers; contracts in `project_state/invariants.py` | site (runtime) | `scheduler` / `resident_worker` capabilities (off for the second site); nothing registers tasks for a profile |
 | content policy | content clusters, subjects, portfolio, seeds, affiliate rules, Threads style / facts | site | clusters / portfolio / discovery seeds per profile (done); the rest see *config* |
 | notification | SMTP / webhook settings, subject prefix, alert policy | site config + secret | `email` / `webhook` capabilities (off = no notifier configured) |
@@ -74,10 +74,16 @@ policy (1 next-article candidate from its placeholder cluster instead of this si
 - production config unchanged;
 - the production database and scheduled tasks were not used.
 
-Remaining N6 scope, not needed for this DoD and not started:
+N6 hardening (2026-09-30, production behaviour unchanged):
 
-- per-profile affiliate / keyword / Threads policy files;
-- injected session factories for the 4 write services;
-- log-path defaults outside the health service.
+- per-profile affiliate / keyword / Threads policy files (`policies` block; dry-run step
+  `site_policies` reports profile vs inherited for each of the 7 files);
+- write services: no change needed (they already take an injected session; see *DB*);
+- log-path defaults: `app/sites/paths.py` follows the launchers' `AFFILIATE_AI_LOG_DIR` and
+  falls back to `D:/Logs/affiliate-ai` (production does not set the variable). Used by the
+  health check, the project-state worker log and the worker task plan.
+
+Not done: wiring each consuming service to a site's policy files. The loaders accept the path;
+the services are wired when a second real site exists (human decision).
 
 A second **real** site (real accounts) is a human decision.
