@@ -67,6 +67,8 @@ N1・N2・N3 は宣言だけで、まだリポジトリに作業は無い。N0 �
   引き継ぎ、note 上の画像が同じものかは人が目で確かめた (仕組みでは確かめられない)。
   公開の記録は 2026-09-30 21:11:47 JST。
 - G3 (3 本): 2 / 3 (bootstrap の 1 本目と、N1 の流れの 2 本目)。G4 (約 4 週間の実測): まだ。
+- 3 本目 (N2 の流れの 2 本目): `draft-e068f0146e`「監視の通知は「行動が要るときだけ」。AI自動化の運用で、
+  正常時は静かにした理由」。2026-09-30 に review_ready (人の承認・サムネイル画像の確定待ち)。
 - **N1 で分かったこと (N1 は完了)**:
   - 仕組みの外で先に公開した 1 本目は、承認の記録を後から作らず、出どころ (bootstrap) として
     別に残した。承認の順番を偽らないほうが、あとの監査が簡単になる。
@@ -91,6 +93,9 @@ uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sh
 uv run python scripts/manage_note_piece.py record-publication <draft_id> --url https://note.com/...     --observed-at 2026-10-01T19:00:00+09:00 --content-hash <sha> [--image <file>]
 ```
 
+- `evidence <draft_id> --text ... [--decision <id>] [--doc <docs/...md> "<言い回し>"]`: 本文の事実の文の
+  根拠を足す (決定の記録か、ドキュメントに今もある言い回し。本文と hash は変えない)。生成の
+  ドキュメント由来の事実の文は、その話題が自分で持つ文 (`doc_fact`) だけ。
 - `edit --editor human|claude`: 誰が直したかを偽らずに記録する (Claude の手直しは `claude`。
   `edited_by_human` は人が直したときだけ true)。`meta --tags ... --thumbnail-brief ...` で推奨の
   タグとサムネイルの指示 (承認に入る。承認の後は変えられない)。確認用のまとめには見出しの構成・

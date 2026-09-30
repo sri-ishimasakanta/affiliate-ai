@@ -6,6 +6,7 @@
     uv run python scripts/manage_note_piece.py meta <draft_id> --tags AI,自動化
         --thumbnail-brief "..."
     uv run python scripts/manage_note_piece.py evidence <draft_id> --text "..." --decision <id>
+        [--doc <docs/...md> "<phrase in it>"]
     uv run python scripts/manage_note_piece.py access-mode <draft_id> free|paid
     uv run python scripts/manage_note_piece.py submit <draft_id>
     uv run python scripts/manage_note_piece.py check-image <draft_id> --image <file>
@@ -93,7 +94,9 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     ev.add_argument("draft_id")
     ev.add_argument("--text", required=True)
     ev.add_argument("--kind", choices=("observed_fact", "decision"), default="observed_fact")
-    ev.add_argument("--decision", action="append", required=True, dest="decisions")
+    ev.add_argument("--decision", action="append", default=[], dest="decisions")
+    ev.add_argument("--doc", action="append", default=[], dest="docs", nargs=2,
+                    metavar=("PATH", "PHRASE"), help="a doc in the repository and a phrase in it")
     meta = sub.add_parser("meta")
     meta.add_argument("draft_id")
     meta.add_argument("--tags")
@@ -163,7 +166,8 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
         elif args.command == "evidence":
             review.add_evidence(draft, text=args.text, kind=args.kind,
                                 decision_ids=args.decisions,
-                                decisions=load_sources(root).decisions)  # fmt: skip
+                                decisions=load_sources(root).decisions,
+                                docs=[tuple(d) for d in args.docs], root=root)  # fmt: skip
         elif args.command == "meta":
             review.set_meta(draft, tags=args.tags.split(",") if args.tags else None,
                             thumbnail_brief=args.thumbnail_brief)  # fmt: skip

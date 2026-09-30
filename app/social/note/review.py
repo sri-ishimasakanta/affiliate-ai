@@ -167,17 +167,28 @@ def set_meta(draft: NoteDraft, *, tags: list[str] | None = None,
 
 
 def add_evidence(draft: NoteDraft, *, text: str, kind: str, decision_ids: list[str],
-                 decisions: dict[str, dict]) -> NoteDraft:  # fmt: skip
-    """本文の事実の文を裏付ける根拠を足す (決定の記録にあるものだけ)。本文と hash は変えない。"""
+                 decisions: dict[str, dict], docs: list[tuple[str, str]] | None = None,
+                 root: Path | None = None) -> NoteDraft:  # fmt: skip
+    """本文の事実の文を裏付ける根拠を足す。本文と hash は変えない。
+
+    根拠は決定の記録 (``decision_ids``) か、運用のドキュメントの言い回し (``docs``:
+    (リポジトリの中の相対パス, 今もその文書にある言い回し))。どちらも今あることを確かめる。
+    """
 
     if draft.status in ("approved", "published", "rejected"):
         raise NoteStatusError(f"the evidence of a {draft.status} draft cannot change")
+    docs = list(docs or [])
     missing = [d for d in decision_ids if d not in decisions]
-    if not decision_ids or missing:
+    if (not decision_ids and not docs) or missing:
         raise ValueError(f"decisions not in the decision log: {missing or 'none given'}")
-    refs = tuple(EvidenceRef(f"decision:{d}", "operations_doc", decisions[d]["file"])
-                 for d in decision_ids)  # fmt: skip
-    draft.claims.append(Claim(text.strip(), kind, refs))
+    refs = [EvidenceRef(f"decision:{d}", "operations_doc", decisions[d]["file"])
+            for d in decision_ids]  # fmt: skip
+    for rel, phrase in docs:
+        path = (root or Path(".")) / rel
+        if not path.is_file() or not phrase or phrase not in path.read_text(encoding="utf-8"):
+            raise ValueError(f"{rel} does not contain the phrase {phrase!r}")
+        refs.append(EvidenceRef(f"doc:{rel}", "operations_doc", f"{rel} ({phrase[:60]})"))
+    draft.claims.append(Claim(text.strip(), kind, tuple(refs)))
     return draft
 
 
