@@ -5,6 +5,7 @@
     uv run python scripts/manage_note_piece.py edit <draft_id> --from edited.md [--editor claude]
     uv run python scripts/manage_note_piece.py meta <draft_id> --tags AI,自動化
         --thumbnail-brief "..."
+    uv run python scripts/manage_note_piece.py evidence <draft_id> --text "..." --decision <id>
     uv run python scripts/manage_note_piece.py access-mode <draft_id> free|paid
     uv run python scripts/manage_note_piece.py submit <draft_id>
     uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha> --by <name>
@@ -85,6 +86,11 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     edit.add_argument("--editor", choices=("human", "claude"), default="human",
                       help="who wrote this version (recorded as is)")
     edit.add_argument("--no-db", action="store_true", help="skip the WordPress / Threads check")
+    ev = sub.add_parser("evidence")
+    ev.add_argument("draft_id")
+    ev.add_argument("--text", required=True)
+    ev.add_argument("--kind", choices=("observed_fact", "decision"), default="observed_fact")
+    ev.add_argument("--decision", action="append", required=True, dest="decisions")
     meta = sub.add_parser("meta")
     meta.add_argument("draft_id")
     meta.add_argument("--tags")
@@ -138,6 +144,10 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             review.apply_edit(draft, text, commissions_known=_commissions_known(root),
                               corpus=_corpus(root, use_db=not args.no_db),
                               editor=args.editor)  # fmt: skip
+        elif args.command == "evidence":
+            review.add_evidence(draft, text=args.text, kind=args.kind,
+                                decision_ids=args.decisions,
+                                decisions=load_sources(root).decisions)  # fmt: skip
         elif args.command == "meta":
             review.set_meta(draft, tags=args.tags.split(",") if args.tags else None,
                             thumbnail_brief=args.thumbnail_brief)  # fmt: skip

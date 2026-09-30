@@ -149,6 +149,21 @@ def set_meta(draft: NoteDraft, *, tags: list[str] | None = None,
     return draft
 
 
+def add_evidence(draft: NoteDraft, *, text: str, kind: str, decision_ids: list[str],
+                 decisions: dict[str, dict]) -> NoteDraft:  # fmt: skip
+    """本文の事実の文を裏付ける根拠を足す (決定の記録にあるものだけ)。本文と hash は変えない。"""
+
+    if draft.status in ("approved", "published", "rejected"):
+        raise NoteStatusError(f"the evidence of a {draft.status} draft cannot change")
+    missing = [d for d in decision_ids if d not in decisions]
+    if not decision_ids or missing:
+        raise ValueError(f"decisions not in the decision log: {missing or 'none given'}")
+    refs = tuple(EvidenceRef(f"decision:{d}", "operations_doc", decisions[d]["file"])
+                 for d in decision_ids)  # fmt: skip
+    draft.claims.append(Claim(text.strip(), kind, refs))
+    return draft
+
+
 def set_access_mode(draft: NoteDraft, mode: str) -> NoteDraft:
     if mode not in ACCESS_MODES:
         raise ValueError(f"access mode must be one of {ACCESS_MODES}")
@@ -277,6 +292,6 @@ def reject(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
     return draft
 
 
-__all__ = ["apply_edit", "approve", "check_publication_url", "draft_from_dict", "links_of",
-           "load_policy", "parse_markdown", "plain_text", "record_publication", "recheck",
+__all__ = ["add_evidence", "apply_edit", "approve", "check_publication_url", "draft_from_dict",
+           "links_of", "load_policy", "parse_markdown", "plain_text", "record_publication", "recheck",
            "reject", "render_packet", "review_packet", "set_access_mode", "set_meta", "submit"]

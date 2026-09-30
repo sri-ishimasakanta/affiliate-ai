@@ -53,3 +53,24 @@ def test_published_note_text_is_in_the_duplication_corpus(tmp_path) -> None:
     ext.mkdir(parents=True)
     (ext / "n1.txt").write_text("公開済みの本文", encoding="utf-8")
     assert internal_corpus(root)["note-external:n1"] == "公開済みの本文"
+
+
+def test_evidence_can_be_added_from_the_decision_log_without_changing_the_hash(tmp_path) -> None:
+    from app.social.note.sources import load_sources
+
+    root, _path, draft = _draft(tmp_path)
+    decisions = load_sources(root).decisions
+    before = draft.content_hash
+    review.add_evidence(draft, text="実機で確かめた。", kind="observed_fact",
+                        decision_ids=["t6-1-mobile-render-observed"], decisions=decisions)
+    assert draft.content_hash == before
+    assert draft.claims[-1].evidence[0].source == "decision:t6-1-mobile-render-observed"
+    with pytest.raises(ValueError, match="not in the decision log"):
+        review.add_evidence(draft, text="x", kind="observed_fact", decision_ids=["nope"],
+                            decisions=decisions)
+    review.apply_edit(draft, EDITED, commissions_known=False, editor="claude")
+    review.submit(draft)
+    review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=NOW)
+    with pytest.raises(NoteStatusError):
+        review.add_evidence(draft, text="x", kind="observed_fact",
+                            decision_ids=["t6-1-mobile-render-observed"], decisions=decisions)
