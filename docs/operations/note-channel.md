@@ -73,8 +73,9 @@ uv run python scripts/manage_note_piece.py packet <draft_id>       # 確認用 (
 uv run python scripts/manage_note_piece.py edit <draft_id> --from edited.md   # 人が直した本文
 uv run python scripts/manage_note_piece.py access-mode <draft_id> free|paid   # 既定は free
 uv run python scripts/manage_note_piece.py submit <draft_id>       # review_ready (誤りがあれば拒む)
-uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha> --by <name> [--links-approved]
-uv run python scripts/manage_note_piece.py record-publication <draft_id> --url https://note.com/...     --observed-at 2026-10-01T19:00:00+09:00 --content-hash <sha>
+uv run python scripts/manage_note_piece.py check-image <draft_id> --image <file>
+uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha> --by <name> [--links-approved] [--image <file>]
+uv run python scripts/manage_note_piece.py record-publication <draft_id> --url https://note.com/...     --observed-at 2026-10-01T19:00:00+09:00 --content-hash <sha> [--image <file>]
 ```
 
 - `edit --editor human|claude`: 誰が直したかを偽らずに記録する (Claude の手直しは `claude`。
@@ -86,6 +87,26 @@ uv run python scripts/manage_note_piece.py record-publication <draft_id> --url h
   人が確かめ直す。
 - 承認は `review_ready` の本文の hash に結びつく。外部リンクがあれば `--links-approved` が要る。
   承認には公開の形 (free / paid)・リンクの一覧と hash が入る。
+- **承認の記録 (`note-approval/2`、2026-09-30)**: 承認の記録の中で、次をそれぞれ別に追える。
+  - 本文: `content_hash` (題名と本文だけ。意味は変えていない。画像は入らない)
+  - 外部リンク: 一覧・`links_hash`・`links_approved` (リンクがあれば `--links-approved` が要る)
+  - タグ・公開の形 (`access_mode`)・サムネイルの指示 (`thumbnail_brief`)
+  - **画像**: `approve ... --image <file>` のファイルの名前 (パスは記録しない)・大きさ (bytes)・
+    sha256・中身の先頭のバイトから分かる形式 (PNG / JPEG / GIF / WebP だけ。分からなければ拒む)。
+    サムネイルの指示がある下書きは、画像のファイル無しでは承認できない。真偽値だけの
+    「画像も承認」は無くした (`--images-approved` は廃止)。無い・読めない・空・形式が分からない
+    ファイルは拒む。
+- 画像を差し替えたら: 名前が同じでも中身が変われば sha256 が変わり、前の承認の画像ではない
+  (`check-image <draft_id> --image <file>` で `changed_since_approval`)。`reopen <draft_id>
+  --reason ...` で承認を取り消し、`submit` → 新しい画像で `approve` し直す。効かなくなった承認は
+  消さずに `approval_history` に理由と時刻つきで残る (本文を直したときも同じ)。
+- 公開の記録: 承認に画像が拘束されていれば、`record-publication ... --image <file>` の画像が
+  承認の画像と同じ (大きさと sha256) でないと記録しない (名前は違ってよい)。承認した画像の
+  指紋 (名前・大きさ・sha256・形式) は公開の記録の `approved_images` に引き継ぐ。
+- **人の責任**: 仕組みが拘束するのは、手元で承認した画像のファイルまで。note に実際に
+  アップロードした画像が同じものかは、仕組みでは確かめられない (note の API を使わない)。
+  公開の記録の `note_image_match` にそう書く。確かめるのは人。
+- 古い承認 (画像の情報が無い `note-approval/1` 相当) はそのまま有効で、画像の情報を補わない。
 - 公開の記録は、承認した hash と同じ本文を人が公開したときだけ。URL は https で、
   `app/config/note_channel_policy.json` の `publication_url_hosts` の host に限る。
 - **有料 (paid) は記録するだけ。** 値段を決める・販売を始めるのは人が note で行う (人の確認点)。

@@ -115,6 +115,8 @@ class NoteDraft:
     #: 公開の画面で付ける推奨のタグと、サムネイルの指示 (承認の対象。本文の hash には入らない)。
     tags: list[str] = field(default_factory=list)
     thumbnail_brief: str | None = None
+    #: 効かなくなった過去の承認 (消さずに残す。理由と時刻つき)。古い下書きには無い (空)。
+    approval_history: list[dict] = field(default_factory=list)
 
     @property
     def body(self) -> str:

@@ -39,7 +39,10 @@ def test_tags_and_thumbnail_brief_are_part_of_the_approval(tmp_path) -> None:
     assert packet["tags"] == ["AI", "自動化"] and packet["headings"] == ["前提", "学び"]
     assert "#AI #自動化" in review.render_packet(draft)
     review.submit(draft)
-    review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=NOW)
+    image = tmp_path / "thumb.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"fixture")  # テストの画像 (先頭の印だけ本物)
+    review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=NOW,
+                   image=image)
     assert draft.approval["tags"] == ["AI", "自動化"] and draft.approval["edited_by"] == "claude"
     with pytest.raises(NoteStatusError):
         review.set_meta(draft, tags=["x"])  # 承認の後は変えない

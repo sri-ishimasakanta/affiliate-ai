@@ -8,9 +8,12 @@
     uv run python scripts/manage_note_piece.py evidence <draft_id> --text "..." --decision <id>
     uv run python scripts/manage_note_piece.py access-mode <draft_id> free|paid
     uv run python scripts/manage_note_piece.py submit <draft_id>
+    uv run python scripts/manage_note_piece.py check-image <draft_id> --image <file>
     uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha> --by <name>
+        [--links-approved] [--image <file>]     # サムネイルがある下書きは --image が必須
+    uv run python scripts/manage_note_piece.py reopen <draft_id> --reason "..."   # 承認を取り消す
     uv run python scripts/manage_note_piece.py record-publication <draft_id> --url <https://note.com/...>
-        --observed-at <ISO> --content-hash <sha>
+        --observed-at <ISO> --content-hash <sha> [--image <file>]
     uv run python scripts/manage_note_piece.py reject <draft_id> --reason "..."
 
 書くのは ``reports/note/drafts/`` (git 管理外) だけ。note・WordPress・Threads・DB には書かない。
@@ -103,12 +106,19 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     appr.add_argument("--content-hash", required=True)
     appr.add_argument("--by", required=True)
     appr.add_argument("--links-approved", action="store_true")
-    appr.add_argument("--images-approved", action="store_true")
+    appr.add_argument("--image", help="the final thumbnail image file (bound by sha256)")
+    chk = sub.add_parser("check-image")
+    chk.add_argument("draft_id")
+    chk.add_argument("--image", required=True)
+    reo = sub.add_parser("reopen")
+    reo.add_argument("draft_id")
+    reo.add_argument("--reason", required=True)
     pub = sub.add_parser("record-publication")
     pub.add_argument("draft_id")
     pub.add_argument("--url", required=True)
     pub.add_argument("--observed-at", required=True)
     pub.add_argument("--content-hash", required=True)
+    pub.add_argument("--image", help="the image file used in the note (must be the approved one)")
     rej = sub.add_parser("reject")
     rej.add_argument("draft_id")
     rej.add_argument("--reason", required=True)
@@ -134,16 +144,22 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             path.with_suffix(".txt").write_text(review.plain_text(draft), encoding="utf-8")
             packet = review.review_packet(draft)
             print(json.dumps({k: packet[k] for k in ("draft_id", "status", "access_mode",
-                                                     "content_hash", "links", "errors",
-                                                     "can_submit", "can_approve")},
+                                                     "content_hash", "links", "image_required",
+                                                     "images", "errors", "can_submit",
+                                                     "can_approve")},
                              ensure_ascii=False, indent=2))  # fmt: skip
             print(f"wrote {path.with_suffix('.packet.md')} and {path.with_suffix('.txt')}")
             return 0
+        if args.command == "check-image":
+            state = review.check_image(draft, args.image)
+            print(json.dumps({"image_required": review.image_required(draft), **state},
+                             ensure_ascii=False, indent=2))  # fmt: skip
+            return 0 if state["state"] != "changed_since_approval" else 1
         if args.command == "edit":
             text = Path(args.source).read_text(encoding="utf-8")
             review.apply_edit(draft, text, commissions_known=_commissions_known(root),
                               corpus=_corpus(root, use_db=not args.no_db),
-                              editor=args.editor)  # fmt: skip
+                              editor=args.editor, now=now)  # fmt: skip
         elif args.command == "evidence":
             review.add_evidence(draft, text=args.text, kind=args.kind,
                                 decision_ids=args.decisions,
@@ -157,15 +173,17 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             review.submit(draft)
         elif args.command == "approve":
             review.approve(draft, content_hash=args.content_hash, approved_by=args.by, now=now,
-                           links_approved=args.links_approved,
-                           images_approved=args.images_approved)  # fmt: skip
+                           links_approved=args.links_approved, image=args.image)  # fmt: skip
         elif args.command == "record-publication":
             observed = datetime.fromisoformat(args.observed_at)
             if observed.tzinfo is None:
                 raise NoteStatusError("--observed-at needs a timezone (e.g. +09:00)")
             review.record_publication(draft, url=args.url, observed_at=observed,
                                       published_hash=args.content_hash, now=now,
-                                      policy=review.load_policy())  # fmt: skip
+                                      policy=review.load_policy(),
+                                      image=args.image)  # fmt: skip
+        elif args.command == "reopen":
+            review.reopen(draft, reason=args.reason, now=now)
         elif args.command == "reject":
             review.reject(draft, reason=args.reason, now=now)
     except (NoteStatusError, ValueError, OSError) as exc:

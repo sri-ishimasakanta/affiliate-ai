@@ -5,7 +5,8 @@
 - 下書きの読み書き (``draft_from_dict``)
 - 人が直した Markdown の取り込み (``apply_edit``。承認は消え、検査をやり直す)
 - 確認用のまとめ (``review_packet`` / ``render_packet`` / ``plain_text``)
-- 承認 (``approve``。本文の hash に結びつく。リンク・画像・公開の形も承認に入る)
+- 承認 (``approve``。本文の hash に結びつく。リンク・タグ・公開の形・サムネイルの画像の
+  ファイル (名前・大きさ・sha256) も承認に入る。効かなくなった承認は ``approval_history``)
 - 公開の記録 (``record_publication``。承認した hash と同じ本文を人が公開したときだけ。URL は
   https で、方針の host に限る)
 
@@ -17,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -114,7 +115,8 @@ EDITORS = ("human", "claude")
 
 
 def apply_edit(draft: NoteDraft, markdown: str, *, commissions_known: bool,
-               corpus: dict | None = None, editor: str = "human") -> NoteDraft:  # fmt: skip
+               corpus: dict | None = None, editor: str = "human",
+               now: datetime | None = None) -> NoteDraft:  # fmt: skip
     """直した本文を取り込む。``editor`` は誰が直したか (偽らない。Claude の手直しは claude)。"""
 
     if editor not in EDITORS:
@@ -125,8 +127,23 @@ def apply_edit(draft: NoteDraft, markdown: str, *, commissions_known: bool,
     draft.working_title, draft.sections = title, sections
     draft.edited_by = editor
     draft.edited_by_human = draft.edited_by_human or editor == "human"
-    draft.status, draft.approval = "draft", None  # 本文が変われば承認は効かない
+    # 本文が変われば承認は効かない (前の承認は履歴に残す)
+    _archive_approval(draft, "the body was edited", now or datetime.now(UTC))
+    draft.status = "draft"
     recheck(draft, commissions_known=commissions_known, corpus=corpus)
+    return draft
+
+
+def reopen(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
+    """承認を取り消して下書きへ戻す (画像を差し替える等)。前の承認は履歴に残る。"""
+
+    if draft.status not in ("approved", "review_ready"):
+        raise NoteStatusError(f"only an approved or review_ready draft can be reopened "
+                              f"(it is {draft.status})")  # fmt: skip
+    if not reason.strip():
+        raise NoteStatusError("a reason is required")
+    _archive_approval(draft, reason.strip()[:300], now)
+    draft.status = "draft"
     return draft
 
 
@@ -187,12 +204,98 @@ def _links_hash(links: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(links)).encode("utf-8")).hexdigest()
 
 
+# -- サムネイルの画像 -------------------------------------------------------------------------
+#: 中身の先頭のバイトから分かる形式だけを受け付ける (拡張子は信じない)。
+_IMAGE_SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+APPROVAL_SCHEMA = "note-approval/2"
+
+
+def _mime_of(data: bytes) -> str | None:
+    for signature, mime in _IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return mime
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def inspect_image(path: Path | str) -> dict:
+    """承認・公開に使う画像の指紋 (名前・大きさ・sha256・中身から分かる形式)。
+
+    無い・読めない・空・形式が分からない、はすべて拒む (fail closed)。記録するのは
+    ファイルの名前だけで、手元のパスは記録しない。
+    """
+
+    file = Path(path)
+    if not file.is_file():
+        raise NoteStatusError(f"image file is missing: {file.name}")
+    try:
+        data = file.read_bytes()
+    except OSError as exc:
+        raise NoteStatusError(f"image file is unreadable: {file.name} "
+                              f"({type(exc).__name__})") from exc  # fmt: skip
+    if not data:
+        raise NoteStatusError(f"image file is empty: {file.name}")
+    mime = _mime_of(data)
+    if mime is None:
+        raise NoteStatusError(f"unsupported image type: {file.name} (PNG / JPEG / GIF / WebP)")
+    return {"filename": file.name, "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(), "mime_type": mime}  # fmt: skip
+
+
+def image_required(draft: NoteDraft) -> bool:
+    """サムネイルの指示がある下書きは、公開に使う画像そのものを承認に含める。"""
+
+    return bool(draft.thumbnail_brief)
+
+
+def approved_images(draft: NoteDraft) -> list[dict]:
+    """承認に拘束された画像 (古い承認には無い。補わない)。"""
+
+    return list((draft.approval or {}).get("images") or [])
+
+
+def check_image(draft: NoteDraft, path: Path | str) -> dict:
+    """手元の画像が、承認したときの画像と同じか (大きさと sha256)。名前が同じでも中身が
+    変われば同じではない。"""
+
+    approved = approved_images(draft)
+    current = inspect_image(path)
+    if not approved:
+        return {"state": "no_image_bound", "current": current,
+                "note": "the current approval binds no image"}  # fmt: skip
+    same = any(a["sha256"] == current["sha256"] and a["bytes"] == current["bytes"]
+               for a in approved)  # fmt: skip
+    return {"state": "matches_approval" if same else "changed_since_approval",
+            "current": current, "approved": approved,
+            "note": ("this is the approved image" if same else
+                     "the image differs from the approved one: reopen and approve again")}
+
+
+def _archive_approval(draft: NoteDraft, reason: str, now: datetime) -> None:
+    """効かなくなった承認を消さずに残す (過去の承認の意味は書き換えない)。"""
+
+    if draft.approval:
+        draft.approval_history.append({**draft.approval, "superseded_at":
+                                       now.isoformat(timespec="seconds"),
+                                       "superseded_reason": reason})  # fmt: skip
+    draft.approval = None
+
+
 def review_packet(draft: NoteDraft) -> dict:
     links = links_of(draft)
     return {
         "draft_id": draft.id, "status": draft.status, "title": draft.working_title,
         "access_mode": draft.access_mode, "content_hash": draft.content_hash,
-        "links": links, "links_hash": _links_hash(links), "images": [],
+        "links": links, "links_hash": _links_hash(links),
+        "image_required": image_required(draft),
+        "images": [{k: i.get(k) for k in ("filename", "bytes", "sha256", "mime_type")}
+                   for i in approved_images(draft)],
         "errors": list(draft.errors), "warnings": list(draft.warnings),
         "edited_by_human": draft.edited_by_human, "edited_by": draft.edited_by,
         "headings": [s["heading"] for s in draft.sections],
@@ -216,8 +319,17 @@ def render_packet(draft: NoteDraft) -> str:
              "- headings: " + " / ".join(packet["headings"]),
              "- recommended tags: " + (" ".join(f"#{t}" for t in draft.tags) or "none"),
              f"- thumbnail brief: {draft.thumbnail_brief or 'none'}",
-             f"- links ({len(packet['links'])}): " + (", ".join(packet["links"]) or "none"),
-             "- images: none"]  # fmt: skip
+             f"- links ({len(packet['links'])}): " + (", ".join(packet["links"]) or "none")]
+    if packet["images"]:
+        lines += [f"- approved image: {i['filename']} · {i['bytes']} bytes · {i['mime_type']} · "
+                  f"sha256 {i['sha256']}" for i in packet["images"]]  # fmt: skip
+    elif packet["image_required"]:
+        lines.append("- image: **required** (the thumbnail brief is set) — not bound yet; the "
+                     "human approves with the final image file (`approve ... --image <file>`)")
+    else:
+        lines.append("- images: none")
+    lines += ["- the system binds the local image file only; the human checks that the image "
+              "uploaded to note is the same one"] if packet["image_required"] else []  # fmt: skip
     lines += [f"- error: {e}" for e in draft.errors] or ["- errors: none"]
     lines += [f"- warning: {w}" for w in draft.warnings]
     lines += ["", "## 根拠 (事実の文を確かめるため。公開の前に消す)", ""]
@@ -234,7 +346,16 @@ def submit(draft: NoteDraft) -> NoteDraft:
 
 
 def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datetime,
-            links_approved: bool = False, images_approved: bool = False) -> NoteDraft:  # fmt: skip
+            links_approved: bool = False,
+            image: Path | str | None = None) -> NoteDraft:  # fmt: skip
+    """人の承認を記録する (``note-approval/2``)。
+
+    承認に入るもの (それぞれ別に追える): 本文 (``content_hash``。本文と題名だけ、今までと同じ)・
+    外部リンク (一覧と hash。``links_approved`` が要る)・タグ・公開の形・サムネイルの指示・
+    **画像** (``image`` のファイルの名前・大きさ・sha256・形式)。サムネイルの指示がある下書きは、
+    画像のファイルを渡さないと承認できない (真偽値だけの「画像も承認」は作らない)。
+    """
+
     if draft.errors:
         raise NoteStatusError(f"draft has errors: {draft.errors}")
     links = links_of(draft)
@@ -242,13 +363,19 @@ def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datet
         raise NoteStatusError(f"{len(links)} external link(s) need explicit approval")
     if not approved_by.strip():
         raise NoteStatusError("approved_by is required")
+    images = [inspect_image(image)] if image is not None else []
+    if image_required(draft) and not images:
+        raise NoteStatusError("this draft uses a thumbnail: approve it with the final image "
+                              "file (--image <file>)")  # fmt: skip
     return transition(draft, "approved", approval={
+        "approval_schema": APPROVAL_SCHEMA,
         "approved_by": approved_by.strip(), "approved_at": now.isoformat(timespec="seconds"),
         "content_hash": content_hash, "access_mode": draft.access_mode,
-        "links": links, "links_hash": _links_hash(links),
+        "links": links, "links_hash": _links_hash(links), "links_approved": bool(links),
         "tags": list(draft.tags), "thumbnail_brief": draft.thumbnail_brief,
         "edited_by": draft.edited_by,
-        "images_approved": images_approved, "images": []})  # fmt: skip
+        "image_required": image_required(draft),
+        "images_approved": bool(images), "images": images})  # fmt: skip
 
 
 def check_publication_url(url: str, policy: dict) -> str:
@@ -264,9 +391,19 @@ def check_publication_url(url: str, policy: dict) -> str:
     return url.strip()
 
 
+NOTE_IMAGE_MATCH = ("human responsibility: the system binds the approved local image file; "
+                    "it cannot check the image uploaded to note")
+
+
 def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
-                       published_hash: str, now: datetime, policy: dict) -> NoteDraft:  # fmt: skip
-    """人が note で公開した後に、その証拠を記録する。承認した本文と違えば記録しない。"""
+                       published_hash: str, now: datetime, policy: dict,
+                       image: Path | str | None = None) -> NoteDraft:  # fmt: skip
+    """人が note で公開した後に、その証拠を記録する。承認した本文と違えば記録しない。
+
+    承認に画像が拘束されていれば、公開に使った手元の画像 (``image``) が承認の画像と同じで
+    ないと記録しない (名前が同じでも中身が変われば別物)。承認した画像の指紋は公開の記録に
+    引き継ぐ。note に上がった画像との一致は、仕組みでは確かめられないので人の責任。
+    """
 
     if draft.status != "approved" or not draft.approval:
         raise NoteStatusError("only an approved draft can be recorded as published")
@@ -275,12 +412,27 @@ def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
                               "edit, re-submit and re-approve first")  # fmt: skip
     if draft.approval.get("access_mode", "free") != draft.access_mode:
         raise NoteStatusError("the access mode changed after approval")
+    bound = approved_images(draft)
+    if bound:
+        if image is None:
+            raise NoteStatusError("the approval binds an image: pass the image file used for "
+                                  "the publication (--image <file>)")  # fmt: skip
+        state = check_image(draft, image)
+        if state["state"] != "matches_approval":
+            current = state["current"]
+            raise NoteStatusError(f"the image is not the approved one ({current['filename']}, "
+                                  f"sha256 {current['sha256'][:12]}); reopen and approve the "
+                                  "new image first")  # fmt: skip
     return transition(draft, "published", publication={
         "url": check_publication_url(url, policy),
         "observed_at": observed_at.isoformat(timespec="seconds"),
         "recorded_at": now.isoformat(timespec="seconds"),
         "content_hash": published_hash, "access_mode": draft.access_mode,
-        "published_by": "human (note editor)"})  # fmt: skip
+        "published_by": "human (note editor)",
+        "approved_images": [{k: i.get(k) for k in ("filename", "bytes", "sha256", "mime_type")}
+                            for i in bound],
+        "note_image_match": NOTE_IMAGE_MATCH if bound else
+        "no image was bound at approval"})  # fmt: skip
 
 
 def reject(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
@@ -292,7 +444,9 @@ def reject(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
     return draft
 
 
-__all__ = ["add_evidence", "apply_edit", "approve", "check_publication_url", "draft_from_dict",
+__all__ = ["APPROVAL_SCHEMA", "NOTE_IMAGE_MATCH", "add_evidence", "apply_edit", "approve",
+           "approved_images", "check_image", "check_publication_url", "draft_from_dict",
+           "image_required", "inspect_image", "reopen",
            "links_of", "load_policy", "parse_markdown", "plain_text", "record_publication",
            "recheck", "reject", "render_packet", "review_packet", "set_access_mode", "set_meta",
            "submit"]
