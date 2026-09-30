@@ -141,7 +141,7 @@ How to read the graph:
   - real pilot users (G7).
 - N8 is decided by N7's evidence. Nothing in N8 is built before that.
 
-**Gate status (2026-09-30):** M1 done (migration applied); G1 done (note `ai_growth_jp`); G2 done by a pre-system manual bootstrap publication (not N1-approved; see note-channel.md); N1 done (the 2nd piece is the first N1-controlled publication); G3 2 / 3; G4 not met; H4 / H5 / G7 / G8 pending.
+**Gate status (2026-09-30):** M1 done (migration applied); G1 done (note `ai_growth_jp`); G2 done by a pre-system manual bootstrap publication (not N1-approved; see note-channel.md); N1 done (the 2nd piece is the first N1-controlled publication); G3 3 / 3 done (2026-10-01); controlled publications 2 / 3; G4 not met; H4 / H5 / G7 / G8 pending.
 
 | Gate | What is needed | Who |
 |---|---|---|
