@@ -38,6 +38,7 @@
     "conversion_failures": "warning",
     "measurements_due": "info",
     "fact_refresh_needed": "info",
-    "schema_mismatch": "error"
+    "schema_mismatch": "error",
+    "schema_pending_declared": "info"
   }
 }

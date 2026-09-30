@@ -118,7 +118,7 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
                  "threads_automatic_publication", "threads_worker_can_publish",
                  "stock_maintenance_enabled", "approval_relay_deployed"):  # fmt: skip
         assert set(strict.FACT_KEYS) <= set(facts[name]), name
-    assert facts["db_revision"]["value"] == ["4fe83827d695"]
+    assert facts["db_revision"]["value"] == ["c1d0e233e180"]
     assert facts["db_revision"]["authority"] == "live_observed"
     auto = facts["threads_automatic_publication"]
     assert (auto["value"], auto["authority"]) == (True, "runtime_config")

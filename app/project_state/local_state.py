@@ -197,8 +197,8 @@ def describe_url(url: str) -> str:
 #: (人の許可あり。integrity_check ok・foreign_key_check 0・既存の表の行と中身は同じ)。backup は
 #: D:/Backups/affiliate-ai/ の ``affiliate_ai.pre-c9b.20260929T144335Z.db``。
 PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {
-    "c1d0e233e180": "C10-2 nightly analysis runs and content discovery candidates (additive "
-                    "tables; not applied to production yet)",
+    "a4a74a5bcb8b": "N2 / N3 note pieces and manual metric entries (additive tables; "
+                    "rehearsed on a production copy 2026-09-30; production apply = human)",
 }
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 

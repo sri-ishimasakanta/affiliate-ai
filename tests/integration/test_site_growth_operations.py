@@ -346,3 +346,16 @@ def test_pricing_markers_match_whole_ascii_tokens_only() -> None:
     assert role_from_marker("Zapier pricing") == (PRICING, "pricing")
     assert role_from_marker("Make Plans 比較")[0] == PRICING
     assert role_from_marker("planner アプリ")[0] != PRICING  # "plan" は語の一部では当てない
+
+
+def test_a_declared_pending_migration_is_info_not_an_alert(session, tmp_path) -> None:
+    from app.project_state.local_state import PENDING_PRODUCTION_MIGRATIONS
+
+    _healthy_state(session, _NOW)
+    pending = next(iter(PENDING_PRODUCTION_MIGRATIONS))
+    service = _service(session, tmp_path, schema=({"c1d0e233e180"}, {pending}))
+    result = service.evaluate(now=_NOW)
+    checks = {f["check"]: f for f in result["findings"]}
+    assert checks["schema_pending_declared"]["actionable"] is False
+    assert "schema_mismatch" not in checks and result["healthy"]
+    assert result["summary"]["db"]["pending"] == [pending]

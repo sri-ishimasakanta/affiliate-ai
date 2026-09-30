@@ -251,13 +251,42 @@ class SystemHealthService:
         return findings, summary
 
     def _db(self):
+        from app.project_state.local_state import PENDING_PRODUCTION_MIGRATIONS
+
         current, heads = self._schema_heads_fn()
         findings = []
-        if current != heads:
+        pending = self._pending(current, heads) if current != heads else []
+        declared = bool(pending) and all(r in PENDING_PRODUCTION_MIGRATIONS for r in pending)
+        if current != heads and declared:
+            # 人の確認点で待っていると宣言した migration だけが未適用 (開発の通常の状態)。
+            findings.append(sh.finding(self._policy, "schema_pending_declared", "db",
+                                       "Migration waiting for a human production apply",
+                                       f"pending {pending} (declared; database "
+                                       f"{sorted(current)})"))  # fmt: skip
+        elif current != heads:
             findings.append(sh.finding(self._policy, "schema_mismatch", "db",
                                        "Database schema is not at the code head",
                                        f"database {sorted(current)}, code {sorted(heads)}"))
-        return findings, {"current": sorted(current), "heads": sorted(heads)}
+        return findings, {"current": sorted(current), "heads": sorted(heads),
+                          "pending": pending, "pending_declared": declared}  # fmt: skip
+
+    @staticmethod
+    def _pending(current: set, heads: set) -> list[str]:
+        """今から head までの未適用の revision。分からなければ head との差。"""
+
+        try:
+            from alembic.config import Config
+            from alembic.script import ScriptDirectory
+
+            root = Path(__file__).resolve().parents[2]
+            script = ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
+            base = next(iter(current)) if len(current) == 1 else None
+            chain = [r.revision for r in script.iterate_revisions(
+                next(iter(heads)) if len(heads) == 1 else "heads", base)
+                if r.revision not in current]  # fmt: skip
+            return chain
+        except Exception:  # noqa: BLE001 - 分からなければ head との差だけ
+            return sorted(heads - current)
 
     def _schema_heads(self) -> tuple[set, set]:
         from alembic.config import Config

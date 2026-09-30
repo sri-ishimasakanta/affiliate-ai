@@ -731,7 +731,8 @@ def test_project_state_distinguishes_the_pending_production_migration(
                          "74bfaf6c9c9f": "C9 growth action history",
                          "74dbecaa4bb2": "C9 growth action conversions",
                          "4fe83827d695": "C9-B growth handoff requests",
-                         "c1d0e233e180": "C10-2 nightly analysis"})  # fmt: skip
+                         "c1d0e233e180": "C10-2 nightly analysis",
+                         "a4a74a5bcb8b": "N2 / N3 note ledger"})  # fmt: skip
     ctx, _, db_path = _context(tmp_path)
     conn = sqlite3.connect(db_path)
     conn.execute("update alembic_version set version_num = 'afc2f36bb3ca'")
@@ -741,7 +742,8 @@ def test_project_state_distinguishes_the_pending_production_migration(
     db = report["database"]
     assert db["db_at_code_head"] is False
     assert sorted(db["pending_migrations"]) == ["2cfa0ccb2059", "4fe83827d695", "74bfaf6c9c9f",
-                                                "74dbecaa4bb2", "c1d0e233e180", "c4d2e8f1a9b3"]
+                                                "74dbecaa4bb2", "a4a74a5bcb8b", "c1d0e233e180",
+                                                "c4d2e8f1a9b3"]
     assert db["pending_declared_for_production"] is True
     inv = next(i for i in report["invariants"]["results"] if i["id"] == "db-at-code-head")
     assert inv["result"] == "pass" and str(inv["observed"]).startswith("pending production")
