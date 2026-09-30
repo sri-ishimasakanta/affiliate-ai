@@ -161,6 +161,7 @@ from app.models.mobile_approval import (
     MobileApprovalSession,
     mobile_approval_transition_allowed,
 )
+from app.models.n_track import ManualMetricEntry, NotePiece
 from app.models.notification_delivery import (
     CHANNEL_EMAIL,
     CHANNELS,
@@ -537,6 +538,8 @@ __all__ = [
     "GrowthActionReview",
     "GrowthHandoffRequest",
     "ContentDiscoveryCandidate",
+    "ManualMetricEntry",
+    "NotePiece",
     "NightlyAnalysisRun",
     "WordPressContentUpdateReconciliation",
     "WordPressContentUpdateRun",

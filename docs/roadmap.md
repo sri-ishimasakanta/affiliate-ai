@@ -354,8 +354,8 @@ evidence (build-complete ≠ Done).
 |---|---|---|---|
 | N0 note channel foundation | **COMPLETED** | — | — |
 | **N1** note pilot: first human-reviewed piece | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: C10 topics, review packet, access mode, approval + publication CLIs (`manage_note_piece.py`) | **PENDING** G1 note account, G2 first human publication |
-| N2 repeatable production and review workflow | PLANNED | note ledger + migration (rehearsed), sync / loop CLI, dedupe, cadence plan, link planner | M1 migration apply, G3 ≥3 publications |
-| N3 operationalization and measurement | PLANNED | manual metrics / revenue ledger, metric catalog, small-sample summaries | M1, G4 real reader numbers |
+| N2 repeatable production and review workflow | PLANNED — build **COMPLETE** (2026-09-30) | done: `note_pieces` + migration `a4a74a5bcb8b` (rehearsed on a production copy), sync / status / cadence / links (`manage_note_ledger.py`), published bodies for dedupe | **PENDING** M1 migration apply (human), G3 ≥3 publications |
+| N3 operationalization and measurement | PLANNED — build **COMPLETE** (2026-09-30) | done: `manual_metric_entries` (same migration), metric catalog, record / list / summary (`record_manual_metric.py`) | **PENDING** M1, G4 real reader numbers; GA4 source dimension = human decision |
 | N4 Productized Knowledge | PLANNED | knowledge candidates, product specs, evidence traceability, redaction, quality checks | H4 human release approval |
 | N5 Digital Product Automation | PLANNED | dependency tracking, stale detection, reproducible build, manifest, validation, release candidate, release gate | H5 human release gate on a real product |
 | N6 System Productization | PLANNED | coupling inventory, site profile, second local profile bootstrap + dry-run | — (Done is local) |

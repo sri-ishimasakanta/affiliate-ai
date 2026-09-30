@@ -70,6 +70,22 @@ uv run python scripts/manage_note_piece.py record-publication <draft_id> --url h
 - C10 の出来事 (Growth の承認は書き込みではない・発見した語は Keyword ではない・通知は行動が
   要るときだけ) も候補の話題になった。
 
+## N2 / N3: 記録と手で写す数 (migration `a4a74a5bcb8b`。本番への適用は人)
+
+- `note_pieces` (N2): 下書きのファイルから同期する 1 本ずつの記録
+  (`scripts/manage_note_ledger.py sync [--execute]`)。公開済みの記録は戻さない・URL が
+  食い違えば同期しない。`status` は流れと人の次の一手、`cadence` は週ごとの公開と目安
+  (週 2 本程度。**目安であって決まりではない**)、`links <draft_id>` は関係する公開済みの記事
+  (示すだけ。`/go/` などの転送は扱わない。`link_convention` は既定 `none`、`utm` を公開の
+  リンクに使うかは人が決める)。
+- `manual_metric_entries` (N3): チャネルに依らない、手で写した数 (`scripts/record_manual_metric.py`)。
+  出どころは `manual_entry` だけ・0 以上・目録 (`app/n_track/metrics.py`) の指標だけ・推定
+  (観測の後に終わる期間) は拒む・同じ観測は 1 行・直すときは新しい行が古い行を指す。
+  試行 (N7) の参照は仮名 (`pilot-xx`) だけ。要約は標本の大きさを出し、少なければ比べない。
+- migration の前は、どちらの CLI も「表が無い」と言って止まる (本番はこの状態)。
+  本番の写しでのリハーサル (upgrade / integrity / check / downgrade / 行があるときの downgrade の
+  拒否 / CHECK) は 2026-09-30 に通った。
+
 ## 下書きの形 (`app/social/note/models.py`)
 
 - `NoteCandidate`: id・型・仮の題名・前提・出来事の ID (source event)・フェーズ・根拠
