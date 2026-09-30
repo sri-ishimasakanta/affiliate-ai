@@ -1,0 +1,25 @@
+{
+  "policy_version": "pilot-policy-1",
+  "note": "N7 SaaS validation. These go/no-go thresholds are a PROPOSAL written before any pilot exists; the human sets or changes them before the first pilot. The evaluation only summarizes recorded evidence (manual_metric_entries, subject_kind pilot, pseudonymous pilot-xx references) for the human decision; it never decides go / no-go and never invents usage.",
+  "status": "proposed",
+  "min_pilots": 3,
+  "criteria": {
+    "activation_rate_min": 0.67,
+    "time_to_first_value_hours_median_max": 72,
+    "workflow_completion_rate_min": 0.67,
+    "repeat_usage_active_days_min": 8,
+    "repeat_usage_rate_min": 0.5,
+    "onboarding_difficulty_median_max": 3,
+    "support_minutes_median_max": 120,
+    "value_rating_median_min": 4,
+    "would_continue_rate_min": 0.5,
+    "cost_within_willingness_to_pay": true
+  },
+  "model_signals": {
+    "self_service_onboarding_difficulty_max": 2,
+    "self_service_support_minutes_max": 60,
+    "managed_value_rating_min": 4,
+    "managed_onboarding_difficulty_min": 4,
+    "managed_support_minutes_min": 180
+  }
+}

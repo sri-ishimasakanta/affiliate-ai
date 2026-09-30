@@ -33,7 +33,11 @@ CATALOG: dict[str, dict[str, str]] = {
               "workflows_completed": "count", "active_days": "count",
               "onboarding_difficulty": "scale_1_5", "support_minutes": "minutes",
               "operating_cost_jpy": "jpy", "api_cost_jpy": "jpy",
-              "willingness_to_pay_jpy": "jpy"},
+              "willingness_to_pay_jpy": "jpy", "support_contacts": "count",
+              # 構造化した声 (N7): 評価と、つまずいた所の印
+              "value_rating": "scale_1_5", "would_continue": "flag",
+              "friction_setup": "flag", "friction_approvals": "flag",
+              "friction_cost": "flag", "friction_trust": "flag"},
 }  # fmt: skip
 _REF = {
     "note_piece": re.compile(r"^draft-[0-9a-f]{6,32}$"),
@@ -41,6 +45,8 @@ _REF = {
     "product": re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$"),
     "pilot": re.compile(r"^pilot-[a-z0-9-]{1,32}$"),
 }
+_PERSONAL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|(?<!\d)0\d{1,4}-\d{1,4}-\d{3,4}(?!\d)"
+                       r"|\+\d{8,15}(?!\d)|https?://")
 MIN_SUBJECTS = 3
 MIN_SPAN_DAYS = 28
 
@@ -101,6 +107,8 @@ def validate(entry: MetricInput) -> str:
         raise MetricError("say where the number was copied from (source_description)")
     if not entry.entered_by.strip() or "@" in entry.entered_by:
         raise MetricError("entered_by is a short name (no email)")
+    if entry.note and _PERSONAL.search(entry.note):
+        raise MetricError("the note looks like it contains personal data (email / phone / URL)")
     return unit
 
 
