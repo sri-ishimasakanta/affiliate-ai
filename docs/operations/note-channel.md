@@ -44,6 +44,24 @@ N1・N2・N3 は宣言だけで、まだリポジトリに作業は無い。N0 �
 
 2026-09-30 に N 系の順番を C10 → N1 → … → N8 → C11 とし、N4〜N8 (知識の商品化・デジタル商品の自動化・システムの製品化・SaaS の検証・SaaS / サービス。人が 2026-09-30 に正式に定義) を加えた。note と WordPress・Threads のつなぎと有料 note の記録は N1〜N4 に置いた。各段階の定義 (目的・入る条件・範囲・今作れるもの・本物のサービスやデータが要るもの・人の確認点・完了の定義) と依存の図は [n-track-plan.md](n-track-plan.md)。
 
+## 外部の準備と、仕組みの外で公開した 1 本目 (bootstrap)
+
+- note のアカウント (G1): `ai_growth_jp`、クリエイター名「AI Growth Lab｜AI自動化とWeb収益化」。
+  人が作り、人がログインする。このリポジトリに資格情報は無い。
+- **1 本目 (G2) は仕組みの外で人が公開した記事 (pre-system / manual / bootstrap publication)**:
+  - 題名: 「AIでWeb運用と収益化を自動化する仕組みを、本気で作っています」
+  - URL: https://note.com/ai_growth_jp/n/nd9c4fb635aad (人から受け取った正式な URL)
+  - 公開: 2026-09-30 11:49 JST (note の表示)。プロフィール記事として、クリエイターページに固定。
+  - **N1 の承認・hash の流れができる前に公開した。N1 で事前に承認された記事としては扱わない。**
+    承認の記録・公開の hash の順番は作らない (偽らない)。`note_pieces` は承認の hash の無い
+    公開済みの行を持てない (CHECK) ので、この 1 本は台帳に入れず、ここ (と roadmap) にだけ記録する。
+  - 重複の検査のため、本文の手元の写しを `reports/note/external/nd9c4fb635aad.txt` (git 管理外)
+    に置いた。`propose_note_content.py` と `manage_note_piece.py edit` の重複の検査の相手になる。
+- **2 本目が、最初の N1 の流れで公開する記事 (N1-controlled publication)**: `draft-c9d0eae558`
+  「AIが作ったThreads投稿を「人が承認」してから「自動で公開」する仕組み」。2026-09-30 に
+  review_ready (人の承認待ち)。公開の準備ができた扱いになるのは人が承認した後だけ。
+- G3 (3 本): 1 / 3 (1 本目のみ)。G4 (約 4 週間の実測): まだ。
+
 ## N1: 1 本を人と仕上げて記録する (`scripts/manage_note_piece.py`)
 
 公開は人が note の編集画面で行う。この CLI は `reports/note/drafts/` に記録するだけで、note・
@@ -59,6 +77,10 @@ uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sh
 uv run python scripts/manage_note_piece.py record-publication <draft_id> --url https://note.com/...     --observed-at 2026-10-01T19:00:00+09:00 --content-hash <sha>
 ```
 
+- `edit --editor human|claude`: 誰が直したかを偽らずに記録する (Claude の手直しは `claude`。
+  `edited_by_human` は人が直したときだけ true)。`meta --tags ... --thumbnail-brief ...` で推奨の
+  タグとサムネイルの指示 (承認に入る。承認の後は変えられない)。確認用のまとめには見出しの構成・
+  タグ・サムネイルの指示・根拠の一覧も出る。
 - 人が直した Markdown (`# 題名` と `## 見出し`) を取り込むと、承認は消え、検査をやり直す
   (秘密・内部の値は誤り、内部の言葉は警告)。証拠の一覧は生成した版のままなので、事実の文は
   人が確かめ直す。

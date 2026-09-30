@@ -97,9 +97,9 @@ def recheck(draft: NoteDraft, *, commissions_known: bool, corpus: dict | None = 
     _text, internal = safety.reader_facing(draft.body)
     if internal:
         warnings.append(f"internal wording in the body: {internal}")
-    if draft.edited_by_human:
-        warnings.append("the body was edited by a human; the evidence list reflects the "
-                        "generated version (re-check every factual sentence)")  # fmt: skip
+    if draft.edited_by:
+        warnings.append(f"the body was edited by {draft.edited_by}; the evidence list reflects "
+                        "the generated version (re-check every factual sentence)")  # fmt: skip
     if corpus:
         dup = safety.duplication(draft.body, corpus)
         warnings.append(f"duplication {dup['verdict']} (max containment "
@@ -110,15 +110,42 @@ def recheck(draft: NoteDraft, *, commissions_known: bool, corpus: dict | None = 
     draft.warnings = sorted(set(warnings))
 
 
+EDITORS = ("human", "claude")
+
+
 def apply_edit(draft: NoteDraft, markdown: str, *, commissions_known: bool,
-               corpus: dict | None = None) -> NoteDraft:  # fmt: skip
+               corpus: dict | None = None, editor: str = "human") -> NoteDraft:  # fmt: skip
+    """直した本文を取り込む。``editor`` は誰が直したか (偽らない。Claude の手直しは claude)。"""
+
+    if editor not in EDITORS:
+        raise ValueError(f"editor must be one of {EDITORS}")
     if draft.status in ("published", "rejected"):
         raise NoteStatusError(f"a {draft.status} draft cannot be edited")
     title, sections = parse_markdown(markdown)
     draft.working_title, draft.sections = title, sections
-    draft.edited_by_human = True
+    draft.edited_by = editor
+    draft.edited_by_human = draft.edited_by_human or editor == "human"
     draft.status, draft.approval = "draft", None  # 本文が変われば承認は効かない
     recheck(draft, commissions_known=commissions_known, corpus=corpus)
+    return draft
+
+
+def set_meta(draft: NoteDraft, *, tags: list[str] | None = None,
+             thumbnail_brief: str | None = None) -> NoteDraft:  # fmt: skip
+    """推奨のタグとサムネイルの指示。承認の前だけ変えられる (承認に入る)。"""
+
+    if draft.status in ("approved", "published", "rejected"):
+        raise NoteStatusError(f"the meta of a {draft.status} draft cannot change")
+    if tags is not None:
+        clean = [t.strip().lstrip("#") for t in tags if t.strip().lstrip("#")]
+        if len(clean) > 10 or any(len(t) > 30 or " " in t for t in clean):
+            raise ValueError("up to 10 tags, each without spaces and at most 30 characters")
+        draft.tags = clean
+    if thumbnail_brief is not None:
+        _cleaned, found = safety.sanitize(thumbnail_brief)
+        if found:
+            raise ValueError(f"the thumbnail brief contains internal values {found}")
+        draft.thumbnail_brief = thumbnail_brief.strip()[:600] or None
     return draft
 
 
@@ -152,9 +179,12 @@ def review_packet(draft: NoteDraft) -> dict:
         "access_mode": draft.access_mode, "content_hash": draft.content_hash,
         "links": links, "links_hash": _links_hash(links), "images": [],
         "errors": list(draft.errors), "warnings": list(draft.warnings),
-        "edited_by_human": draft.edited_by_human,
+        "edited_by_human": draft.edited_by_human, "edited_by": draft.edited_by,
+        "headings": [s["heading"] for s in draft.sections],
+        "tags": list(draft.tags), "thumbnail_brief": draft.thumbnail_brief,
         "human_approves": ["final title", "final body (content_hash)", "external links",
-                           "images", "access mode", "the act of publishing (in note)"],
+                           "images / thumbnail", "tags", "access mode",
+                           "the act of publishing (in note)"],
         "can_submit": draft.status == "draft" and not draft.errors,
         "can_approve": draft.status == "review_ready" and not draft.errors,
     }  # fmt: skip
@@ -167,10 +197,18 @@ def render_packet(draft: NoteDraft) -> str:
              "## 確認すること (公開の前に消す)", "",
              f"- status: {draft.status} · access mode: {draft.access_mode}",
              f"- content_hash: {draft.content_hash}",
+             f"- edited by: {draft.edited_by or 'generated (not edited)'}",
+             "- headings: " + " / ".join(packet["headings"]),
+             "- recommended tags: " + (" ".join(f"#{t}" for t in draft.tags) or "none"),
+             f"- thumbnail brief: {draft.thumbnail_brief or 'none'}",
              f"- links ({len(packet['links'])}): " + (", ".join(packet["links"]) or "none"),
              "- images: none"]  # fmt: skip
     lines += [f"- error: {e}" for e in draft.errors] or ["- errors: none"]
     lines += [f"- warning: {w}" for w in draft.warnings]
+    lines += ["", "## 根拠 (事実の文を確かめるため。公開の前に消す)", ""]
+    for claim in draft.claims:
+        refs = ", ".join(f"{e.source} ({e.locator})" for e in claim.evidence) or "—"
+        lines.append(f"- [{claim.kind}] {claim.text} — {refs}")
     lines += ["", "人が承認するもの: " + "・".join(packet["human_approves"])]
     return "\n".join(lines) + "\n"
 
@@ -193,6 +231,8 @@ def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datet
         "approved_by": approved_by.strip(), "approved_at": now.isoformat(timespec="seconds"),
         "content_hash": content_hash, "access_mode": draft.access_mode,
         "links": links, "links_hash": _links_hash(links),
+        "tags": list(draft.tags), "thumbnail_brief": draft.thumbnail_brief,
+        "edited_by": draft.edited_by,
         "images_approved": images_approved, "images": []})  # fmt: skip
 
 
@@ -239,4 +279,4 @@ def reject(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
 
 __all__ = ["apply_edit", "approve", "check_publication_url", "draft_from_dict", "links_of",
            "load_policy", "parse_markdown", "plain_text", "record_publication", "recheck",
-           "reject", "render_packet", "review_packet", "set_access_mode", "submit"]
+           "reject", "render_packet", "review_packet", "set_access_mode", "set_meta", "submit"]

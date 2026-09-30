@@ -93,7 +93,9 @@ TOPICS = (
             "threads-human-approval-required",
             "threads-no-fixed-times",
             "threads-no-catch-up-burst",
-            "threads-stock-maintenance-off",
+            # 2026-09-26 に在庫の保守を有効にし、生成を AI に任せた (古い「無効のまま」は使わない)
+            "threads-stock-maintenance-enabled",
+            "threads-auto-generation-luna",
         ),
         "facts": ("threads_automatic_publication", "stock_maintenance_enabled"),
         "docs": (),

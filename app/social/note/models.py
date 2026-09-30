@@ -110,6 +110,11 @@ class NoteDraft:
     generator_version: str = GENERATOR_VERSION
     access_mode: str = "free"
     edited_by_human: bool = False
+    #: 最後に本文を直したのは誰か (``human`` / ``claude``。生成のままなら None)。
+    edited_by: str | None = None
+    #: 公開の画面で付ける推奨のタグと、サムネイルの指示 (承認の対象。本文の hash には入らない)。
+    tags: list[str] = field(default_factory=list)
+    thumbnail_brief: str | None = None
 
     @property
     def body(self) -> str:

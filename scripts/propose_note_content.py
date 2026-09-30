@@ -47,6 +47,9 @@ def internal_corpus(root: Path) -> dict[str, str]:
             corpus[f"internal:{path.relative_to(root).as_posix()}"] = path.read_text(
                 encoding="utf-8"
             )
+    # 人がすでに note で公開した本文 (仕組みの外で公開したものを含む。手元の写しだけ)
+    for path in sorted((root / "reports/note/external").glob("*.txt")):
+        corpus[f"note-external:{path.stem}"] = path.read_text(encoding="utf-8")
     return corpus
 
 

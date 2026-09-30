@@ -2,7 +2,9 @@
 
     uv run python scripts/manage_note_piece.py list
     uv run python scripts/manage_note_piece.py packet <draft_id>   # 確認用 (.packet.md / .txt)
-    uv run python scripts/manage_note_piece.py edit <draft_id> --from edited.md
+    uv run python scripts/manage_note_piece.py edit <draft_id> --from edited.md [--editor claude]
+    uv run python scripts/manage_note_piece.py meta <draft_id> --tags AI,自動化
+        --thumbnail-brief "..."
     uv run python scripts/manage_note_piece.py access-mode <draft_id> free|paid
     uv run python scripts/manage_note_piece.py submit <draft_id>
     uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha> --by <name>
@@ -57,6 +59,19 @@ def _commissions_known(root: Path) -> bool:
     return bool(((state.get("monetization") or {}).get("commission_facts") or {}).get("count"))
 
 
+def _corpus(root: Path, *, use_db: bool) -> dict[str, str]:
+    """重複の検査の相手: 内部のドキュメント・note で公開済みの本文・(任意) 記事と Threads。"""
+
+    from scripts.propose_note_content import db_corpus, internal_corpus
+
+    corpus = internal_corpus(root)
+    if use_db:
+        from app.config.settings import get_settings
+
+        corpus |= db_corpus(get_settings().database_url)
+    return corpus
+
+
 def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -67,6 +82,13 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     edit = sub.add_parser("edit")
     edit.add_argument("draft_id")
     edit.add_argument("--from", dest="source", required=True)
+    edit.add_argument("--editor", choices=("human", "claude"), default="human",
+                      help="who wrote this version (recorded as is)")
+    edit.add_argument("--no-db", action="store_true", help="skip the WordPress / Threads check")
+    meta = sub.add_parser("meta")
+    meta.add_argument("draft_id")
+    meta.add_argument("--tags")
+    meta.add_argument("--thumbnail-brief")
     mode = sub.add_parser("access-mode")
     mode.add_argument("draft_id")
     mode.add_argument("mode", choices=("free", "paid"))
@@ -113,7 +135,12 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             return 0
         if args.command == "edit":
             text = Path(args.source).read_text(encoding="utf-8")
-            review.apply_edit(draft, text, commissions_known=_commissions_known(root))
+            review.apply_edit(draft, text, commissions_known=_commissions_known(root),
+                              corpus=_corpus(root, use_db=not args.no_db),
+                              editor=args.editor)  # fmt: skip
+        elif args.command == "meta":
+            review.set_meta(draft, tags=args.tags.split(",") if args.tags else None,
+                            thumbnail_brief=args.thumbnail_brief)  # fmt: skip
         elif args.command == "access-mode":
             review.set_access_mode(draft, args.mode)
         elif args.command == "submit":

@@ -64,7 +64,8 @@ def test_a_human_edit_resets_approval_and_rechecks(tmp_path) -> None:
     review.apply_edit(draft, EDITED, commissions_known=False)
     assert draft.working_title == "人が直した題名" and len(draft.sections) == 2
     assert draft.content_hash != before and draft.status == "draft" and draft.approval is None
-    assert any("edited by a human" in w for w in draft.warnings)
+    assert any("edited by human" in w for w in draft.warnings)
+    assert draft.edited_by == "human" and draft.edited_by_human
     leaky = EDITED.replace("小さく始めて", r"C:\Users\me\secret.txt を見て")
     review.apply_edit(draft, leaky, commissions_known=False)
     assert draft.errors  # ローカルのパスは誤り
@@ -129,7 +130,7 @@ def test_the_cli_runs_the_whole_local_flow(tmp_path, capsys) -> None:
     edited.write_text(EDITED, encoding="utf-8")
     assert main(["packet", did], root=root, now=NOW) == 0
     assert path.with_suffix(".packet.md").exists() and path.with_suffix(".txt").exists()
-    assert main(["edit", did, "--from", str(edited)], root=root, now=NOW) == 0
+    assert main(["edit", did, "--from", str(edited), "--no-db"], root=root, now=NOW) == 0
     assert main(["approve", did, "--content-hash", "x", "--by", "h"], root=root, now=NOW) == 2
     assert main(["submit", did], root=root, now=NOW) == 0
     current = json.loads(path.read_text("utf-8"))["content_hash"]
