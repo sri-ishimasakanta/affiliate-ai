@@ -196,10 +196,8 @@ def describe_url(url: str) -> str:
 #: 記録: ``4fe83827d695`` (C9-B の引き渡しの依頼の表) は 2026-09-29 23:44 JST に本番へ適用した
 #: (人の許可あり。integrity_check ok・foreign_key_check 0・既存の表の行と中身は同じ)。backup は
 #: D:/Backups/affiliate-ai/ の ``affiliate_ai.pre-c9b.20260929T144335Z.db``。
-PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {
-    "a4a74a5bcb8b": "N2 / N3 note pieces and manual metric entries (additive tables; "
-                    "rehearsed on a production copy 2026-09-30; production apply = human)",
-}
+#: 本番の確認点で待っている migration (無ければ空)。a4a74a5bcb8b は 2026-09-30 に本番へ適用済み。
+PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {}
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 
 
