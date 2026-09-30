@@ -683,7 +683,13 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
             )
         )
     later = [pid for pid in project.get("upcoming_phases") or [] if pid not in (next_phase, "C10")]
-    chain = _prerequisite_chain(next_phase, later, phases)
+    # 次に始めるフェーズが無い (進行中のフェーズが外の準備を待っている) ときは、予定の
+    # フェーズの前提になっている、最後の進行中のフェーズから並べる。
+    start = next_phase or next(
+        (pid for pid in reversed(project.get("active_phases") or [])
+         if any(pid in ((phases.get(q) or {}).get("prerequisites") or ()) for q in later)),
+        None)  # fmt: skip
+    chain = _prerequisite_chain(start, later, phases)
     unordered = [pid for pid in later if pid not in chain]
     if later:
         text = []
@@ -696,7 +702,7 @@ def build_next_actions(state: Mapping, warnings: list[dict]) -> list[dict]:
                 "later-roadmap-phases",
                 "P3",
                 "roadmap",
-                f"later ({'; '.join(text)}; after {next_phase or 'the next phase'})",
+                f"later ({'; '.join(text)}; after {start or 'the next phase'})",
                 why="roadmap",
                 prerequisites=["start-next-phase"] if next_phase else [],
             )

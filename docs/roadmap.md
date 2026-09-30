@@ -13,7 +13,7 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-30 (N track planning; development order C10 → N1…N8 → C11).
+Last updated: 2026-09-30 (N1–N7 buildable-now work; N6 closed).
 
 ---
 
@@ -34,8 +34,9 @@ Last updated: 2026-09-30 (N track planning; development order C10 → N1…N8 �
 | C10-E Site Growth Orchestrator | **COMPLETED** | action matrix DEPLOYED; body `text_edit` apply **PENDING HUMAN** (first production apply); meta description write **PENDING HUMAN** (first production write); affiliate placement **DEFERRED → C11** |
 | C10-F Operations | **COMPLETED** | DEPLOYED; Growth digest first email **PENDING HUMAN**; mobile Growth review **DEFERRED** (relay deploy = human) |
 | **C10 Growth platform** | **COMPLETED** (CLOSED) | human-gated items kept under *C10 activation pending* and *C10 recurring human operations* |
-| **N1** note pilot (first human-reviewed piece) | **NEXT** | build: local only; Done needs a human note account + the first human publication |
-| N2–N8 (note workflow → measurement → Productized Knowledge → Digital Product Automation → System Productization → SaaS Validation → SaaS / Service) | PLANNED | see *N — Additional revenue track* and [n-track-plan.md](operations/n-track-plan.md) |
+| N1–N5, N7 (note pilot → note workflow → measurement → Productized Knowledge → Digital Product Automation; SaaS Validation) | **ACTIVE** — build **COMPLETE** (2026-09-30) | Done waits for external gates: note account + publications, migration `a4a74a5bcb8b` apply, human product approvals, real pilot users (see *N — Additional revenue track*) |
+| **N6** System Productization | **COMPLETED** (DoD met 2026-09-30) | second local site profile dry-runs without code changes; production untouched |
+| N8 SaaS / Service | PLANNED | waits for the N7 decision; nothing buildable |
 | C11 Affiliate Revenue Attribution | PLANNED (after N8) | — |
 
 **Development order (human decision, 2026-09-30):** C10 (CLOSED) → N1 → N2 → N3 → N4 → N5 →
@@ -354,12 +355,12 @@ evidence (build-complete ≠ Done).
 |---|---|---|---|
 | N0 note channel foundation | **COMPLETED** | — | — |
 | **N1** note pilot: first human-reviewed piece | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: C10 topics, review packet, access mode, approval + publication CLIs (`manage_note_piece.py`) | **PENDING** G1 note account, G2 first human publication |
-| N2 repeatable production and review workflow | PLANNED — build **COMPLETE** (2026-09-30) | done: `note_pieces` + migration `a4a74a5bcb8b` (rehearsed on a production copy), sync / status / cadence / links (`manage_note_ledger.py`), published bodies for dedupe | **PENDING** M1 migration apply (human), G3 ≥3 publications |
-| N3 operationalization and measurement | PLANNED — build **COMPLETE** (2026-09-30) | done: `manual_metric_entries` (same migration), metric catalog, record / list / summary (`record_manual_metric.py`) | **PENDING** M1, G4 real reader numbers; GA4 source dimension = human decision |
-| N4 Productized Knowledge | PLANNED — build **COMPLETE** (2026-09-30) | done: knowledge candidates, product spec + traceability + redaction + quality checks, human records; first product `approval-gated-automation-kit` 0.1.0 checks clean ([products.md](operations/products.md)) | **PENDING** H4 human quality review + content approval |
-| N5 Digital Product Automation | PLANNED — build **COMPLETE** (2026-09-30) | done: source hashes, stale plan, reproducible zip + manifest, validation, release candidate (built, `verify` reproducible), release gate | **PENDING** H5 human release gate; distribution = separate human workstream |
-| N6 System Productization | PLANNED — **DoD met for the read-only core** (2026-09-30) | done: coupling inventory, site profile (secret / data boundaries, fail-closed capabilities), bootstrap + network-guarded dry-run; `sites/example-local` passes 9/9 steps ([system-productization.md](operations/system-productization.md)) | per-profile content policy (clusters / portfolio / seeds) done; remaining (not blocking): affiliate / keyword / Threads policy files per profile, injected sessions for 4 write services, log-path defaults |
-| N7 SaaS Validation | PLANNED — build **COMPLETE** (planning / measurement only, 2026-09-30) | done: pilot plan, pilot + feedback metrics in the N3 ledger (pseudonymous, personal data refused), proposed go / no-go criteria, evidence summary (`pilot_evidence.py`), decision template ([saas-validation.md](operations/saas-validation.md)) | **PENDING** G7 real pilot users; the criteria values are a proposal for the human |
+| N2 repeatable production and review workflow | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: `note_pieces` + migration `a4a74a5bcb8b` (rehearsed on a production copy), sync / status / cadence / links (`manage_note_ledger.py`), published bodies for dedupe | **PENDING** M1 migration apply (human), G3 ≥3 publications |
+| N3 operationalization and measurement | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: `manual_metric_entries` (same migration), metric catalog, record / list / summary (`record_manual_metric.py`) | **PENDING** M1, G4 real reader numbers; GA4 source dimension = human decision |
+| N4 Productized Knowledge | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: knowledge candidates, product spec + traceability + redaction + quality checks, human records; first product `approval-gated-automation-kit` 0.1.0 checks clean ([products.md](operations/products.md)) | **PENDING** H4 human quality review + content approval |
+| N5 Digital Product Automation | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: source hashes, stale plan, reproducible zip + manifest, validation, release candidate (built, `verify` reproducible), release gate | **PENDING** H5 human release gate; distribution = separate human workstream |
+| N6 System Productization | **COMPLETED** — DoD met (2026-09-30) | done: coupling inventory, site profile (secret / data boundaries, fail-closed capabilities), bootstrap + network-guarded dry-run; `sites/example-local` passes 9/9 steps ([system-productization.md](operations/system-productization.md)) | per-profile content policy (clusters / portfolio / seeds) done; remaining (not blocking): affiliate / keyword / Threads policy files per profile, injected sessions for 4 write services, log-path defaults |
+| N7 SaaS Validation | **ACTIVE** — build **COMPLETE** (planning / measurement only, 2026-09-30) | done: pilot plan, pilot + feedback metrics in the N3 ledger (pseudonymous, personal data refused), proposed go / no-go criteria, evidence summary (`pilot_evidence.py`), decision template ([saas-validation.md](operations/saas-validation.md)) | **PENDING** G7 real pilot users; the criteria values are a proposal for the human |
 | N8 SaaS / Service | PLANNED | nothing (model not chosen) | the N7 decision, G8 |
 
 N4–N8 are the human's formal definitions (2026-09-30), replacing the provisional ones; the useful

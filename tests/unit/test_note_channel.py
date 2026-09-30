@@ -310,7 +310,7 @@ def test_project_state_reports_the_note_channel(tmp_path) -> None:
     phases = json.loads((root / "docs/project-roadmap.json").read_text("utf-8"))["phases"]
     empty = collect_note_channel(root, phases)
     assert (empty["candidates"], empty["drafts"], empty["published_with_evidence"]) == (0, {}, 0)
-    assert empty["phases"]["N0"] == "complete" and empty["phases"]["N1"] == "planned"
+    assert empty["phases"]["N0"] == "complete" and empty["phases"]["N1"] == "active"
     from scripts.propose_note_content import main
 
     main(["--draft", "top", "--no-db"], root=root, now=NOW)
@@ -334,5 +334,5 @@ def test_the_generator_includes_the_note_channel_without_warnings(tmp_path) -> N
     assert note["phases"]["N0"] == "complete" and note["published_with_evidence"] == 0
     assert not any("note" in w["id"] for w in report["warnings"])
     assert "note channel (local)" in render_markdown(report)
-    assert report["project"]["next_phase"] == "N1"
+    assert report["project"]["next_phase"] is None
     assert set(note["phases"]) == {f"N{i}" for i in range(9)}  # N0〜N8

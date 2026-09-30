@@ -148,7 +148,8 @@ def test_the_t7_completion_criteria_hold(tmp_path) -> None:
     assert isinstance(live["drift"], list) and live["drift"]  # 検出が動いている
     # roadmap は機械で読める (根拠のファイルは本物のリポジトリで確かめる。fixture は一部だけ)
     real = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    assert real["problems"] == [] and real["next_phase"] == "N1"  # C10 → N1…N8 → C11
+    # N1〜N5・N7 は外の準備待ちで進行中、N6 は完了。次に始められるフェーズは無い (N8 は N7 の後)
+    assert real["problems"] == [] and real["next_phase"] is None
     assert not [f for f in live["drift"] if f["blocking"] or f["classification"] == "unresolved"]
     order = [findings.action_sort_key(a) for a in live["next_actions"]]
     assert order == sorted(order)
@@ -160,7 +161,7 @@ def test_the_t7_completion_criteria_hold(tmp_path) -> None:
     assert offline["mode"] == "offline" and strict.validate(offline) == []
     assert hashlib.sha256(db_path.read_bytes()).hexdigest() == before
     assert "T7" in live["project"]["completed_phases"]
-    assert live["project"]["next_phase"] == "N1"
+    assert live["project"]["next_phase"] is None
 
 
 def _refuse():
@@ -208,14 +209,15 @@ def test_operational_warnings_do_not_block_and_actions_follow_the_order(tmp_path
     assert strict.failures(report) == []
     order = _action_ids(report)
     expected = ["check-daily-run", "set-up-missing-affiliate-programs",
-                "start-next-phase", "later-roadmap-phases"]  # fmt: skip
+                "later-roadmap-phases"]  # fmt: skip
     assert "observe-mobile-approval-render" not in order  # 2026-09-26 に確認済み
     assert [a for a in order if a in expected] == expected
     assert "t7-validate-project-state" not in order
-    nxt = next(a for a in report["next_actions"] if a["id"] == "start-next-phase")
-    assert nxt["prerequisites"] == [] and "start N1" in nxt["action"]
+    assert "start-next-phase" not in order  # 次に始められるフェーズは無い
+    later = next(a for a in report["next_actions"] if a["id"] == "later-roadmap-phases")
+    assert "in order: N8 → T6.5-review → C11" in later["action"]
+    assert "after N7" in later["action"] and "T6.5C" in later["action"]
     assert "c10-after-maturity" not in order  # C10 は完了
-    assert "not started" in nxt["action"]
 
 
 def test_a_due_diagnostic_sits_after_tracking_and_before_n0(tmp_path) -> None:
@@ -228,7 +230,7 @@ def test_a_due_diagnostic_sits_after_tracking_and_before_n0(tmp_path) -> None:
     assert (
         order.index("set-up-missing-affiliate-programs")
         < order.index("rerun-threads-performance-diagnostic")
-        < order.index("start-next-phase")
+        < order.index("later-roadmap-phases")
     )
 
 
@@ -254,8 +256,8 @@ def test_compare_sees_the_t7_transition_and_the_resolved_note(tmp_path) -> None:
     new = build_report(ctx)
     diff = compare.compare(old, new)
     assert diff["facts"]["current_phase"] == {"old": "T7B", "new": "T6.3.3c"}
-    assert diff["facts"]["next_phase"] == {"old": None, "new": "N1"}
-    assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "C10"}
+    assert "next_phase" not in diff["facts"]  # どちらも無し
+    assert diff["facts"]["last_completed_phase"] == {"old": None, "new": "N6"}
     assert "config-note-threads-autopublish" in diff["drift"]["removed"]
     assert "t7-validate-project-state" in diff["next_actions"]["removed"]
     assert not any("generated_at" in p or "heartbeat" in p for p in diff["other_changes"])
