@@ -707,6 +707,25 @@ DECISIONS = (
         "resulting_state": "毎朝 06:30 の監視の段で記録。2026-09-30 は警告 0 件",
         "follow_up": None,
     },
+    {
+        "id": "n1-first-controlled-publication",
+        "area": "note",
+        "decision": (
+            "N1 は完了。2 本目を最初の N1 の流れ (hash つきの承認・画像の拘束・公開の記録) で"
+            "公開した。仕組みの外で先に公開した 1 本目は bootstrap として別に残し、承認を後から"
+            "作らない"
+        ),
+        "rationale": (
+            "承認の順番を偽らないため。人の確認で効果の言い切りとサムネイルの未拘束が見つかり、"
+            "本文を直し、画像のファイルを承認に入れてから公開した"
+        ),
+        "evidence": ["docs/operations/note-channel.md", "22b3651"],
+        "phrase": "N1 で分かったこと (N1 は完了)",
+        "resulting_state": (
+            "note の公開 2 / 3 (G3)。承認と公開の hash は一致。note 上の画像は人が確認"
+        ),
+        "follow_up": "N2: 3 本目も同じ流れで公開し、記録を台帳に残す",
+    },
 )
 
 

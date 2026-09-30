@@ -131,7 +131,7 @@ def test_key_facts_carry_their_provenance(tmp_path) -> None:
     assert facts["make_tracked_articles"]["value"] == [1, 10, 11]
     assert facts["current_phase"]["value"] == "T6.3.3c"  # Growth の多様さと確かさ
     assert facts["next_phase"]["value"] is None  # N1〜N7 は進行中 (外の準備待ち)
-    assert facts["last_completed_phase"]["value"] == "N6"
+    assert facts["last_completed_phase"]["value"] == "N1"
 
 
 # == disagreements A–D ==============================================================
@@ -506,20 +506,21 @@ def test_the_roadmap_marks_t631_complete_t632_active_and_t633_next() -> None:
     assert roadmap["declared_current_phase"] == "T6.3.3c"
     # T6.3.3b は Growth のトピックの本番の確認待ち、T6.5A-B は手動のパイロット待ち。
     assert roadmap["active"] == ["T6.3.3b", "T6.3.3c", "T6.5A", "T6.5B.2",
-                                 "N1", "N2", "N3", "N4", "N5", "N7"]
+                                 "N2", "N3", "N4", "N5", "N7"]
     assert "T6.5B" in roadmap["completed"]  # 外の画面の確認は完了 (限りつき)
     assert {"T7A", "T7B", "T7", "N0", "T6.3.1", "T6.3.1a", "T6.3.2", "T6.3.3", "T6.4"} <= set(
         roadmap["completed"]
     )
-    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("N6", None)
+    assert (roadmap["last_completed_phase"], roadmap["next_phase"]) == ("N1", None)
     assert roadmap["next_phase_prerequisites_unmet"] == []
     kinds = {p["id"]: p["evidence_kind"] for p in roadmap["phases"]}
     assert kinds["N0"] == "repository"  # docs/operations/note-channel.md
     for pid in (*(f"N{i}" for i in range(1, 9)), "C10", "C11"):
         assert kinds[pid] == "repository", pid  # n-track-plan.md / roadmap.md
     status = {p["id"]: p["status"] for p in roadmap["phases"]}
-    assert status["C10"] == "complete" and status["N6"] == "complete"
-    for pid in ("N1", "N2", "N3", "N4", "N5", "N7"):
+    # N1 は 2026-09-30 に完了 (最初の N1 の流れの公開)、N6 も完了
+    assert status["C10"] == status["N1"] == status["N6"] == "complete"
+    for pid in ("N2", "N3", "N4", "N5", "N7"):
         assert status[pid] == "active", pid  # 作るところは完了、外の準備待ち
     for pid in ("N8", "T6.5-review", "C11"):
         assert status[pid] == "planned", pid  # まだ始めていない
