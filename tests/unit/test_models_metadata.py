@@ -175,6 +175,8 @@ def test_all_tables_registered() -> None:
         "growth_handoff_requests",
         "nightly_analysis_runs",
         "content_discovery_candidates",
+        "note_pieces",
+        "manual_metric_entries",
         "revenue_optimization_candidates",
         "seo_improvement_candidates",
         "ga4_import_runs",
