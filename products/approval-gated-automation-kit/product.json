@@ -1,0 +1,53 @@
+{
+  "schema": "product-spec/1",
+  "id": "approval-gated-automation-kit",
+  "version": "0.1.0",
+  "title": "AI自動化に「人の承認の門」を組み込むためのチェックリストと設定例",
+  "target_user": "AIで記事・投稿・運用の作業を自動化し始めた、個人や小さなチームの運営者",
+  "problem": "AIに任せる範囲が広がるほど、誤った書き込みや公開をどこで止めるかが曖昧になり、一度の承認が別の書き込みまで許してしまう",
+  "intended_outcome": "作業を5つの自動化の段階に分け、承認を内容の hash に結びつけ、新しい書き込みの形は最初の1回を人が確かめてから有効にする運用を、自分の仕組みに当てはめられる",
+  "reusable_scope": "書き込み先 (CMS・SNS・メール・設定) を持つ小規模な自動化全般。特定のサービスやツールには依存しない",
+  "site_specific_excluded": [
+    "このサイトのサービス名・アカウント・予定の時刻",
+    "このサイトの数字 (記事数・投稿数・成果)",
+    "このサイトの内部のコマンド名とファイル名"
+  ],
+  "format": "guide_bundle",
+  "license": "未定 (人が決める)",
+  "distribution": null,
+  "assets": [
+    {
+      "path": "assets/checklist.md",
+      "kind": "checklist",
+      "title": "承認の門のチェックリスト (20項目)",
+      "site_specific": false,
+      "sources": [
+        {"ref": "decision:threads-human-approval-required"},
+        {"ref": "decision:c10-growth-approval-never-applies"},
+        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "Autonomy classification (A–E)"},
+        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "There is no approve-all entry point."}
+      ]
+    },
+    {
+      "path": "assets/guide.md",
+      "kind": "guide",
+      "title": "5つの自動化の段階で作業を分ける手引き",
+      "site_specific": false,
+      "sources": [
+        {"ref": "phase:C10"},
+        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "Automation boundary."},
+        {"ref": "decision:threads-no-catch-up-burst"}
+      ]
+    },
+    {
+      "path": "assets/approval-policy.example.json",
+      "kind": "config_example",
+      "title": "承認の方針の設定例 (既定はすべて安全側)",
+      "site_specific": false,
+      "sources": [
+        {"ref": "doc:docs/operations/site-growth-operations.md", "phrase": "never applies anything"},
+        {"ref": "decision:c10-growth-approval-never-applies"}
+      ]
+    }
+  ]
+}

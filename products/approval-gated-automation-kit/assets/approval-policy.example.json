@@ -1,0 +1,37 @@
+{
+  "schema": "approval-policy-example/1",
+  "about": "設定の例です。既定はすべて安全側 (無効・人の承認あり) にしてあります。秘密 (パスワード・トークン) はここに書かず、環境ごとの秘密の置き場に置いてください。",
+  "targets": [
+    {
+      "name": "article_body_update",
+      "stage": "C",
+      "approval": {"required": true, "bound_to": "content_hash", "invalidated_when_content_changes": true},
+      "before_write": ["compare_remote_state_with_approval"],
+      "after_write": ["read_back_and_compare"],
+      "on_unknown_outcome": "record_as_unknown_not_success",
+      "enabled": false
+    },
+    {
+      "name": "social_post_publication",
+      "stage": "B",
+      "approval": {"required": true, "bound_to": "content_hash", "meaning": "may_publish_not_publish_now"},
+      "limits": {"max_per_day": 3, "min_gap_minutes": 120, "catch_up_burst": false},
+      "enabled": false
+    },
+    {
+      "name": "first_automatic_email",
+      "stage": "D",
+      "approval": {"required": true, "first_run_observed_by_human": true},
+      "enabled": false
+    },
+    {
+      "name": "tracking_link_change",
+      "stage": "E",
+      "enabled": false,
+      "note": "自動では行わない"
+    }
+  ],
+  "suggestions": {"approve_all": false, "suggestion_approval_writes_anything": false},
+  "notifications": {"only_when_action_needed": true, "group_same_problem": true, "renotify_after_hours": 168, "auto_resolve": true},
+  "records": {"append_only": true, "corrections_supersede": true}
+}
