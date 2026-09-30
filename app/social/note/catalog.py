@@ -199,6 +199,10 @@ TOPICS = (
             ),
             ("docs/operations/threads-proposal-stock.md", "最後の heartbeat から\n15 分経ってから"),
         ),
+        "doc_fact": (
+            "タスクを止めても子のプロセスが残ることがあり、残ったプロセスを確かめてから止め直した。"
+            "ロックが古くなる 15 分を待ってから 1 回だけ再開した。"
+        ),
         "why": "運用の小さな失敗と手順の直し方。具体的で再現しやすい",
         "duplication_risk": "low",
         "readability": 2,

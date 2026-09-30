@@ -123,14 +123,14 @@ def build_draft(candidate: NoteCandidate, topic: dict, sources: SourceBundle, *,
                              "observed_fact", (ref,)))  # fmt: skip
         unknown.append(Claim("投稿の数が増えるまで、どの書き方が効くかは仮説のままにしておく。",
                              "hypothesis"))  # fmt: skip
-    for path, _phrase in topic["docs"]:
-        ref = ev.get(f"doc:{path}")
-        if ref:
-            results.append(Claim(
-                "タスクを止めても子のプロセスが残ることがあり、残ったプロセスを確かめてから止め直した。"
-                "ロックが古くなる 15 分を待ってから 1 回だけ再開した。",
-                "observed_fact", (ref,)))  # fmt: skip
-            break
+    # ドキュメントの根拠からの事実の文は、その話題が自分で持つ文だけ (``doc_fact``)。
+    # 別の話題の文を付けない (根拠の対応を偽らない)。
+    if topic.get("doc_fact"):
+        for path, _phrase in topic["docs"]:
+            ref = ev.get(f"doc:{path}")
+            if ref:
+                results.append(Claim(topic["doc_fact"], "observed_fact", (ref,)))
+                break
     for text, did in topic["lessons"]:
         ref = ev.get(f"decision:{did}")
         if ref:

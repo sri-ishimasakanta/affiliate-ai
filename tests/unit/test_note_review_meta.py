@@ -77,3 +77,20 @@ def test_decision_log_evidence_keeps_the_content_hash(tmp_path) -> None:
     with pytest.raises(NoteStatusError):
         review.add_evidence(draft, text="x", kind="observed_fact",
                             decision_ids=["t6-1-mobile-render-observed"], decisions=decisions)
+
+
+def test_doc_evidence_claims_come_only_from_the_topics_own_sentence(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    from app.social.note.candidates import discover, doc_paths, topic_for
+    from app.social.note.renderer import build_draft
+    from app.social.note.sources import load_sources
+
+    sources = load_sources(_repo(tmp_path), doc_names=doc_paths())
+    by_title = {c.working_title: c for c in discover(sources)}
+    alerts = next(c for t, c in by_title.items() if "行動が要るときだけ" in t)
+    draft = build_draft(alerts, topic_for(alerts), sources, now=datetime.now(UTC))
+    assert not any("子のプロセス" in c.text for c in draft.claims)  # 別の話題の文を付けない
+    worker = next(c for t, c in by_title.items() if "止まっていなかった" in t)
+    draft = build_draft(worker, topic_for(worker), sources, now=datetime.now(UTC))
+    assert any("子のプロセス" in c.text for c in draft.claims)
