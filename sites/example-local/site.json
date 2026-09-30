@@ -3,8 +3,12 @@
   "id": "example-local",
   "display_name": "Example second site (local dry-run only)",
   "timezone": "Asia/Tokyo",
-  "database": {"sqlite_path": "data/sites/example-local/affiliate_ai.db"},
-  "paths": {"logs": "data/sites/example-local/logs"},
+  "database": {
+    "sqlite_path": "data/sites/example-local/affiliate_ai.db"
+  },
+  "paths": {
+    "logs": "data/sites/example-local/logs"
+  },
   "capabilities": {
     "wordpress": false,
     "search_console": false,
@@ -19,6 +23,13 @@
     "scheduler": false,
     "resident_worker": false
   },
-  "secrets": {"env_file": null},
-  "notes": "A second site profile used to prove the N6 boundary: it bootstraps its own database under data/ (git-ignored) and dry-runs the read-only plans with every external provider disabled. It never points at a real service."
+  "secrets": {
+    "env_file": null
+  },
+  "notes": "A second site profile used to prove the N6 boundary: it bootstraps its own database under data/ (git-ignored) and dry-runs the read-only plans with every external provider disabled. It never points at a real service.",
+  "content_policy": {
+    "clusters": "sites/example-local/policy/content_clusters.json",
+    "portfolio": "sites/example-local/policy/content_portfolio.json",
+    "discovery_seeds": "sites/example-local/policy/discovery_seeds.json"
+  }
 }

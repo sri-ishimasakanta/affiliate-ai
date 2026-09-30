@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "clusters": [
+    {
+      "id": "X",
+      "name": "Example topic (placeholder)",
+      "priority": 1,
+      "keywords": [
+        {
+          "keyword": "example topic guide",
+          "role": "pillar"
+        }
+      ]
+    }
+  ]
+}

@@ -120,19 +120,34 @@ def dry_run(profile: SiteProfile, *, now: datetime | None = None) -> dict:
         return {"healthy": result["healthy"],
                 "actionable": [f["check"] for f in result["actionable"]]}
 
+    policy = profile.content_policy
+
+    def intelligence(session):
+        if policy is None:
+            return ContentIntelligenceService(session, settings=settings)
+        from app.content.clusters import load_registry
+
+        return ContentIntelligenceService(
+            session, settings=settings,
+            registry=load_registry(policy["clusters"], policy["portfolio"]),
+            seeds_path=policy["discovery_seeds"])
+
     with network_guard(attempts):
         step("schema", _schema)
         step("system_health", health)
         step("content_intelligence", lambda s: {
-            "next_articles": len(ContentIntelligenceService(s, settings=settings)
-                                 .build(now=now).next_articles)})
+            "next_articles": len(intelligence(s).build(now=now).next_articles)})
         step("nightly_plan", lambda s: {
-            k: v for k, v in NightlyAnalysisService(s, settings=settings).plan(now=now)
-            .get("counts", {}).items() if k in ("universe", "eligible", "analyzed")})
+            k: v for k, v in NightlyAnalysisService(s, settings=settings,
+                                                    intelligence=intelligence(s))
+            .plan(now=now).get("counts", {}).items()
+            if k in ("universe", "eligible", "analyzed")})
         step("google_ads_refresh_plan", lambda s: {
             "terms": GoogleAdsRefreshService(s, settings=settings).plan(now=now)["terms"]})
         step("discovery_plan", lambda s: {
-            "tracked": DiscoveryPromotionService(s, settings=settings).plan(now=now)["tracked"]})
+            "tracked": DiscoveryPromotionService(s, settings=settings,
+                                                 intelligence=intelligence(s))
+            .plan(now=now)["tracked"]})
         step("growth_orchestrator", lambda s: {
             "stages": SiteGrowthOrchestratorService(s, settings=settings)
             .status(now=now)["stages"]})
@@ -142,6 +157,8 @@ def dry_run(profile: SiteProfile, *, now: datetime | None = None) -> dict:
     after = config_fingerprint(profile.root)
     ok = all(v["ok"] for v in steps.values()) and not attempts and before == after
     return {"site": profile.id, "database": str(profile.database_path),
+            "content_policy": ("profile" if policy else
+                               "inherited from app/config (this site's content policy)"),
             "capabilities": {k: profile.enabled(k) for k in profile.data["capabilities"]},
             "steps": steps, "network_attempts": attempts,
             "production_config_unchanged": before == after, "ok": ok}

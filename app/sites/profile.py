@@ -87,6 +87,13 @@ class SiteProfile:
         rel = (self.data.get("secrets") or {}).get("env_file")
         return self.resolve(rel) if rel else None
 
+    @property
+    def content_policy(self) -> dict[str, Path] | None:
+        """そのサイトの内容の方針 (クラスタ・計画・発見の種)。無ければ本番の app/config を継ぐ。"""
+
+        block = self.data.get("content_policy")
+        return {k: self.resolve(v) for k, v in block.items()} if block else None
+
     def enabled(self, capability: str) -> bool:
         return bool((self.data.get("capabilities") or {}).get(capability))
 
@@ -128,6 +135,16 @@ def validate(data: dict, *, root: Path, production_database: Path | None) -> lis
         secretish_value = isinstance(value, str) and _SECRETISH_VALUE.search(value)
         if _SECRETISH_KEY.search(key) or secretish_value:
             errors.append(f"profile must not contain secrets ({key!r}); use the site's env file")
+    if errors:
+        return errors
+    policy = data.get("content_policy")
+    if policy is not None:
+        needed = {"clusters", "portfolio", "discovery_seeds"}
+        if set(policy) != needed:
+            errors.append(f"content_policy needs exactly {sorted(needed)}")
+        else:
+            errors += [f"content_policy.{k}: {v} is missing" for k, v in policy.items()
+                       if not (Path(v) if Path(v).is_absolute() else root / v).exists()]
     if errors:
         return errors
     profile = SiteProfile(root=root, path=root, data=data)

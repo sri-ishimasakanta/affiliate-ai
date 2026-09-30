@@ -98,6 +98,23 @@ def test_a_second_site_bootstraps_and_dry_runs_without_code_changes(tmp_path) ->
     assert report["network_attempts"] == [] and report["production_config_unchanged"]
     assert report["steps"]["schema"]["summary"]["at_head"]
     assert report["steps"]["system_health"]["summary"]["healthy"]
+    # そのサイトの内容の方針だけを見る (本番のクラスタ・種を継がない)
+    assert report["content_policy"] == "profile"
+    assert report["steps"]["content_intelligence"]["summary"]["next_articles"] == 1
+    inherited = sp.SiteProfile(root=REPO, path=EXAMPLE, data={
+        k: v for k, v in data.items() if k != "content_policy"})
+    assert "inherited" in dry_run(inherited)["content_policy"]
+
+
+@pytest.mark.parametrize("policy, match", [
+    ({"clusters": "sites/example-local/policy/content_clusters.json"}, "needs exactly"),
+    ({"clusters": "nope.json", "portfolio": "nope.json", "discovery_seeds": "nope.json"},
+     "is missing"),
+])
+def test_content_policy_paths_are_checked(policy, match) -> None:
+    errors = sp.validate(_data(content_policy=policy), root=REPO,
+                         production_database=REPO / "affiliate_ai.db")
+    assert any(match in e for e in errors), errors
 
 
 def test_the_cli_refuses_an_invalid_profile(tmp_path, capsys) -> None:
