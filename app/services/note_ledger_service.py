@@ -21,7 +21,7 @@ from pathlib import Path
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
-from app.article.fact_freshness import ensure_aware
+from app.article.fact_freshness import ensure_aware, to_storage_utc
 from app.models import Article
 from app.models.n_track import NotePiece
 from app.social.note import links as note_links
@@ -47,7 +47,9 @@ def tables_ready(session: Session) -> bool:
 
 
 def _dt(value: str | None) -> datetime | None:
-    return ensure_aware(datetime.fromisoformat(value)) if value else None
+    """下書きの時刻 (+09:00 など) を DB 用の UTC にそろえる (SQLite はタイムゾーンを落とす)。"""
+
+    return to_storage_utc(datetime.fromisoformat(value)) if value else None
 
 
 def _same(stored, value) -> bool:

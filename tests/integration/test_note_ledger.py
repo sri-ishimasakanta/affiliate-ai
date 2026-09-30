@@ -182,3 +182,16 @@ def test_record_cli_plans_by_default(session, capsys) -> None:
     assert main([*base, "--execute"], session_factory=factory, now=NOW) == 0
     assert session.scalar(select(func.count()).select_from(ManualMetricEntry)) == 1
     assert datetime.now(UTC) > NOW
+
+
+def test_ledger_times_are_stored_as_utc(session, tmp_path) -> None:
+    root, path, draft = _drafts(tmp_path, publish=True)
+    data = json.loads(path.read_text("utf-8"))
+    data["publication"]["observed_at"] = "2026-09-30T21:11:47+09:00"  # JST の観測
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    NoteLedgerService(session, policy=POLICY).sync_from_drafts(root, execute=True, now=NOW)
+    row = session.scalars(select(NotePiece)).one()
+    stored = row.published_observed_at.replace(tzinfo=None)
+    assert stored == datetime(2026, 9, 30, 12, 11, 47)  # UTC で保存 (読むと UTC とみなされる)
+    again = NoteLedgerService(session, policy=POLICY).sync_from_drafts(root, now=NOW)
+    assert again["unchanged"] == [draft.id]

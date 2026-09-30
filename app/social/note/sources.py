@@ -110,4 +110,13 @@ def duplication_corpus(conn) -> dict[str, str]:
         text("select id, exact_published_text from threads_publications where status = 'published'")
     ):
         corpus[f"threads:publication:{row.id}"] = row.exact_published_text or ""
+    # N2: note で公開済みの本文 (台帳。migration の前の DB には表が無いので飛ばす)
+    try:
+        rows = conn.execute(
+            text("select draft_id, body_text from note_pieces where status = 'published'")
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - 表が無い DB でも他の相手で検査を続ける
+        rows = []
+    for row in rows:
+        corpus[f"note:{row.draft_id}"] = row.body_text or ""
     return corpus
