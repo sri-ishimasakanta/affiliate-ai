@@ -110,6 +110,9 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     appr.add_argument("--by", required=True)
     appr.add_argument("--links-approved", action="store_true")
     appr.add_argument("--image", help="the final thumbnail image file (bound by sha256)")
+    appr.add_argument("--note", help="a short note stored with the approval")
+    appr.add_argument("--after-publication-at",
+                      help="approving after the note was already published: its time (ISO+09:00)")
     chk = sub.add_parser("check-image")
     chk.add_argument("draft_id")
     chk.add_argument("--image", required=True)
@@ -176,8 +179,11 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
         elif args.command == "submit":
             review.submit(draft)
         elif args.command == "approve":
+            published_at = (datetime.fromisoformat(args.after_publication_at)
+                            if args.after_publication_at else None)  # fmt: skip
             review.approve(draft, content_hash=args.content_hash, approved_by=args.by, now=now,
-                           links_approved=args.links_approved, image=args.image)  # fmt: skip
+                           links_approved=args.links_approved, image=args.image,
+                           note=args.note, after_publication_at=published_at)  # fmt: skip
         elif args.command == "record-publication":
             observed = datetime.fromisoformat(args.observed_at)
             if observed.tzinfo is None:

@@ -211,3 +211,34 @@ def test_the_image_record_round_trips_through_the_ledger(session, tmp_path) -> N
     row = session.scalars(select(NotePiece).where(NotePiece.draft_id == draft.id)).one()
     assert row.approval_json["images"] == draft.approval["images"]
     assert row.approved_hash == draft.content_hash
+
+
+def test_a_retrospective_reapproval_keeps_the_real_times(tmp_path) -> None:
+    from datetime import datetime
+
+    _root, _path, draft = _ready(tmp_path)
+    image = _image(tmp_path)
+    review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=NOW,
+                   image=image)
+    image.write_bytes(JPEG)  # 承認の後に差し替え、それを公開した
+    later = NOW + timedelta(hours=2)
+    review.reopen(draft, reason="replaced after approval", now=later)
+    review.submit(draft)
+    published = NOW + timedelta(hours=1)
+    with pytest.raises(NoteStatusError, match="timezone"):
+        review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=later,
+                       image=image, after_publication_at=datetime(2026, 9, 26, 10, 0))
+    with pytest.raises(NoteStatusError, match="future"):
+        review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=later,
+                       image=image, after_publication_at=later + timedelta(days=1))
+    review.approve(draft, content_hash=draft.content_hash, approved_by="human", now=later,
+                   image=image, note="checked the published image", after_publication_at=published)
+    assert draft.approval["approved_at"] == later.isoformat(timespec="seconds")  # 実際の時刻
+    assert draft.approval["retrospective"]["approved_after_publication"] is True
+    assert draft.approval["approval_note"] == "checked the published image"
+    assert draft.approval_history[0]["approved_at"] == NOW.isoformat(timespec="seconds")
+    assert draft.approval_history[0]["images"][0]["mime_type"] == "image/png"
+    review.record_publication(draft, url="https://note.com/u/n/p4", observed_at=later,
+                              published_hash=draft.content_hash, now=later, policy=POLICY,
+                              image=image)
+    assert draft.publication["approved_images"][0]["mime_type"] == "image/jpeg"

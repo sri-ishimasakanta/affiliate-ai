@@ -357,8 +357,9 @@ def submit(draft: NoteDraft) -> NoteDraft:
 
 
 def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datetime,
-            links_approved: bool = False,
-            image: Path | str | None = None) -> NoteDraft:  # fmt: skip
+            links_approved: bool = False, image: Path | str | None = None,
+            note: str | None = None,
+            after_publication_at: datetime | None = None) -> NoteDraft:  # fmt: skip
     """人の承認を記録する (``note-approval/2``)。
 
     承認に入るもの (それぞれ別に追える): 本文 (``content_hash``。本文と題名だけ、今までと同じ)・
@@ -378,7 +379,21 @@ def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datet
     if image_required(draft) and not images:
         raise NoteStatusError("this draft uses a thumbnail: approve it with the final image "
                               "file (--image <file>)")  # fmt: skip
-    return transition(draft, "approved", approval={
+    extra: dict = {}
+    if note and note.strip():
+        extra["approval_note"] = note.strip()[:500]
+    if after_publication_at is not None:
+        # 公開の後に、公開に使ったものを確かめて承認した (事後の承認)。承認の時刻は実際の時刻
+        # (``approved_at``) のまま。公開の時刻は人が伝えた note の表示の時刻。
+        if after_publication_at.tzinfo is None:
+            raise NoteStatusError("the publication time needs a timezone (e.g. +09:00)")
+        if after_publication_at > now:
+            raise NoteStatusError("the reported publication time is in the future")
+        extra["retrospective"] = {
+            "approved_after_publication": True,
+            "note_published_at": after_publication_at.isoformat(timespec="minutes"),
+            "note_published_at_source": "reported by the human (note display)"}
+    return transition(draft, "approved", approval={**extra,
         "approval_schema": APPROVAL_SCHEMA,
         "approved_by": approved_by.strip(), "approved_at": now.isoformat(timespec="seconds"),
         "content_hash": content_hash, "access_mode": draft.access_mode,
