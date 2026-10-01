@@ -375,6 +375,13 @@ stops only at the production migration (M1), the note account and publications (
 release approvals (H4 / H5) and real pilot users (G7). Entry criteria do not freeze independent
 build work.
 
+## Threads Growth lane (T6.3.3, tracked in `docs/project-roadmap.json`)
+- 2026-10-01: Growth Post purpose and duplication policy corrected (purpose gate -2, Growth-only
+  angles, `growth-duplication-2`; regular posts unchanged). Growth = follow / connect / interact;
+  development stories belong to regular posts; repeating the Growth purpose is allowed, near-copies
+  and repeated wording are not. One post a day and human approval are unchanged
+  ([threads-growth-posts.md](operations/threads-growth-posts.md)).
+
 ## T6.5 — Threads trend intelligence (tracked in `docs/project-roadmap.json`)
 - T6.5C Breakout Detector, T6.5D Pattern Miner, T6.5E Velocity, T6.5F Cross Validation,
   T6.5G Strategy Recommendations, T6.5H Controlled Feedback — PLANNED (kept)

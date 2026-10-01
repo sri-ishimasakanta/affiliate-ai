@@ -726,6 +726,28 @@ DECISIONS = (
         ),
         "follow_up": "N2: 3 本目も同じ流れで公開し、記録を台帳に残す",
     },
+    {
+        "id": "threads-growth-purpose-2",
+        "area": "threads/growth",
+        "decision": (
+            "Growth Post はフォロー・交流のための投稿。開発の話は通常の投稿の枠。Growth では同じ"
+            "目的の繰り返しを許し、言い回しの重複だけを止める"
+        ),
+        "rationale": (
+            "#36・#51 (人が却下) は開発の出来事に最後のお願いを足した形だった。開発の話の書き方を"
+            "Growth で選ばず、本文の中心が Growth の意図であることを確かめる。決まった言葉の共通は"
+            "正常なので、それを除いて直近 2 本の言い回しを比べる"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "Growth Post はフォロー・交流のための投稿。",
+        "resulting_state": (
+            "目的の検査 -2・Growth 専用の書き方・重複の方針 growth-duplication-2。#25・#42 は通り、"
+            "#36・#51 は落ちる"
+        ),
+        "follow_up": (
+            "worker を新しいコードで起動し直してから、次の Growth Post (10/2) を人が確かめる"
+        ),
+    },
 )
 
 
