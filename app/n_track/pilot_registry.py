@@ -81,8 +81,9 @@ def _text(value, *, field: str, required: bool = True, limit: int = 300) -> str 
             raise PilotError(f"{field} is required")
         return None
     if mm._PERSONAL.search(text):
-        raise PilotError(f"{field} looks like it contains personal data (email / phone / URL)")
-    if safety.sanitize(text)[1]:
+        raise PilotError(f"{field} looks like it contains personal data (email / phone / URL / "
+                         "address / card number)")
+    if mm._CREDENTIAL.search(text) or safety.sanitize(text)[1]:
         raise PilotError(f"{field} contains a secret or internal value")
     return text[:limit]
 
@@ -217,7 +218,8 @@ def fold(events: list[dict]) -> dict[str, PilotState]:
     return out
 
 
-def report(events: list[dict], metric_rows: list[dict], *, policy: dict) -> dict:
+def report(events: list[dict], metric_rows: list[dict], *, policy: dict,
+           confirmations: list[dict] | None = None) -> dict:
     """N7 の要約: 本物の試しの利用者・状態・証拠の範囲・無いもの・N8 に進めるか。"""
 
     from app.n_track import pilot as pilot_eval
@@ -251,6 +253,7 @@ def report(events: list[dict], metric_rows: list[dict], *, policy: dict) -> dict
             "evidence_kinds": state.evidence_kinds,
         }  # fmt: skip
     evaluation = pilot_eval.evaluate(real_rows, policy=policy)
+    identity = pilot_eval.policy_identity(policy, confirmations or [])
     minimum = int(policy.get("min_pilots", 3))
     counts = {
         "real_pilots": len(real),
@@ -268,7 +271,8 @@ def report(events: list[dict], metric_rows: list[dict], *, policy: dict) -> dict
     }  # fmt: skip
     return {"counts": counts, "pilots": per_pilot, "missing_evidence": missing,
             "unregistered_metric_refs_excluded": unregistered, "criteria": evaluation,
-            "n8_gate": n8_gate(counts, evaluation, policy=policy, minimum=minimum),
+            "policy": identity,
+            "n8_gate": n8_gate(counts, evaluation, identity=identity, minimum=minimum),
             "reading": ("recorded evidence only: missing stays missing (never 0); inference and "
                         "hypothesis entries are kept but not counted; not a decision")}  # fmt: skip
 
@@ -276,22 +280,34 @@ def report(events: list[dict], metric_rows: list[dict], *, policy: dict) -> dict
 N8_CANDIDATES = ("SaaS", "Managed Service", "Hybrid")
 
 
-def n8_gate(counts: dict, evaluation: dict, *, policy: dict, minimum: int) -> dict:
-    """N8 へ進む判断の材料。本物の試しが足りなければ必ず ``insufficient_evidence``。"""
+def n8_gate(counts: dict, evaluation: dict, *, identity: dict, minimum: int) -> dict:
+    """N8 へ進む判断の材料。本物の試しが足りなければ必ず ``insufficient_evidence``。
 
+    条件 (今の規則): 本物の試しの利用者が ``min_pilots`` 以上・go / no-go のどの条件も証拠が
+    足りる (``insufficient`` が無い)・基準が人に確かめられている (確認の記録の hash が今の基準と
+    同じ)。基準を確かめただけでは進めない。
+    """
+
+    conditions = {
+        "real_pilots_at_least_min": counts["real_pilots"] >= minimum,
+        "no_insufficient_criteria": evaluation["overall"] != "insufficient_evidence",
+        "policy_confirmed": identity["state"] == "confirmed",
+    }
     blockers = []
     if counts["real_pilots"] < minimum:
         blockers.append(f"real pilots {counts['real_pilots']} < min_pilots {minimum}")
     if evaluation["overall"] == "insufficient_evidence":
         blockers.append("go / no-go criteria lack evidence (insufficient)")
-    if policy.get("status") != "confirmed":
-        blockers.append(f"the go / no-go thresholds are {policy.get('status')!r}; the human "
-                        "confirms them before deciding")  # fmt: skip
+    if identity["state"] != "confirmed":
+        blockers.append(f"the go / no-go thresholds are {identity['state']!r} (policy hash "
+                        f"{identity['policy_hash'][:12]}); the human confirms them before "
+                        "deciding")  # fmt: skip
     if counts["real_pilots"] < minimum or evaluation["overall"] == "insufficient_evidence":
         state = "insufficient_evidence"
     else:
         state = "ready_for_human_decision" if not blockers else "needs_human_policy"
-    return {"state": state, "candidates": list(N8_CANDIDATES), "blockers": blockers,
+    return {"state": state, "conditions": conditions, "candidates": list(N8_CANDIDATES),
+            "blockers": blockers,
             "criteria_overall": evaluation["overall"],
             "rule_reading": (evaluation["model_signals"].get("reading")
                              if state != "insufficient_evidence" else None),

@@ -71,12 +71,23 @@ until real pilots ran and the human recorded the decision.
 6. Check: `manage_pilots.py summary` (counts, per-pilot coverage, missing evidence, blockers,
    N8 gate).
 
+### Policy freeze (2026-10-01)
+
+The thresholds become `confirmed` only through a hash-bound, append-only confirmation record
+(`manage_pilots.py confirm-policy --policy-hash <sha> --by human`, PLAN first) in
+`app/config/pilot_policy_confirmations.json`. The hash covers `policy_version`, `min_pilots`,
+`criteria` and `model_signals` (not `status` / `note`). If the policy changes after a
+confirmation, its state is `changed_after_confirmation` and the N8 gate stays closed. The human
+review packet before the first pilot is [n7-pre-pilot-review.md](n7-pre-pilot-review.md).
+
 ### N8 decision gate (`summary` → `n8_gate`)
 
 - `insufficient_evidence`: fewer than `min_pilots` (3) real pilots, or any go / no-go criterion
   lacks evidence. With no real pilot it is always this.
-- `needs_human_policy`: enough evidence, but `pilot_policy.json` is still `proposed`; the human
-  confirms the thresholds first (no new thresholds are invented here).
+- `needs_human_policy`: enough evidence, but the thresholds are not confirmed (no confirmation
+  record with the current policy hash); the human confirms them first (no new thresholds are
+  invented here). The gate shows its three conditions: `real_pilots_at_least_min`,
+  `no_insufficient_criteria`, `policy_confirmed`.
 - `ready_for_human_decision`: the criteria results and the existing model-signal rule
   (`rule_reading`) are shown with the candidates SaaS / Managed Service / Hybrid. **It never
   decides**; the human records the decision with the template below, then N8 may start.

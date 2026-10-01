@@ -30,7 +30,6 @@ from app.services.pilot_registry_service import PilotRegistryService
 NOW = datetime(2026, 11, 20, 9, 0, tzinfo=UTC)
 START = "2026-10-10T10:00:00+09:00"
 POLICY = pilot_eval.load_policy()
-CONFIRMED = {**POLICY, "status": "confirmed"}
 GOOD = {"activated": 1, "time_to_first_value_hours": 24, "workflows_completed": 3,
         "active_days": 12, "onboarding_difficulty": 2, "support_minutes": 30,
         "value_rating": 5, "would_continue": 1, "operating_cost_jpy": 500, "api_cost_jpy": 300,
@@ -38,7 +37,13 @@ GOOD = {"activated": 1, "time_to_first_value_hours": 24, "workflows_completed": 
 
 
 def _service(tmp_path, policy=POLICY):
-    return PilotRegistryService(tmp_path / "pilot_events.jsonl", policy=policy)
+    return PilotRegistryService(tmp_path / "pilot_events.jsonl", policy=policy,
+                                confirmations_path=tmp_path / "confirmations.json")
+
+
+def _confirm(service, policy=POLICY):
+    return service.confirm_policy(policy_hash=pilot_eval.policy_hash(policy), by="human",
+                                  now=NOW, execute=True)
 
 
 def _register(service, ref, *, provenance="human_entry", agreement=True):
@@ -172,12 +177,16 @@ def test_n8_gate_needs_real_evidence_and_confirmed_thresholds(tmp_path) -> None:
     rows = _rows({ref: GOOD for ref in ("pilot-01", "pilot-02", "pilot-03")})
     proposed = service.report(rows)["n8_gate"]
     assert proposed["state"] == "needs_human_policy" and proposed["rule_reading"]
-    confirmed = _service(tmp_path, CONFIRMED).report(rows)["n8_gate"]
+    assert proposed["conditions"] == {"real_pilots_at_least_min": True,
+                                      "no_insufficient_criteria": True,
+                                      "policy_confirmed": False}
+    _confirm(service)
+    confirmed = service.report(rows)["n8_gate"]
     assert confirmed["state"] == "ready_for_human_decision"
     assert confirmed["criteria_overall"] == "evidence_supports_go"
     assert confirmed["candidates"] == ["SaaS", "Managed Service", "Hybrid"]
     assert "not decided" in confirmed["decision"]
-    two = _service(tmp_path, CONFIRMED).report(rows[: len(GOOD) * 2])  # 2 人分の数だけ
+    two = service.report(rows[: len(GOOD) * 2])  # 2 人分の数だけ
     assert two["n8_gate"]["state"] == "insufficient_evidence"
 
 
@@ -230,3 +239,71 @@ def test_the_cli_plans_by_default_and_reports(tmp_path, capsys) -> None:
     assert "refused" in capsys.readouterr().out
     lines = [json.loads(line) for line in path.read_text("utf-8").splitlines()]
     assert len(lines) == 1 and lines[0]["provenance"] == "human_entry"
+
+
+# -- 基準の固定 (2026-10-01) ------------------------------------------------------------------
+def test_the_policy_hash_covers_content_not_status_or_note() -> None:
+    base = pilot_eval.policy_hash(POLICY)
+    assert pilot_eval.policy_hash({**POLICY, "status": "confirmed", "note": "x"}) == base
+    changed = {**POLICY, "criteria": {**POLICY["criteria"], "activation_rate_min": 0.5}}
+    assert pilot_eval.policy_hash(changed) != base and len(base) == 64
+
+
+def test_confirming_binds_the_hash_and_keeps_the_old_identity(tmp_path) -> None:
+    service = _service(tmp_path)
+    assert service.policy()["state"] == "proposed"
+    plan = service.confirm_policy(policy_hash=pilot_eval.policy_hash(POLICY), by="human", now=NOW)
+    assert plan["recorded"] is False and not (tmp_path / "confirmations.json").exists()
+    with pytest.raises(ValueError, match="different policy hash"):
+        service.confirm_policy(policy_hash="0" * 64, by="human", now=NOW, execute=True)
+    record = _confirm(service)["record"]
+    assert record["criteria_snapshot"]["criteria"] == POLICY["criteria"]
+    assert (record["confirmed_by"], record["policy_hash"]) == ("human",
+                                                               pilot_eval.policy_hash(POLICY))
+    identity = service.policy()
+    assert identity["state"] == "confirmed" and identity["confirmed_by"] == "human"
+    with pytest.raises(ValueError, match="already confirmed"):
+        _confirm(service)
+    # 確認の後に基準を黙って変えると、確認の状態が外れる (前の確認の記録は残る)
+    changed = {**POLICY, "criteria": {**POLICY["criteria"], "value_rating_median_min": 3}}
+    later = _service(tmp_path, changed)
+    assert later.policy()["state"] == "changed_after_confirmation"
+    gate = later.report([])["n8_gate"]
+    assert gate["conditions"]["policy_confirmed"] is False
+    assert any("changed_after_confirmation" in b for b in gate["blockers"])
+    records = json.loads((tmp_path / "confirmations.json").read_text("utf-8"))["records"]
+    assert len(records) == 1 and records[0]["policy_hash"] == pilot_eval.policy_hash(POLICY)
+
+
+def test_a_confirmed_policy_alone_does_not_open_n8(tmp_path) -> None:
+    service = _service(tmp_path)
+    _confirm(service)
+    gate = service.report([])["n8_gate"]
+    assert gate["state"] == "insufficient_evidence"
+    assert gate["conditions"] == {"real_pilots_at_least_min": False,
+                                  "no_insufficient_criteria": False, "policy_confirmed": True}
+
+
+def test_a_missing_cost_component_is_not_counted_as_zero() -> None:
+    half = {k: v for k, v in GOOD.items() if k != "api_cost_jpy"}
+    out = pilot_eval.evaluate(_rows({"pilot-01": half, "pilot-02": half, "pilot-03": half}),
+                              policy=POLICY)
+    assert out["criteria"]["cost_vs_willingness_to_pay"] == {"status": "insufficient", "n": 0}
+
+
+@pytest.mark.parametrize("value", [
+    "東京都千代田区1-2-3", "〒100-0001", "4111 1111 1111 1111", "password: hunter2xyz",
+    "パスワード：abc", "token=ghp_abcdefghijklmnopqrstuvwxyz0123",
+    "sk-test-abcdefghijklmnopqrstuvwxyz", "AKIAABCDEFGHIJKLMNOP"])
+def test_addresses_cards_and_credentials_are_refused(tmp_path, value) -> None:
+    service = _service(tmp_path)
+    _register(service, "pilot-01")
+    with pytest.raises(reg.PilotError):
+        _event(service, "pilot-01", "feedback", data={"note": value})
+
+
+def test_ordinary_numbers_dates_and_prices_are_allowed(tmp_path) -> None:
+    service = _service(tmp_path)
+    _register(service, "pilot-01")
+    for note in ("週に2回、30分ずつ使った", "1,500円なら払う", "2026-10-08に確認", "記事を12本"):
+        assert _event(service, "pilot-01", "usage", data={"note": note}, execute=False)

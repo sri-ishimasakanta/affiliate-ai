@@ -9,16 +9,78 @@
   **どれも人の判断の材料であって判断ではない。**
 - SaaS / Managed Service / Hybrid の兆し: 始めやすさ・手助けの量・価値の評価から、どちらに
   向くかを書くだけ (決めるのは人)。
+- 基準の固定 (2026-10-01): 人が基準を確かめたら、その時の中身の hash を確認の記録
+  (``pilot_policy_confirmations.json``、追記だけ) に残す。記録の hash と今の基準の hash が
+  同じときだけ ``confirmed``。確認の後に基準が変われば ``changed_after_confirmation`` (黙って
+  書き換えられない)。``status`` の欄は表示だけで、確認の記録が正。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
 from statistics import median
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "pilot_policy.json"
+CONFIRMATIONS_PATH = POLICY_PATH.with_name("pilot_policy_confirmations.json")
+CONFIRMATIONS_SCHEMA = "pilot-policy-confirmations/1"
+#: 基準の中身 (hash に入るもの)。``status`` と ``note`` は説明で、中身ではない。
+POLICY_CONTENT_KEYS = ("policy_version", "min_pilots", "criteria", "model_signals")
+
+
+def policy_hash(policy: dict) -> str:
+    content = {k: policy.get(k) for k in POLICY_CONTENT_KEYS}
+    return hashlib.sha256(json.dumps(content, ensure_ascii=False, sort_keys=True)
+                          .encode("utf-8")).hexdigest()  # fmt: skip
+
+
+def load_confirmations(path: Path | None = None) -> list[dict]:
+    path = path or CONFIRMATIONS_PATH
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("schema") != CONFIRMATIONS_SCHEMA:
+        raise ValueError(f"{path} is not {CONFIRMATIONS_SCHEMA}")
+    return list(data.get("records") or [])
+
+
+def policy_identity(policy: dict, confirmations: list[dict]) -> dict:
+    """今の基準の版・hash と、人の確認の状態 (確認の記録が正)。"""
+
+    current = policy_hash(policy)
+    match = next((r for r in reversed(confirmations) if r["policy_hash"] == current), None)
+    state = ("confirmed" if match else
+             "changed_after_confirmation" if confirmations else "proposed")
+    return {"policy_version": policy.get("policy_version"), "policy_hash": current,
+            "state": state, "file_status": policy.get("status"),
+            "confirmed_at": match and match["confirmed_at"],
+            "confirmed_by": match and match["confirmed_by"],
+            "confirmations": len(confirmations)}  # fmt: skip
+
+
+def confirm_policy(policy: dict, confirmations: list[dict], *, policy_hash_given: str, by: str,
+                   now: datetime, note: str | None = None) -> dict:
+    """人の基準の確認の記録を作る (書くのは呼ぶ側)。今の hash と同じ hash を人が渡す。"""
+
+    current = policy_hash(policy)
+    if policy_hash_given != current:
+        raise ValueError("the confirmation is for a different policy hash (the policy changed)")
+    if any(r["policy_hash"] == current for r in confirmations):
+        raise ValueError("this policy is already confirmed")
+    who = (by or "").strip()
+    if not who or "@" in who:
+        raise ValueError("by is a short name (no email)")
+    if now.tzinfo is None:
+        raise ValueError("now needs a timezone")
+    return {"policy_version": policy.get("policy_version"), "policy_hash": current,
+            "confirmed_at": now.isoformat(timespec="seconds"), "confirmed_by": who[:64],
+            "criteria_snapshot": {k: policy.get(k) for k in POLICY_CONTENT_KEYS},
+            "note": (note or "").strip()[:300] or None,
+            "meaning": "the human confirmed these go / no-go thresholds before reading real "
+                       "pilot results; not a go / no-go decision"}  # fmt: skip
 
 
 def load_policy(path: Path | None = None) -> dict:
@@ -82,8 +144,9 @@ def evaluate(rows: Iterable[dict], *, policy: dict) -> dict:
                   lambda r: r >= c["would_continue_rate_min"],
                   threshold=c["would_continue_rate_min"]),
     ])  # fmt: skip
-    costs = [m.get("operating_cost_jpy", 0) + m.get("api_cost_jpy", 0) for m in pilots.values()
-             if "operating_cost_jpy" in m or "api_cost_jpy" in m]
+    # 費用は 2 つとも記録した利用者だけ (片方が無いのを 0 にしない。2026-10-01)
+    costs = [m["operating_cost_jpy"] + m["api_cost_jpy"] for m in pilots.values()
+             if "operating_cost_jpy" in m and "api_cost_jpy" in m]
     wtp = values("willingness_to_pay_jpy")
     if n < minimum or len(costs) < minimum or len(wtp) < minimum:
         results["cost_vs_willingness_to_pay"] = {"status": "insufficient",
@@ -130,4 +193,6 @@ def _signals(pilots: dict, policy: dict, enough: bool) -> dict:
                         "Managed-leaning" if managed else "no clear signal")}  # fmt: skip
 
 
-__all__ = ["evaluate", "latest_by_pilot", "load_policy"]
+__all__ = ["CONFIRMATIONS_PATH", "POLICY_CONTENT_KEYS", "confirm_policy", "evaluate",
+           "latest_by_pilot", "load_confirmations", "load_policy", "policy_hash",
+           "policy_identity"]

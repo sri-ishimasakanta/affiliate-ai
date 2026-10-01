@@ -51,7 +51,15 @@ _REF = {
     "pilot": re.compile(r"^pilot-[a-z0-9-]{1,32}$"),
 }
 _PERSONAL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|(?<!\d)0\d{1,4}-\d{1,4}-\d{3,4}(?!\d)"
-                       r"|\+\d{8,15}(?!\d)|https?://")
+                       r"|\+\d{8,15}(?!\d)|https?://"
+                       # 2026-10-01: カードの番号らしい数字の並び・郵便番号 (住所の手がかり)
+                       r"|(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)|〒\s?\d{3}-?\d{4}"
+                       r"|(?<![\d-])\d{3}-\d{4}(?![\d-])"
+                       r"|(?:都|道|府|県)\S{0,8}?(?:市|区|町|村)\S{0,12}?\d+-\d+")
+#: 秘密らしい書き方 (パスワード・token・API の鍵)。2026-10-01、試しの運用全体で拒む。
+_CREDENTIAL = re.compile(r"(?i)\b(?:password|passwd|pwd|secret|token|api[_ -]?key)\s*[:=]"
+                         r"|パスワード\s*[:：=]|\b(?:ghp|gho|github_pat|sk|pk|rk|xox[abp])[-_]"
+                         r"[A-Za-z0-9_-]{12,}|\bAKIA[0-9A-Z]{16}\b")
 MIN_SUBJECTS = 3
 MIN_SPAN_DAYS = 28
 #: 期間なしで記録すると「その時点までの累計」(note の全期間の値・今のフォロワー数) として読む
@@ -117,7 +125,7 @@ def validate(entry: MetricInput) -> str:
         raise MetricError("say where the number was copied from (source_description)")
     if not entry.entered_by.strip() or "@" in entry.entered_by:
         raise MetricError("entered_by is a short name (no email)")
-    if entry.note and _PERSONAL.search(entry.note):
+    if entry.note and (_PERSONAL.search(entry.note) or _CREDENTIAL.search(entry.note)):
         raise MetricError("the note looks like it contains personal data (email / phone / URL)")
     return unit
 

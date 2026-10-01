@@ -18,6 +18,11 @@
     uv run python scripts/manage_pilots.py list
     uv run python scripts/manage_pilots.py summary     # 数・無いもの・N8 に進めるか
 
+    # go / no-go の基準 (pilot_policy.json) の版・hash と、人の確認の状態
+    uv run python scripts/manage_pilots.py policy
+    # 人が基準を確かめたときだけ (本物の結果を見る前に。hash は policy の出力のまま)
+    uv run python scripts/manage_pilots.py confirm-policy --policy-hash <sha> --by human [--execute]
+
 数 (activated・active_days・value_rating・willingness_to_pay_jpy・payment_received_jpy など) は
 今までどおり ``record_manual_metric.py record --kind pilot --ref pilot-01 ...`` で記録する。
 共通の引数: ``--observed-at`` (人が見た・聞いた時刻、タイムゾーンつき)・``--evidence-kind``
@@ -74,6 +79,12 @@ def _parser() -> argparse.ArgumentParser:
     show.add_argument("pilot")
     sub.add_parser("list")
     sub.add_parser("summary")
+    sub.add_parser("policy")
+    conf = sub.add_parser("confirm-policy")
+    conf.add_argument("--policy-hash", required=True)
+    conf.add_argument("--by", required=True)
+    conf.add_argument("--note")
+    conf.add_argument("--execute", action="store_true")
     return parser
 
 
@@ -126,6 +137,11 @@ def main(argv=None, *, path: Path | None = None, session_factory=None,
             result = service.show(args.pilot)
         elif args.command == "list":
             result = service.list()
+        elif args.command == "policy":
+            result = service.policy()
+        elif args.command == "confirm-policy":
+            result = service.confirm_policy(policy_hash=args.policy_hash, by=args.by,
+                                            note=args.note, now=now, execute=args.execute)
         else:
             result = service.report(_metric_rows(session_factory))
     except (reg.PilotError, NoteLedgerError, ValueError) as exc:

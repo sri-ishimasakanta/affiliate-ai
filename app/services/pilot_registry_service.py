@@ -21,9 +21,11 @@ DEFAULT_PATH = Path("data/n7/pilot_events.jsonl")
 
 
 class PilotRegistryService:
-    def __init__(self, path: Path | str = DEFAULT_PATH, *, policy: dict | None = None) -> None:
+    def __init__(self, path: Path | str = DEFAULT_PATH, *, policy: dict | None = None,
+                 confirmations_path: Path | str | None = None) -> None:  # fmt: skip
         self._path = Path(path)
         self._policy = policy if policy is not None else pilot_eval.load_policy()
+        self._confirmations = Path(confirmations_path or pilot_eval.CONFIRMATIONS_PATH)
 
     def events(self) -> list[dict]:
         if not self._path.exists():
@@ -64,7 +66,32 @@ class PilotRegistryService:
                 for ref, s in sorted(reg.fold(self.events()).items())]  # fmt: skip
 
     def report(self, metric_rows: list[dict]) -> dict:
-        return reg.report(self.events(), metric_rows, policy=self._policy)
+        return reg.report(self.events(), metric_rows, policy=self._policy,
+                          confirmations=pilot_eval.load_confirmations(self._confirmations))
+
+    def policy(self) -> dict:
+        """今の基準と、人の確認の状態 (読むだけ)。"""
+
+        identity = pilot_eval.policy_identity(
+            self._policy, pilot_eval.load_confirmations(self._confirmations))
+        return {**identity, "min_pilots": self._policy.get("min_pilots"),
+                "criteria": self._policy.get("criteria"),
+                "model_signals": self._policy.get("model_signals")}
+
+    def confirm_policy(self, *, policy_hash: str, by: str, now: datetime | None = None,
+                       note: str | None = None, execute: bool = False) -> dict:
+        """人の基準の確認を記録する (追記だけ)。既定は PLAN。"""
+
+        now = now or datetime.now(UTC)
+        records = pilot_eval.load_confirmations(self._confirmations)
+        record = pilot_eval.confirm_policy(self._policy, records, policy_hash_given=policy_hash,
+                                           by=by, now=now, note=note)  # fmt: skip
+        if not execute:
+            return {"recorded": False, "reason": "PLAN (re-run with --execute)", "record": record}
+        self._confirmations.write_text(json.dumps(
+            {"schema": pilot_eval.CONFIRMATIONS_SCHEMA, "records": [*records, record]},
+            ensure_ascii=False, indent=2) + "\n", encoding="utf-8")  # fmt: skip
+        return {"recorded": True, "record": record}
 
 
 __all__ = ["DEFAULT_PATH", "PilotRegistryService"]
