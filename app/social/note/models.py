@@ -117,6 +117,13 @@ class NoteDraft:
     thumbnail_brief: str | None = None
     #: 効かなくなった過去の承認 (消さずに残す。理由と時刻つき)。古い下書きには無い (空)。
     approval_history: list[dict] = field(default_factory=list)
+    #: 有料の記事だけ (``note-approval/4``、``app/social/note/paid.py``): 有料が始まる節の位置
+    #: (0 始まり)・価格 ({amount, currency})・売る物 (product の id・版・完全な hash)。
+    #: 無料の記事と古い下書きには無い (None)。本文の ``content_hash`` には入らない (販売の条件の
+    #: ``commercial_hash`` に入る)。
+    paid_from_section: int | None = None
+    price: dict | None = None
+    product: dict | None = None
 
     @property
     def body(self) -> str:

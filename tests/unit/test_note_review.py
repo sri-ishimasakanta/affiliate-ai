@@ -102,7 +102,9 @@ def _approved(tmp_path, mode="free"):
 
 
 def test_publication_needs_the_approved_hash_and_an_allowed_https_url(tmp_path) -> None:
-    _root, draft = _approved(tmp_path, mode="paid")
+    # 2026-10-01: 有料の記事は販売の条件 (note-approval/4) が無いと承認できない
+    # (tests/unit/test_note_paid_approval.py)。ここは URL と hash の検査だけを見る
+    _root, draft = _approved(tmp_path, mode="free")
     seen = NOW + timedelta(hours=1)
     for url, match in (("http://note.com/u/n/abc", "https"),
                        ("https://evil.example/n/abc", "not in publication_url_hosts"),
@@ -117,7 +119,7 @@ def test_publication_needs_the_approved_hash_and_an_allowed_https_url(tmp_path) 
     review.record_publication(draft, url="https://note.com/u/n/abc", observed_at=seen,
                               published_hash=draft.content_hash, now=seen, policy=POLICY)
     assert draft.status == "published"
-    assert draft.publication["access_mode"] == "paid"  # 記録するだけ (値段・販売は人が note で)
+    assert draft.publication["access_mode"] == "free" and "paid" not in draft.publication
     assert draft.publication["content_hash"] == draft.approval["content_hash"]
 
 

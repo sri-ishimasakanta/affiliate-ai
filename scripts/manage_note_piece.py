@@ -18,6 +18,20 @@
         --observed-at <ISO> --content-hash <sha> [--image <file>]   # 画像は承認の写しで確かめる
     uv run python scripts/manage_note_piece.py reject <draft_id> --reason "..."
 
+    # 有料の記事 (note-approval/4): 無料の部分と有料の部分から下書きを作る。売る物は今の
+    # release candidate から完全な hash を読む。承認は H4 と H5 の後だけ (販売の条件も承認に入る)
+    uv run python scripts/manage_note_piece.py import-paid --title "..." --free free.md
+        --paid paid.md --product <product_id> --price 500 --currency JPY [--replace]
+    uv run python scripts/manage_note_piece.py paid-terms <draft_id> [--price N --currency JPY]
+        [--product <product_id>] [--paid-from <section index>]
+    uv run python scripts/manage_note_piece.py approve <draft_id> --content-hash <sha>
+        --commercial-hash <sha> --by <name> [--links-approved] --image <file>
+    uv run python scripts/manage_note_piece.py record-publication ... [--observed-price 500
+        --observed-currency JPY] [--free-section-check "..."]
+        [--paid-verified-by <name> --paid-verification "..."]
+    uv run python scripts/manage_note_piece.py record-paid-verification <draft_id> --by <name>
+        --method "..."     # 公開の後に、人が有料の部分を確かめた (追記だけ)
+
 書くのは ``reports/note/drafts/`` と、承認した画像の写し ``reports/note/approved-images/`` (どちらも
 git 管理外。写しは中身の sha256 の名前で、上書きしない・消さない) だけ。note・WordPress・
 Threads・DB には書かない。
@@ -80,6 +94,26 @@ def _corpus(root: Path, *, use_db: bool) -> dict[str, str]:
     return corpus
 
 
+def _import_paid(root: Path, args, now: datetime):
+    """``import-paid``: 無料の部分と有料の部分から有料の下書きを作り、検査し直す。"""
+
+    existing = None
+    binding = review.paid.bind_product(root, args.product)
+    path = _path(root, review.paid_draft_id(args.product, binding["version"]))
+    if path.exists():
+        if not args.replace:
+            raise NoteStatusError(f"{path.stem} already exists (use --replace to re-import)")
+        existing = _load(root, path.stem)
+    draft = review.import_paid_draft(
+        title=args.title, free_markdown=Path(args.free).read_text(encoding="utf-8"),
+        paid_markdown=Path(args.paid).read_text(encoding="utf-8"), root=root,
+        product_id=args.product, amount=args.price, currency=args.currency, now=now,
+        existing=existing)  # fmt: skip
+    review.recheck(draft, commissions_known=_commissions_known(root),
+                   corpus=_corpus(root, use_db=not args.no_db))  # fmt: skip
+    return draft
+
+
 def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -131,9 +165,31 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
                      "the approved one; the record itself uses the approval snapshot)")
     pub.add_argument("--note", help="a short note from checking the published page "
                      "(stored with the publication; the approval is not changed)")
+    pub.add_argument("--observed-price", type=int, help="paid: the price shown in note")
+    pub.add_argument("--observed-currency", default=None)
+    pub.add_argument("--free-section-check", help="paid: the result of checking the public part")
+    pub.add_argument("--paid-verified-by", help="paid: who checked the paid part (short name)")
+    pub.add_argument("--paid-verification", help="paid: how the paid part was checked")
     rej = sub.add_parser("reject")
     rej.add_argument("draft_id")
     rej.add_argument("--reason", required=True)
+    imp = sub.add_parser("import-paid")
+    for name in ("--title", "--free", "--paid", "--product", "--currency"):
+        imp.add_argument(name, required=True)
+    imp.add_argument("--price", type=int, required=True)
+    imp.add_argument("--replace", action="store_true", help="re-import an existing paid draft")
+    imp.add_argument("--no-db", action="store_true", help="skip the WordPress / Threads check")
+    terms = sub.add_parser("paid-terms")
+    terms.add_argument("draft_id")
+    terms.add_argument("--price", type=int)
+    terms.add_argument("--currency")
+    terms.add_argument("--product")
+    terms.add_argument("--paid-from", type=int)
+    ver = sub.add_parser("record-paid-verification")
+    ver.add_argument("draft_id")
+    ver.add_argument("--by", required=True)
+    ver.add_argument("--method", required=True)
+    appr.add_argument("--commercial-hash", help="paid: the reviewed commercial terms hash")
     args = parser.parse_args(argv)
     now = now or datetime.now(UTC)
     if hasattr(sys.stdout, "reconfigure"):
@@ -148,16 +204,29 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
                   f"url {pub_url})")  # fmt: skip
         return 0
     try:
+        if args.command == "import-paid":
+            draft = _import_paid(root, args, now)
+            _save(root, draft)
+            print(json.dumps({"draft_id": draft.id, "status": draft.status,
+                              "content_hash": draft.content_hash,
+                              "paid": review.paid_packet(draft, root)},
+                             ensure_ascii=False, indent=2))  # fmt: skip
+            print("local only: nothing was sent to note, WordPress, Threads or the database")
+            return 0
         draft = _load(root, args.draft_id)
         if args.command == "packet":
             path = _path(root, draft.id)
-            path.with_suffix(".packet.md").write_text(review.render_packet(draft),
+            path.with_suffix(".packet.md").write_text(review.render_packet(draft, root=root),
                                                       encoding="utf-8")  # fmt: skip
+            if draft.access_mode == "paid":
+                free_text, paid_text = review.plain_text_parts(draft)
+                path.with_suffix(".free.txt").write_text(free_text, encoding="utf-8")
+                path.with_suffix(".paid.txt").write_text(paid_text, encoding="utf-8")
             path.with_suffix(".txt").write_text(review.plain_text(draft), encoding="utf-8")
             # 表示の形 (見出しは h2、箇条書きは ul)。文字と hash は .txt と同じ
             path.with_suffix(".paste.html").write_text(review.paste_html(draft), encoding="utf-8")
-            packet = review.review_packet(draft)
-            print(json.dumps({k: packet[k] for k in ("draft_id", "status", "access_mode",
+            packet = review.review_packet(draft, root=root)
+            print(json.dumps({k: packet[k] for k in ("draft_id", "status", "access_mode", "paid",
                                                      "content_hash", "links", "image_required",
                                                      "images", "errors", "can_submit",
                                                      "can_approve")},
@@ -193,7 +262,8 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             review.approve(draft, content_hash=args.content_hash, approved_by=args.by, now=now,
                            links_approved=args.links_approved, image=args.image,
                            note=args.note, after_publication_at=published_at,
-                           snapshot_root=root)  # fmt: skip
+                           snapshot_root=root, commercial_hash=args.commercial_hash,
+                           product_root=root)  # fmt: skip
         elif args.command == "record-publication":
             observed = datetime.fromisoformat(args.observed_at)
             if observed.tzinfo is None:
@@ -202,7 +272,21 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
                                       published_hash=args.content_hash, now=now,
                                       policy=review.load_policy(),
                                       image=args.image, snapshot_root=root,
-                                      note=args.note)  # fmt: skip
+                                      note=args.note, product_root=root,
+                                      observed_price=(
+                                          {"amount": args.observed_price,
+                                           "currency": args.observed_currency,
+                                           "source": "note page"}
+                                          if args.observed_price is not None else None),
+                                      free_section_check=args.free_section_check,
+                                      paid_verified_by=args.paid_verified_by,
+                                      paid_verification=args.paid_verification)  # fmt: skip
+        elif args.command == "paid-terms":
+            review.set_paid_terms(draft, root=root, product_id=args.product,
+                                  amount=args.price, currency=args.currency,
+                                  paid_from_section=args.paid_from)  # fmt: skip
+        elif args.command == "record-paid-verification":
+            review.record_paid_verification(draft, by=args.by, method=args.method, now=now)
         elif args.command == "reopen":
             review.reopen(draft, reason=args.reason, now=now)
         elif args.command == "reject":

@@ -32,7 +32,20 @@
   有料の部分 (0.2.0 の資産の本文の行をすべて含む)・貼り付け用・検査の結果・review packet。
   **note の承認の流れの外** に置いた (`review_ready` にしていない)。
 
-### note の流れで有料記事を扱うのに足りないこと (人の判断待ち)
+### 正式な有料記事の下書き (`note-approval/4`、2026-10-01)
+
+- 有料の記事の承認 `note-approval/4` を足し ([note-paid-approval.md](note-paid-approval.md))、ローカルの下書きを正式な下書き
+  **`draft-1caf34dd4c`** に取り込んだ。**`review_ready`**。人の承認・画像・note での価格の設定・公開は
+  まだ。
+- 題名「AI自動化に「人の承認の門」を組み込む：25項目のチェックリストと設定例」。無料 8 節・有料 7 節。
+  有料の境界は「関連する無料記事」の後 (`paid_from_section = 8`、有料は「この有料部分の使い方」から)。
+- 価格 500 JPY。売る物 `approval-gated-automation-kit` 0.2.0 (content hash・manifest・package の
+  完全な hash)。有料の部分は package の資産の行をすべて含む。
+- 承認できるのは H4 と H5 の後 (`can_approve: false`)。確認用のまとめは
+  `reports/note/drafts/draft-1caf34dd4c.packet.md`、H4 の手引きは
+  `reports/products/approval-gated-automation-kit/0.2.0/h4-review-guide.md`。
+
+### note の流れで有料記事を扱うのに足りなかったこと (2026-10-01 に `note-approval/4` で解消)
 
 今の note の流れは `access_mode = paid` を記録するだけで、**有料の境界・価格・product の版との結びつき**
 を承認に入れられない。公開ページで確かめられるのも無料の部分だけ。承認の意味を広げる変更になるので、

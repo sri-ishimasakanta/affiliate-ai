@@ -147,3 +147,10 @@ price 500 JPY as an operating value, replacing the earlier 980 JPY plan; license
 approval to the checklist (now 25 items), guide and config example. It checks with 0 errors and
 0 warnings, and its build is reproducible (manifest `65ac6fbb…`). H4 / H5 are still pending. The asset
 kind `license` was added.
+
+Paid note articles bind a product (`note-approval/4`, see [note-paid-approval.md](note-paid-approval.md)): the
+paid approval records the product id, version, content hash, manifest hash and package sha256,
+requires the paid part to contain every asset line of that package, and requires an H5
+`release_approval` for the same version and manifest. The order is release candidate → H4 → H5 →
+paid note approval → publication. The paid draft `draft-1caf34dd4c` is `review_ready`; H4 / H5
+are not recorded.

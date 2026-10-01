@@ -868,6 +868,26 @@ DECISIONS = (
         ),
         "follow_up": "人が H4 を行い、note で価格を設定するのは公開のとき",
     },
+    {
+        "id": "note-approval-4-paid-terms",
+        "area": "note",
+        "decision": (
+            "有料の note 記事は note-approval/4。本文の content_hash に加えて、有料の境界・価格・"
+            "売る物 (product の id・版・完全な hash) の commercial_hash を承認に結びつけ、売る物が "
+            "H5 で承認された版であることを要る。無料の記事は note-approval/3 のまま"
+        ),
+        "rationale": (
+            "同じ本文でも境界・価格・売る物が変われば、人が承認した販売とは別のもの。有料の部分は"
+            "公開ページで読めないので、人の確認を明示して記録する"
+        ),
+        "evidence": ["docs/operations/note-paid-approval.md"],
+        "phrase": "同じ本文でも境界を動かせば別の条件",
+        "resulting_state": (
+            "有料の下書き draft-1caf34dd4c が review_ready (500 JPY、0.2.0)。H4 / H5 が無いので"
+            "承認はできない。migration なし"
+        ),
+        "follow_up": "人が H4 → H5 → サムネイル → 有料記事の承認 → note で公開",
+    },
 )
 
 
