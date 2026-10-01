@@ -64,7 +64,13 @@ def test_every_committed_product_passes_its_checks() -> None:
         assert result["ok"], (pid, result["errors"])
         assert result["warnings"] == [], (pid, result["warnings"])
         assert len(result["sources"]) >= 3, pid
-        assert not (REPO / "products" / pid / "records.json").exists(), pid  # 人の記録はまだ無い
+        # 人の記録 (H4 / H5) は人が作る。あれば今の内容の hash と版に結びついている (2026-10-01:
+        # approval-gated-automation-kit 0.2.0 の H4)
+        for record in rec.load_records(product):
+            assert record["by"] and "@" not in record["by"], pid
+            if record["type"] in ("quality_review", "content_approval"):
+                assert (record["content_hash"], record["version"]) == (
+                    product.content_hash, product.version), pid
 
 
 def test_the_review_packet_has_every_section_and_approves_nothing(tmp_path) -> None:

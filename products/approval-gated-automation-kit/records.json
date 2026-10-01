@@ -1,0 +1,28 @@
+{
+  "schema": "product-records/1",
+  "records": [
+    {
+      "type": "quality_review",
+      "by": "human",
+      "at": "2026-10-01T06:06:02+00:00",
+      "content_hash": "e22787406b1fa4e216f1764f8c8e26149ef4ca7a485dadf503c4cbfc2ec57272",
+      "version": "0.2.0",
+      "checklist": {
+        "target_user_is_clear": true,
+        "useful_without_this_site": true,
+        "claims_match_sources": true,
+        "no_internal_or_personal_data": true,
+        "no_unobserved_results": true
+      },
+      "notes": "H4 human review: Quality PASS, Content PASS, Claims PASS, Redaction PASS, License PASS (team-use license as decided). Reviewed manifest 837ff0e3d3c79a7812427f2fec8cb72560d5d149eb3912c0af96dfac2f52bc3d, package b76c1c1c9241e70f4de0cc4b5758076bd72a0b79068f09ee371001c17758968b. Not a sale or publication."
+    },
+    {
+      "type": "content_approval",
+      "by": "human",
+      "at": "2026-10-01T06:06:03+00:00",
+      "content_hash": "e22787406b1fa4e216f1764f8c8e26149ef4ca7a485dadf503c4cbfc2ec57272",
+      "version": "0.2.0",
+      "meaning": "ready for release; not a sale or a publication"
+    }
+  ]
+}
