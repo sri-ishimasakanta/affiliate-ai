@@ -54,7 +54,8 @@ def _count(session) -> int:
 def test_the_repository_targets_keep_bootstrap_and_controlled_apart() -> None:
     targets = load_targets()
     roles = {p["role"]: p for p in targets["pieces"]}
-    assert set(roles) == {"bootstrap", "controlled-1", "controlled-2", "controlled-3"}
+    assert set(roles) == {"bootstrap", "controlled-1", "controlled-2", "controlled-3", "paid-1"}
+    assert roles["paid-1"]["url"] == "https://note.com/ai_growth_jp/n/nfcb70e910346"
     assert roles["bootstrap"]["in_ledger"] is False
     assert roles["bootstrap"]["ref"] == "external-nd9c4fb635aad"
     assert all(p["in_ledger"] for r, p in roles.items() if r != "bootstrap")

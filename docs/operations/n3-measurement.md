@@ -1,6 +1,8 @@
 # N3: note の実測 (G4) の手順
 
-**状態 (2026-10-01): 始める準備ができた。実測の値はまだ 0 件 (人の入力待ち)。** 架空の値・推定・
+**状態 (2026-10-01): baseline を記録した** (2026-10-01 20:17 JST、人が note のダッシュボードで見た値):
+有料記事 `paid-1` の views 10・likes 0・comments 0 と、アカウントの followers 0 (entry 1〜4。0 も表示された
+実測の値)。ほかの 4 本はまだ最初の観測待ち (値を入れていない。0 にもしていない)。架空の値・推定・
 「見えないから 0」は入れない。
 
 - 記録: `manual_metric_entries` (migration `a4a74a5bcb8b`、本番に適用済み)。CLI は
@@ -18,6 +20,7 @@
 | `draft-c9d0eae558` | controlled #1 | https://note.com/ai_growth_jp/n/n5b1256b5861b | 2026-09-30 21:09 |
 | `draft-e068f0146e` | controlled #2 | https://note.com/ai_growth_jp/n/nd9f002a5e34e | 2026-10-01 08:42 |
 | `draft-bab70591d9` | controlled #3 | https://note.com/ai_growth_jp/n/n53dfa4d2e2c3 | 2026-10-01 11:47 |
+| `draft-1caf34dd4c` | paid-1 (有料記事、500 円、`note-approval/4`) | https://note.com/ai_growth_jp/n/nfcb70e910346 | 2026-10-01 16:38 |
 
 - 公開時刻は note の公開ページ (公開の API の `publish_at`) を 2026-10-01 に読んだ値 (JST)。
 - bootstrap は台帳 (`note_pieces`) に入れない (承認の hash の無い公開は台帳の CHECK で持てない。
