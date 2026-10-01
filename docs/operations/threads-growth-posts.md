@@ -395,6 +395,23 @@ T6.3.3b (Threads が `topic_tag=インサイト祭り` を受け入れたか) �
 - やり直し中の日は、worker が続きを呼ばない (管理用 CLI だけが続けられる)。
 - 本番で使ったのは 2026-09-29 の 1 回 (人の許可あり)。
 
+#### 人が却下したその日の提案の差し替え (2026-10-01 から)
+
+`... --execute --allow-same-day-growth-retry <今日の日付> [--growth-family participation]`。
+それまでは「その日の提案があれば状態を問わず作らない」ため、人が却下した日は翌日まで作れなかった
+(2026-10-01、#51)。人の明示の指示で、次の時だけ 1 本作り直せる:
+
+- その日の提案が **人が却下した** もの (`rejected`)。承認待ち・承認済み・公開済みの日は対象外。
+- その日 1 回だけ。差し替えも却下されたら、もう作らない (翌日を待つ)。
+- 却下された提案とその記録 (承認・却下の履歴) は変えない (DB は読むだけ)。前の記録はそのまま
+  `<日付>.replaced-<提案 id>.openai.json` に写し、前の呼び出しは `superseded`
+  (`human_rejected`) の印つきで 1 日の上限 4 回に数える (前に 1 回 → 新しい呼び出しは 3 回まで)。
+- 記録の `override` に `mode=replace_human_rejected`・`replaced_proposal`・前の結果・前の呼び出しの
+  数・残りの上限。新しい提案の `growth.replaces_rejected_proposal` に却下された提案の id。
+- `--growth-family`: 人が最初に試す書き方を選べる (その日に使える書き方の時だけ。使えなければ
+  いつもの順)。検査 (purpose-2・duplication-2)・承認・1 日 1 本の公開は変わらない。
+- worker は使わない。新しい提案があるので、その日の worker はもう作らない。
+
 ## Growth の目的と目的の検査 (`app/social/threads/growth_purpose.py`、`threads-growth-purpose-1`)
 
 きっかけ: 提案 #36 (2026-09-29、人が却下)。Growth Post なのに、自己紹介・発信の価値・つながる理由が

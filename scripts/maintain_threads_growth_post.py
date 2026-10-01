@@ -16,6 +16,11 @@ JST の 1 日に 1 本まで。その日の提案があれば、何度実行し�
     # 残し、前の呼び出しも 1 日の上限 4 回に数える。承認・公開はしない)
     uv run python scripts/maintain_threads_growth_post.py --execute --collect-followers \
         --allow-same-day-growth-retry 2026-09-29
+
+    # 人が却下したその日の提案を、人が許して 1 回だけ差し替える (2026-10-01。却下された提案と
+    # その記録は変えない。前の呼び出しも上限に数える。新しい提案も承認待ち。公開はしない)
+    uv run python scripts/maintain_threads_growth_post.py --execute \
+        --allow-same-day-growth-retry 2026-10-01 --growth-family participation
 """
 
 from __future__ import annotations
@@ -56,7 +61,15 @@ def main(
         help="人が許した、今日 (JST) 1 回だけの同じ日のやり直し (--execute のときだけ。"
         "T6.3.3c より前の記録の日だけに効き、上限は前の呼び出しを数えたまま)",
     )
+    parser.add_argument(
+        "--growth-family",
+        metavar="FAMILY",
+        help="同じ日のやり直しで最初に試す書き方 (--allow-same-day-growth-retry のときだけ。"
+        "その日に使える書き方の時だけ効く。例: participation)",
+    )
     args = parser.parse_args(argv)
+    if args.growth_family is not None and args.same_day_retry is None:
+        parser.error("--growth-family needs --allow-same-day-growth-retry")
     same_day_retry = None
     if args.same_day_retry is not None:
         if not args.execute:
@@ -84,6 +97,7 @@ def main(
         "client": build_responses_client(settings),
         "collect_followers": args.collect_followers,
         "same_day_retry": same_day_retry,
+        "growth_family": args.growth_family,
         **(overrides or {}),
     }
     if args.collect_followers and "threads_service" not in options:

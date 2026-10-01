@@ -30,6 +30,11 @@ T6.3.3c: 目的は「その日に、検査を通った提案を 1 本」。候�
 そのまま残し (記録の中の ``legacy_record`` と、同じ中身の別ファイル)、前の呼び出しも 1 日の上限に
 数える (上限は 0 に戻らない)。検査・承認・1 日 1 本の公開は変わらない。やり直し中の日は、worker が
 続きを呼ばない。
+
+2026-10-01: 同じやり直しで、**人が却下した** その日の提案を 1 回だけ差し替えられる
+(``replacement_target``)。却下された提案とその記録は変えず、前の記録の写しを残し、前の呼び出しも
+上限に数える。承認待ち・承認済みの提案、公開済みの日、差し替えが済んだ日は対象外。新しい提案も
+承認待ち。``growth_family`` (``--growth-family``) で人が最初の書き方を選べる (使える時だけ)。
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ from app.article.fact_freshness import ensure_aware, to_storage_utc
 from app.models import (
     PUB_PUBLISHED,
     TP_AWAITING_APPROVAL,
+    TP_REJECTED,
     ThreadsPostProposal,
     ThreadsPublication,
 )
@@ -107,6 +113,10 @@ RECORD_SUFFIX = ".openai.json"
 OVERRIDE_SAME_DAY_RETRY = "human_authorized_same_day_retry"
 #: やり直しの前の記録の、そのままの写し (消さない・上書きしない)。
 LEGACY_COPY_SUFFIX = ".legacy-t633.openai.json"
+#: 人が却下したその日の提案を、人が許して 1 回だけ差し替える (2026-10-01)。
+REPLACE_HUMAN_REJECTED = "replace_human_rejected"
+#: 差し替えの前の記録の、そのままの写し (``<日付>.replaced-<提案 id>.openai.json``)。
+REPLACED_COPY_SUFFIX = ".openai.json"
 
 
 class ThreadsGrowthService:
@@ -122,6 +132,7 @@ class ThreadsGrowthService:
         follower_target: int = GROWTH_FOLLOWER_TARGET,
         enabled: bool = GROWTH_POSTS_ENABLED,
         same_day_retry=None,
+        growth_family: str | None = None,
     ) -> None:
         self._session = session
         self._tz = timezone
@@ -135,6 +146,8 @@ class ThreadsGrowthService:
         self._follower_read: dict | None = None
         #: 人が許した同じ日のやり直しの日付 (管理用 CLI だけが渡す)。
         self._same_day_retry = same_day_retry
+        #: 同じ日のやり直しで、人が選んだ最初の書き方 (管理用 CLI だけが渡す。使える時だけ効く)。
+        self._growth_family = growth_family
 
     # -- facts ---------------------------------------------------------------------------
     def growth_proposals(self) -> list[ThreadsPostProposal]:
@@ -152,6 +165,27 @@ class ThreadsGrowthService:
             if (_growth_meta(row) or {}).get("date_jst") == day.isoformat():
                 return row
         return None
+
+    def replacement_target(self, day) -> ThreadsPostProposal | None:
+        """人が許した同じ日のやり直しで、差し替えてよいその日の提案 (2026-10-01)。
+
+        **人が却下した** 提案だけ。その日 1 回だけ (記録に差し替えの印があれば、同じ提案の
+        続きの時だけ)。T6.3.3c より前の形の記録の日は対象外 (``_convert_legacy`` の道)。
+        """
+
+        if self._same_day_retry is None or self._same_day_retry != day:
+            return None
+        existing = self.proposal_for(day)
+        if existing is None or existing.status != TP_REJECTED:
+            return None
+        record = self._record(day)
+        if record and record.get("strategy_policy_version") is None:
+            return None
+        override = (record or {}).get("override") or {}
+        replaced = override.get("replaced_proposal")
+        if replaced is not None and (replaced != existing.id or record.get("outcome")):
+            return None
+        return existing
 
     def published_on(self, day) -> list[int]:
         """その日 (JST) に公開された Growth Post の公開 ID。"""
@@ -203,9 +237,12 @@ class ThreadsGrowthService:
         }
         reason = None
         operator_retry = self._same_day_retry is not None and self._same_day_retry == day
+        replacing = self.replacement_target(day) if operator_retry else None
         if self._same_day_retry is not None:
             out["same_day_retry"] = {"requested_for": str(self._same_day_retry),
-                                     "applies": operator_retry}  # fmt: skip
+                                     "applies": operator_retry,
+                                     "replaces_rejected_proposal":
+                                         replacing.id if replacing else None}  # fmt: skip
         if self._same_day_retry is not None and not operator_retry:
             reason = (f"the same-day retry was allowed for {self._same_day_retry}, not today "
                       f"({day}); refused")  # fmt: skip
@@ -213,11 +250,12 @@ class ThreadsGrowthService:
             reason = "disabled by policy"
         elif now < start:
             reason = "before 07:00 JST"
-        elif existing is not None:
+        elif existing is not None and replacing is None:
             reason = f"today's growth post already exists (proposal {existing.id})"
         elif out["published_today"]:
             reason = "a growth post was already published today"
-        elif (finished := _finished(self._record(day), operator_retry=operator_retry)) is not None:
+        elif (finished := _finished(self._record(day), operator_retry=operator_retry,
+                                    replacing=replacing is not None)) is not None:  # fmt: skip
             reason = finished
         elif out["follower_target_reached"]:
             reason = (
@@ -481,6 +519,13 @@ class ThreadsGrowthService:
             if self._same_day_retry != day:  # pragma: no cover - plan() で止まる
                 return None, 0, "today's growth generation was already attempted", None
             existing = self._convert_legacy(existing, rid)
+        target = self.replacement_target(day)
+        if (
+            existing
+            and target is not None
+            and not (existing.get("override") or {}).get("replaced_proposal")
+        ):
+            existing = self._mark_replacement(existing, rid, target)
         record = existing or {
             "request_id": f"growth-{rid}",
             "content_kind": CONTENT_KIND_ACCOUNT_GROWTH,
@@ -504,8 +549,18 @@ class ThreadsGrowthService:
         history = self.strategy_history(day)
         recent = self._recent_items()
         made = 0
+        # 人が選んだ最初の書き方 (同じ日のやり直しの時だけ。その日に使える書き方の時だけ)
+        preferred = (
+            (self._growth_family,)
+            if (self._same_day_retry == day and self._growth_family in families)
+            else None
+        )
         while len(calls) < gs.MAX_GROWTH_MODEL_CALLS_PER_DAY:
-            action = _next_action(day, calls, families, history)
+            action = None
+            if preferred is not None:
+                action = _next_action(day, calls, preferred, history)
+            if action is None:
+                action = _next_action(day, calls, families, history)
             if action is None:
                 return self._finish(record, gs.STRATEGY_EXHAUSTED, made)
             purpose, strategy, feedback, direction = action
@@ -584,7 +639,9 @@ class ThreadsGrowthService:
                 entry["failure_class"] = None
                 created = self._persist(check["body"], brief, check, now, rid,
                                         call_index=entry["call_index"],
-                                        attempt_index=entry["attempt_index"])  # fmt: skip
+                                        attempt_index=entry["attempt_index"],
+                                        replaces=(record.get("override") or {})
+                                        .get("replaced_proposal"))  # fmt: skip
                 record.update(result="stored" if purpose != "repair" else "repaired",
                               outcome="stored", proposal_id=created, updated_at=_now(),
                               **_totals(calls))  # fmt: skip
@@ -659,6 +716,42 @@ class ThreadsGrowthService:
             "history": calls,
         }  # fmt: skip
 
+    def _mark_replacement(self, record: dict, rid: str, target: ThreadsPostProposal) -> dict:
+        """人が許した同じ日のやり直し: 人が却下した提案の日を、消さずに続きへ開く (2026-10-01)。
+
+        前の記録はそのまま写しを残し (上書きしない)、前の呼び出しは 1 日の上限に数えたまま。
+        却下された提案・その承認や却下の記録には触れない (DB は読むだけ)。
+        """
+
+        copy = self._dir / f"{rid}.replaced-{target.id}{REPLACED_COPY_SUFFIX}"
+        original = self._dir / f"{rid}{RECORD_SUFFIX}"
+        if not copy.exists():
+            copy.write_bytes(original.read_bytes())
+        calls = record.setdefault("history", [])
+        for call in calls:
+            if call.get("result") == "ok" and (call.get("validation") or {}).get("ok"):
+                call["superseded"] = {"reason": "human_rejected", "proposal_id": target.id}
+        override = dict(record.get("override") or {})
+        override.update({
+            "type": OVERRIDE_SAME_DAY_RETRY,
+            "mode": REPLACE_HUMAN_REJECTED,
+            "date_jst": rid,
+            "authorized_via": "scripts/maintain_threads_growth_post.py "
+                              "--allow-same-day-growth-retry",
+            "replacement_applied_at": _now(),
+            "replaced_proposal": target.id,
+            "replaced_status": target.status,
+            "previous_outcome": record.get("outcome"),
+            "previous_proposal_id": record.get("proposal_id"),
+            "previous_calls": len(calls),
+            "starting_remaining_budget": max(0, gs.MAX_GROWTH_MODEL_CALLS_PER_DAY - len(calls)),
+            "replaced_copy": copy.name,
+        })  # fmt: skip
+        record.update(override=override, outcome=None, proposal_id=None, result="in_progress",
+                      generator_version=GROWTH_GENERATOR_VERSION, updated_at=_now())  # fmt: skip
+        self._write_record(rid, record)
+        return record
+
     def _finish(self, record: dict, why: str, made: int, *, reason: str | None = None):
         """その日を提案なしで終える (もう呼ばない)。"""
 
@@ -692,7 +785,8 @@ class ThreadsGrowthService:
         return {**verdict, "ok": not problems, "problems": sorted(set(problems)), "body": body}
 
     def _persist(self, body: str, brief: GrowthBrief, check: dict, now: datetime, rid, *,
-                 call_index: int | None = None, attempt_index: int | None = None) -> int:
+                 call_index: int | None = None, attempt_index: int | None = None,
+                 replaces: int | None = None) -> int:  # fmt: skip
         start, end = day_window(brief.day, self._tz)
         seed = hashlib.sha256(
             chr(31).join([CONTENT_KIND_ACCOUNT_GROWTH, brief.day.isoformat(), brief.angle, body])
@@ -729,6 +823,8 @@ class ThreadsGrowthService:
                     "attempt_index": attempt_index,
                     # Growth の目的の検査の結果 (次の日の書き方の揺らしにも使う)。
                     "purpose": _purpose_meta(check.get("purpose")),
+                    # 人が許した同じ日のやり直しで、人が却下した提案の代わりに作った時だけ
+                    **({"replaces_rejected_proposal": replaces} if replaces else {}),
                 },
             },
             not_before=to_storage_utc(start),
@@ -809,11 +905,14 @@ def _calls(record: dict | None) -> list[dict]:
     return list((record or {}).get("history") or [])
 
 
-def _finished(record: dict | None, *, operator_retry: bool = False) -> str | None:
+def _finished(record: dict | None, *, operator_retry: bool = False,
+              replacing: bool = False) -> str | None:  # fmt: skip
     """その日の生成が終わっていれば理由 (もう呼ばない)、続けてよければ ``None``。
 
     ``operator_retry``: 人が許した同じ日のやり直し (管理用 CLI) で、今日の分として呼ばれた。
     T6.3.3c より前の形の記録の日だけ、続けてよい (上限は前の呼び出しを数えたまま)。
+    ``replacing``: そのやり直しで、人が却下したその日の提案を差し替える (``stored`` で終わった
+    日を 1 回だけ続けてよい。上限は前の呼び出しを数えたまま)。
     """
 
     if not record:
@@ -828,7 +927,7 @@ def _finished(record: dict | None, *, operator_retry: bool = False) -> str | Non
     if record.get("override") and not operator_retry and not record.get("outcome"):
         return ("today's growth generation is under a human-authorized same-day retry; "
                 "the worker does not continue it")  # fmt: skip
-    if record.get("outcome"):
+    if record.get("outcome") and not (replacing and record["outcome"] == "stored"):
         return f"today's growth generation is finished ({record['outcome']})"
     if len(_calls(record)) >= gs.MAX_GROWTH_MODEL_CALLS_PER_DAY:
         return (f"today's growth model-call budget is used "
@@ -888,8 +987,9 @@ def _next_action(day, calls: list[dict], families, history):
         last.setdefault("next_action", {"purpose": None, "retry_reason": gs.STRATEGY_EXHAUSTED})
         return None
     direction = _retry_direction(last, strategy)
+    retry_reason = failure or ("human_rejected" if last.get("superseded") else "interrupted")
     last.setdefault("next_action", {"purpose": "strategy_retry", "strategy": strategy.signature,
-                                    "retry_reason": failure or "interrupted"})  # fmt: skip
+                                    "retry_reason": retry_reason})  # fmt: skip
     return ("strategy_retry", strategy, None, direction)
 
 
@@ -902,6 +1002,9 @@ def _retry_direction(last: dict, strategy) -> str:
     if last.get("failure_class") == gs.VALIDATION_SIMILARITY:
         why = (f"前の案 ({before}) は、最近の Growth Post ({sim.get('compared')}) と似すぎていた "
                f"(3 文字の重なり {sim.get('max')}、上限 {sim.get('threshold')})。")
+    elif last.get("superseded"):
+        why = (f"前の案 ({before}) は人が却下した "
+               f"(提案 {last['superseded'].get('proposal_id')})。")  # fmt: skip
     else:
         why = f"前の案 ({before}) は検査に通らなかった。"
     return (

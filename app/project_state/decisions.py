@@ -748,6 +748,26 @@ DECISIONS = (
             "worker を新しいコードで起動し直してから、次の Growth Post (10/2) を人が確かめる"
         ),
     },
+    {
+        "id": "threads-growth-replace-rejected",
+        "area": "threads/growth",
+        "decision": (
+            "人が却下したその日の Growth Post は、人の明示の指示 (管理用 CLI の同じ日のやり直し) で"
+            "1 日 1 回だけ差し替えられる。worker は差し替えない"
+        ),
+        "rationale": (
+            "「その日の提案があれば状態を問わず作らない」ため、却下した日 (#51) は翌日まで作れな"
+            "かった。却下された提案と記録は変えず、前の呼び出しも上限に数え、新しい提案も承認待ちに"
+            "する"
+        ),
+        "evidence": ["docs/operations/threads-growth-posts.md"],
+        "phrase": "人が却下したその日の提案の差し替え",
+        "resulting_state": (
+            "承認待ち・承認済み・公開済みの日と、差し替えが済んだ日は対象外。--growth-family で"
+            "人が最初の書き方を選べる"
+        ),
+        "follow_up": "差し替えの提案は通常どおり人が承認か却下を決める",
+    },
 )
 
 
