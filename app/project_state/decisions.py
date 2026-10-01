@@ -848,6 +848,26 @@ DECISIONS = (
         ),
         "follow_up": "人が H4 (品質の確認・内容の承認) を行う",
     },
+    {
+        "id": "approval-kit-initial-price-500",
+        "area": "products",
+        "decision": (
+            "人の決定: approval-gated-automation-kit の note 有料記事の最初の価格は 500 円。"
+            "前の 980 円の"
+            "案は採用しない (approval-kit-first-paid-product の価格だけを置き換える)"
+        ),
+        "rationale": (
+            "価格は product の版・内容とは別の運用の値で、後で変えてよい。価格だけの変更なので、"
+            "商品の中身・版・content hash・利用の条件・無料と有料の境界は変えない"
+        ),
+        "evidence": ["docs/operations/first-paid-product.md"],
+        "phrase": "| 最初の価格 | **500 円**",
+        "resulting_state": (
+            "最初の価格 500 円 (まだ note に設定していない)。"
+            "0.2.0 の content hash と manifest は同じ"
+        ),
+        "follow_up": "人が H4 を行い、note で価格を設定するのは公開のとき",
+    },
 )
 
 
