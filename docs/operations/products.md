@@ -145,7 +145,7 @@ is stale. The review packet of `approval-gated-automation-kit` 0.1.0 was regener
 On 2026-10-01 the human chose `approval-gated-automation-kit` 0.2.0 for a note paid article (initial
 price 500 JPY as an operating value, replacing the earlier 980 JPY plan; license in `assets/license.md`). 0.2.0 adds content-hash file
 approval to the checklist (now 25 items), guide and config example. It checks with 0 errors and
-0 warnings, and its build is reproducible (manifest `65ac6fbb…`). H4 / H5 are still pending. The asset
+0 warnings, and its build is reproducible. After the read-only H4 review it was corrected in place (still 0.2.0, unreleased): no guarantee wording, clearer stage placement, a short hash note, an approval-state checklist item, the config example marked as a template, and team use in the license; now content hash `e2278740…`, manifest `837ff0e3…`, package `b76c1c1c…`. H4 / H5 are still pending. Product checks also warn on guarantee wording (`safety.guarantee_claims`). The asset
 kind `license` was added.
 
 Paid note articles bind a product (`note-approval/4`, see [note-paid-approval.md](note-paid-approval.md)): the

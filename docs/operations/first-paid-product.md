@@ -12,7 +12,7 @@
 | 配布の形 | note の有料記事 |
 | 最初の価格 | **500 円** (2026-10-01 に人が変更。前の 980 円の案は採用しない)。**運用の値**。後で変えてよい。product の版・content hash・manifest とは別のもの。販売の実績が無いので、最適な価格だとは言わない |
 | 出す版 | 0.2.0 |
-| 利用の条件 | 購入者本人の個人利用・業務利用と、購入者自身の改変を許可。第三者への再配布・共有・再販売・商品としての再パッケージ販売は禁止 (`assets/license.md`) |
+| 利用の条件 | **1 回の購入 = 購入者 + 購入者が所属する 1 つの組織・チームの中での利用** (2026-10-01 に人が明確にした)。購入者本人の個人利用・業務利用、所属する 1 つの組織・チームの中での業務利用、自分たちの環境向けの改変、書き換えた社内用のチェックリスト・手順書の組織・チームの中での共有は可。元のファイルの組織外への提供・公開配布・再販売・ほかの商品や教材への組み込み販売・別の組織やチームへの横展開は不可 (`assets/license.md`) |
 | N3 | 4 週間の完了を出す条件にしない。N3 の数を販売の主張に使わない |
 
 - 価格はまだ note に設定していない。note の有料の設定・公開・販売の開始は人が行う。
@@ -25,9 +25,18 @@
   固定する」5 項目。履歴の扱いは既存の項目に足した)。手引きに承認の流れ (提出・承認・使う前の照合・
   変わったら承認し直す・履歴・事後の承認) と落とし穴 2 つ。設定の例に画像・添付の承認と承認の履歴。
   利用の条件 (`assets/license.md`、資産の種類 `license` を足した)。
-- check 0 errors / 0 warnings (出どころ 15 件がすべて解決)、build は再現できる
-  (manifest `65ac6fbb…`、package `09916ed3…`)、stale なし (まだ出していない)。review packet は
-  `reports/products/approval-gated-automation-kit/0.2.0/review-packet.md`。**H4 / H5 はまだ。**
+- **H4 の前の読み取りの指摘を直した (2026-10-01、0.2.0 のまま。まだ出していない)**: 手引きの保証に
+  読める言い切り 2 文を「何がしやすくなるか」の書き方に直した。段階の置き方 (A〜E は安全さの順では
+  ない。迷ったら C か E、D は初回を人が確かめた後に続けて自動にしたい処理)。hash の短い説明。
+  チェックリストの計測の項目を、承認の状態 (承認待ち・承認済み・却下・効かなくなった承認) を区別して
+  記録する項目に替えた (25 項目のまま。出どころは `threads-proposal-stock.md`・`threads-worker.md`・
+  決定 `threads-human-approval-required`)。設定の例がツールの設定ファイルではないこと。利用の条件の
+  チームの利用 (人の決定 `approval-kit-license-team-use`)。
+- check 0 errors / 0 warnings (出どころ 18 件・組で 16 件がすべて解決)、build は再現できる
+  (content hash `e2278740…`、manifest `837ff0e3…`、package `b76c1c1c…`)、stale なし。review packet と
+  H4 の手引き (`h4-review-guide.md`) は `reports/products/approval-gated-automation-kit/0.2.0/`。
+  **H4 / H5 はまだ。** H5 まで出どころの文書 (`note-channel.md`・`site-growth-operations.md`・
+  `threads-proposal-stock.md`・`threads-worker.md`) は直さない。
 - **有料記事の下書き**: `reports/note/paid/approval-gated-automation-kit-0.2.0/` (git 管理外)。無料の部分・
   有料の部分 (0.2.0 の資産の本文の行をすべて含む)・貼り付け用・検査の結果・review packet。
   **note の承認の流れの外** に置いた (`review_ready` にしていない)。
@@ -40,7 +49,8 @@
 - 題名「AI自動化に「人の承認の門」を組み込む：25項目のチェックリストと設定例」。無料 8 節・有料 7 節。
   有料の境界は「関連する無料記事」の後 (`paid_from_section = 8`、有料は「この有料部分の使い方」から)。
 - 価格 500 JPY。売る物 `approval-gated-automation-kit` 0.2.0 (content hash・manifest・package の
-  完全な hash)。有料の部分は package の資産の行をすべて含む。
+  完全な hash)。有料の部分は package の資産の行をすべて含む。直した 0.2.0 で取り込み直した
+  (本文 hash `34a8274a…`、販売の条件の hash `fa4e11bd…`)。
 - 承認できるのは H4 と H5 の後 (`can_approve: false`)。確認用のまとめは
   `reports/note/drafts/draft-1caf34dd4c.packet.md`、H4 の手引きは
   `reports/products/approval-gated-automation-kit/0.2.0/h4-review-guide.md`。

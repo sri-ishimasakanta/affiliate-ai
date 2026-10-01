@@ -34,6 +34,25 @@ CAUSAL_PATTERNS = re.compile(
     r"おかげで|によって(?:伸び|増え|改善)|効果があった|効果が出た|で伸びた"
 )
 HYPE_WORDS = ("神ツール", "絶対に", "革命的", "圧倒的に", "誰でも簡単に", "必ず儲かる", "爆伸び")
+#: 安全・事故の防止・成果を約束するように読める言い切り (2026-10-01、H4 の人の確認で見つかった形)。
+#: 文ごとに見て、同じ文に否定 (「とは言えません」など) があれば言い切りではないので数えない。
+GUARANTEE_PATTERNS = re.compile(
+    r"安全に[^。\n]{0,12}(?:られ|れ|でき|なり)ます|安全になり?ます|安全が保て"
+    r"|(?:防げ|防止でき|なくせ)(?:ます|る)|事故(?:が|を)?(?:なくな|防)"
+    r"|必ず[^。\n]{0,10}(?:防|安全|成功|なくな|上が|増え)|確実に(?:防|安全|なくな)"
+)
+NEGATED = re.compile(r"とは言え|とはいえ|言えません|言えない|ではありません|ものではない|しません")
+_SENTENCE = re.compile(r"[^。\n]+[。]?")
+
+
+def guarantee_claims(text: str) -> list[str]:
+    """否定されていない、保証に読める言い切りの文 (先頭 40 字)。"""
+
+    found = []
+    for sentence in _SENTENCE.findall(text):
+        if GUARANTEE_PATTERNS.search(sentence) and not NEGATED.search(sentence):
+            found.append(sentence.strip()[:40])
+    return found
 
 
 # 読み手に意味の無い内部の言葉 (フェーズの記号・記事の内部 ID・CLI の flag・内部の項目名)。
@@ -89,6 +108,8 @@ def check_body(body: str, *, commissions_known: bool) -> tuple[list, list]:
     for word in HYPE_WORDS:
         if word in body:
             warnings.append(f"hype word: {word}")
+    warnings += [f"guarantee wording (say what it makes easier, not that it is safe): {s}"
+                 for s in guarantee_claims(body)]  # fmt: skip
     return errors, warnings
 
 

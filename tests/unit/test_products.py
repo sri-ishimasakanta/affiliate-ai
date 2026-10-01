@@ -41,7 +41,7 @@ def _repo(tmp_path: Path) -> Path:
     shutil.copy2(REPO / "docs/project-roadmap.json", root / "docs/project-roadmap.json")
     shutil.copytree(REPO / "docs/decision-log", root / "docs/decision-log")
     for name in ("site-growth-operations.md", "threads-performance-analysis.md",
-                 "note-channel.md"):
+                 "note-channel.md", "threads-proposal-stock.md", "threads-worker.md"):
         shutil.copy2(REPO / "docs/operations" / name, root / "docs/operations" / name)
     shutil.copytree(REPO / "products" / PID, root / "products" / PID)
     (root / "products" / PID / "records.json").unlink(missing_ok=True)

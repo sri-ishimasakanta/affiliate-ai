@@ -14,7 +14,7 @@
     "このサイトの承認の記録の形式・写しの保存場所・識別子・hash の値"
   ],
   "format": "guide_bundle",
-  "license": "購入者本人の個人利用・業務利用と、購入者自身による改変を許可。第三者への再配布・共有・再販売・商品としての再パッケージ販売は禁止 (assets/license.md)",
+  "license": "1 回の購入で、購入者本人と、購入者が所属する 1 つの組織・チームの中での業務利用まで (書き換えと、書き換えた社内用の手順書のその中での共有を含む)。元のファイルの外部への提供・公開配布・再販売・組み込み販売・別の組織やチームへの横展開は禁止 (assets/license.md)",
   "distribution": null,
   "assets": [
     {
@@ -43,6 +43,14 @@
         {
           "ref": "doc:docs/operations/note-channel.md",
           "phrase": "承認した画像は、中身の hash で固定する"
+        },
+        {
+          "ref": "doc:docs/operations/threads-proposal-stock.md",
+          "phrase": "1 件の提案は必ず 1 つの区分に入る"
+        },
+        {
+          "ref": "doc:docs/operations/threads-worker.md",
+          "phrase": "| `not_approved` | まだ承認されていない |"
         }
       ]
     },
@@ -98,6 +106,9 @@
       "sources": [
         {
           "ref": "decision:approval-kit-first-paid-product"
+        },
+        {
+          "ref": "decision:approval-kit-license-team-use"
         }
       ]
     }

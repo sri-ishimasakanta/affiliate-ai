@@ -888,6 +888,27 @@ DECISIONS = (
         ),
         "follow_up": "人が H4 → H5 → サムネイル → 有料記事の承認 → note で公開",
     },
+    {
+        "id": "approval-kit-license-team-use",
+        "area": "products",
+        "decision": (
+            "人の決定: approval-gated-automation-kit は 1 回の購入で、"
+            "購入者本人と、購入者が所属する"
+            "1 つの組織・チームの中での業務利用まで。"
+            "書き換えた社内用の手順書はその中で共有してよい。"
+            "元のファイルの外部への提供・公開・再販売・組み込み販売・別の組織への横展開は禁止"
+        ),
+        "rationale": (
+            "対象の読者に小さなチームを含むので、チームの中での利用を許さないと使えない。再配布と"
+            "再販売は禁止のまま。H4 の読み取りの確認で、対象と利用の条件の食い違いが見つかった"
+        ),
+        "evidence": ["docs/operations/first-paid-product.md"],
+        "phrase": "1 回の購入 = 購入者 + 購入者が所属する 1 つの組織・チームの中での利用",
+        "resulting_state": (
+            "assets/license.md と有料記事の利用の条件を同じ意味にした (0.2.0、未リリース)"
+        ),
+        "follow_up": "人が H4 で利用の条件を確かめる",
+    },
 )
 
 
