@@ -37,6 +37,8 @@ CATALOG: dict[str, dict[str, str]] = {
               "onboarding_difficulty": "scale_1_5", "support_minutes": "minutes",
               "operating_cost_jpy": "jpy", "api_cost_jpy": "jpy",
               "willingness_to_pay_jpy": "jpy", "support_contacts": "count",
+              # 実際に受け取った支払い (2026-10-01。無ければ「無い」のまま。0 にしない)
+              "payment_received_jpy": "jpy",
               # 構造化した声 (N7): 評価と、つまずいた所の印
               "value_rating": "scale_1_5", "would_continue": "flag",
               "friction_setup": "flag", "friction_approvals": "flag",

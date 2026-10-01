@@ -15,6 +15,72 @@ willingness-to-pay number is ever invented.**
 - Storage: the N3 ledger (`manual_metric_entries`, migration `a4a74a5bcb8b`, production apply
   pending). No new table.
 
+## Ready for real pilots (2026-10-01): the pilot record and evidence rules
+
+**State: ready to accept real pilots; no real pilot yet (evidence pending).** N7 is not complete
+until real pilots ran and the human recorded the decision.
+
+- Code: `app/n_track/pilot_registry.py` (events, rules, summary, N8 gate),
+  `app/services/pilot_registry_service.py`, CLI `scripts/manage_pilots.py` (PLAN by default;
+  `--execute` writes). Tests: `tests/unit/test_pilot_registry.py`.
+- Storage (no migration): lifecycle and qualitative evidence are an **append-only event file**
+  `data/n7/pilot_events.jsonl` (local, git-ignored, like the database). Numbers stay in the N3
+  ledger (`manual_metric_entries`, `subject_kind = pilot`). A new pilot metric
+  `payment_received_jpy` records an actual payment.
+
+### Evidence rules
+
+| Kind (`--evidence-kind`) | Meaning | Counted |
+|---|---|---|
+| `observed_fact` | the human saw it (the pilot's screen, a log, a receipt) | yes |
+| `human_reported` | the pilot told the human (interview, message) | yes |
+| `measured_metric` | a number taken from a record (also entered in the N3 ledger) | yes |
+| `inference` | the human's reading of the evidence | kept, **not counted** |
+| `hypothesis` | something to test later | kept, **not counted** |
+| *(missing)* | nothing recorded | shown as `missing`, **never 0** |
+
+- Only pilots registered by a human (`provenance = human_entry`) with `--agreement-confirmed`
+  (the human holds the pilot's agreement outside this repository) are counted. Test fixtures
+  (`test_fixture`) and ledger numbers for unregistered `pilot-xx` refs are excluded and listed.
+- Lifecycle events (register, onboarding, close, withdraw) must be `observed_fact` or
+  `human_reported`.
+- Missing is not 0: an absent number is `missing`; an absent payment is `missing`, not `false`;
+  a recorded 0 is a real 0.
+- Append-only: nothing is edited or deleted. A mistake gets a `correct --supersedes <id>` event;
+  correcting a registration removes the pilot from the counts. After `close` or `withdraw`, only
+  corrections are accepted. The file refuses hand edits (ids must stay in order).
+- Never record: names, emails, phone numbers, URLs that identify a person, credentials, made-up
+  or "expected" numbers, synthetic feedback, or a payment / continuation that was not confirmed.
+
+### What the human does when a real pilot starts
+
+1. Agree with the pilot (outside this repo) and choose a pseudonym (`pilot-01`, …).
+2. Register (PLAN first, then add `--execute`):
+
+   ```bash
+   uv run python scripts/manage_pilots.py register pilot-01 --started-at 2026-10-10T10:00:00+09:00 --use-case "<short use case, no personal data>" --acquisition own_network --agreement-confirmed --source "pilot agreement (kept by the human)" --by human
+   ```
+
+3. As things happen: `onboarding pilot-01 --state in_progress|completed|blocked`, `usage`,
+   `outcome`, `feedback`, `blocker --category setup|approvals|cost|trust|other`, each with
+   `--note`, `--evidence-kind`, `--source`, `--by`, `--observed-at`.
+4. Numbers (activated, time to first value, workflows, active days, ratings, support minutes,
+   costs, willingness to pay, payment received): `record_manual_metric.py record --kind pilot
+   --ref pilot-01 --metric <m> --value <v> --observed-at <time> --source "<where>" --by human`.
+5. At the end: `close pilot-01` (or `withdraw pilot-01 --reason …`).
+6. Check: `manage_pilots.py summary` (counts, per-pilot coverage, missing evidence, blockers,
+   N8 gate).
+
+### N8 decision gate (`summary` → `n8_gate`)
+
+- `insufficient_evidence`: fewer than `min_pilots` (3) real pilots, or any go / no-go criterion
+  lacks evidence. With no real pilot it is always this.
+- `needs_human_policy`: enough evidence, but `pilot_policy.json` is still `proposed`; the human
+  confirms the thresholds first (no new thresholds are invented here).
+- `ready_for_human_decision`: the criteria results and the existing model-signal rule
+  (`rule_reading`) are shown with the candidates SaaS / Managed Service / Hybrid. **It never
+  decides**; the human records the decision with the template below, then N8 may start.
+
 ## Pilot plan (for when the human recruits pilots)
 
 1. **Recruit** (human): a small number of real users. At least `min_pilots` (3) are needed

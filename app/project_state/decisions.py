@@ -909,6 +909,26 @@ DECISIONS = (
         ),
         "follow_up": "人が H4 で利用の条件を確かめる",
     },
+    {
+        "id": "n7-pilot-evidence-rules",
+        "area": "n-track/saas-validation",
+        "decision": (
+            "N7 で数えるのは、人が合意を確かめて登録した本物の試しの利用者だけ。無い数は missing "
+            "(0 にしない)。推定・仮説は記録しても数えない。本物の試しが足りなければ N8 の判断は"
+            "必ず insufficient_evidence"
+        ),
+        "rationale": (
+            "作った利用者・合成の声・テストの fixture を証拠にしないため。閾値は既存の案 "
+            "(pilot_policy.json) を使い、人が確かめるまで判断に進めない"
+        ),
+        "evidence": ["docs/operations/saas-validation.md"],
+        "phrase": "Missing is not 0",
+        "resulting_state": (
+            "試しの利用者の記録 (追記だけの出来事・manage_pilots.py) と要約・N8 の関門。本物の"
+            "試しの利用者は 0 (証拠待ち)。migration なし"
+        ),
+        "follow_up": "人が本物の試しの利用者を集め、登録してから計測を始める",
+    },
 )
 
 
