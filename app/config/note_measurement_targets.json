@@ -1,0 +1,38 @@
+{
+  "schema": "note-measurement-targets/1",
+  "about": "N3: the published note pieces measured by hand (G4). note_published_at is note's own publication time (read from the public note page, 2026-10-01). The bootstrap piece was published before the N1 flow, is not in note_pieces and has no approval; it is measured under its own external reference only.",
+  "cadence_days": 7,
+  "checkpoints": 4,
+  "window_days": 3,
+  "pieces": [
+    {
+      "ref": "external-nd9c4fb635aad",
+      "role": "bootstrap",
+      "url": "https://note.com/ai_growth_jp/n/nd9c4fb635aad",
+      "note_published_at": "2026-09-30T11:49:04+09:00",
+      "in_ledger": false
+    },
+    {
+      "ref": "draft-c9d0eae558",
+      "role": "controlled-1",
+      "url": "https://note.com/ai_growth_jp/n/n5b1256b5861b",
+      "note_published_at": "2026-09-30T21:09:01+09:00",
+      "in_ledger": true
+    },
+    {
+      "ref": "draft-e068f0146e",
+      "role": "controlled-2",
+      "url": "https://note.com/ai_growth_jp/n/nd9f002a5e34e",
+      "note_published_at": "2026-10-01T08:42:03+09:00",
+      "in_ledger": true
+    },
+    {
+      "ref": "draft-bab70591d9",
+      "role": "controlled-3",
+      "url": "https://note.com/ai_growth_jp/n/n53dfa4d2e2c3",
+      "note_published_at": "2026-10-01T11:47:11+09:00",
+      "in_ledger": true
+    }
+  ],
+  "channels": ["note"]
+}

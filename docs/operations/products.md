@@ -130,3 +130,14 @@ Every spec now states its `known_limitations`.
 
 **PENDING human, for every product:** the quality review and content approval (H4) and the
 release gate (H5). Claude does not record them.
+
+## First paid product (2026-10-01)
+
+[first-paid-product.md](first-paid-product.md) ranks the candidates for a first paid piece (the
+top one is `approval-gated-automation-kit`). It also draws the free / paid boundary, drafts a
+paid note structure, and lists the gate for publishing a paid piece. That gate does **not** wait
+for N3 unless the copy uses N3 numbers. Nothing is priced, listed, approved or sold.
+
+On 2026-10-01 all four release candidates still rebuilt to the same bytes (`verify`), and none
+is stale. The review packet of `approval-gated-automation-kit` 0.1.0 was regenerated (manifest
+`8c551ed0…`).

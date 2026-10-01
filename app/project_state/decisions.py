@@ -806,6 +806,26 @@ DECISIONS = (
         ),
         "follow_up": "英字のタグは note が保存する表記を公開の前に確かめる。次は N3 の実測 (G4)",
     },
+    {
+        "id": "n3-weekly-running-totals",
+        "area": "note",
+        "decision": (
+            "N3 の実測は、note の記事ごとの全期間の値 (累計) とフォロワー数を、baseline から 7 日"
+            "ごとに 4 回、1 回の観測として記録する。差は分析のときに出す。bootstrap は台帳に入れず"
+            "登録した外部の参照で測る"
+        ),
+        "rationale": (
+            "累計を同じ形で写せば、観測の時刻がずれても前の観測との差と日数で読める。承認の無い"
+            "記事に承認を作らずに測れる。見えない数・推定は入れない"
+        ),
+        "evidence": ["docs/operations/n3-measurement.md"],
+        "phrase": "前後 3 日の窓に入っていれば、その回は観測済み",
+        "resulting_state": (
+            "測る記事 4 本 (bootstrap 1・controlled 3) を登録。record-snapshot と report。"
+            "観測の時刻は UTC で保存。実測の値は 0 件 (人の入力待ち)"
+        ),
+        "follow_up": "人が baseline を記録する (note のダッシュボード)",
+    },
 )
 
 

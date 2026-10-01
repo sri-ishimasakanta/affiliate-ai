@@ -9,6 +9,9 @@
   ``scale_1_5``。
 - 要約は標本の大きさを必ず出し、勝ち負け・因果・推定を出さない。対象が 3 未満、または期間が
   28 日未満なら ``small_sample`` (比べない)。
+- 2026-10-01: ``note_piece`` の参照に ``external-n<12>`` (台帳に無い、仕組みの外で公開した記事。
+  登録した記事だけ) を足した。観測の時刻は UTC にそろえて同じ時刻を 1 つに数える。累計の指標
+  (期間なし) は前の観測との差を出す (``timeline``)。7 日ごとの観測の予定 (``checkpoints``)。
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 UNITS = ("count", "jpy", "hours", "minutes", "flag", "scale_1_5")
 INTEGER_UNITS = ("count", "jpy", "flag", "scale_1_5")
@@ -40,7 +43,7 @@ CATALOG: dict[str, dict[str, str]] = {
               "friction_cost": "flag", "friction_trust": "flag"},
 }  # fmt: skip
 _REF = {
-    "note_piece": re.compile(r"^draft-[0-9a-f]{6,32}$"),
+    "note_piece": re.compile(r"^(draft-[0-9a-f]{6,32}|external-n[0-9a-z]{12})$"),
     "channel": re.compile(r"^(note|wordpress|threads|newsletter|membership|marketplace)$"),
     "product": re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$"),
     "pilot": re.compile(r"^pilot-[a-z0-9-]{1,32}$"),
@@ -49,6 +52,11 @@ _PERSONAL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|(?<!\d)0\d{1,4}-\d{1,4}-\d{3,4
                        r"|\+\d{8,15}(?!\d)|https?://")
 MIN_SUBJECTS = 3
 MIN_SPAN_DAYS = 28
+#: 期間なしで記録すると「その時点までの累計」(note の全期間の値・今のフォロワー数) として読む
+#: 指標。前の観測との差は分析のときに計算する (記録は累計のまま)。
+CUMULATIVE_WITHOUT_PERIOD = frozenset({
+    ("note_piece", "views"), ("note_piece", "likes"), ("note_piece", "comments"),
+    ("channel", "followers"), ("channel", "subscribers")})  # fmt: skip
 
 
 class MetricError(ValueError):
@@ -116,7 +124,9 @@ def entry_key(entry: MetricInput) -> str:
     payload = json.dumps([entry.subject_kind, entry.subject_ref, entry.metric,
                           entry.period_start and entry.period_start.isoformat(),
                           entry.period_end and entry.period_end.isoformat(),
-                          entry.observed_at.isoformat()], ensure_ascii=False)  # fmt: skip
+                          # 同じ時刻を別のオフセットで書いても 1 つ (UTC にそろえる)
+                          entry.observed_at.astimezone(UTC).isoformat()],
+                         ensure_ascii=False)  # fmt: skip
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -143,5 +153,66 @@ def summarize(rows: Iterable[dict], *, kind: str, metric: str) -> dict:
     }  # fmt: skip
 
 
-__all__ = ["CATALOG", "MIN_SPAN_DAYS", "MIN_SUBJECTS", "MetricError", "MetricInput", "UNITS",
-           "entry_key", "summarize", "unit_of", "validate"]
+def timeline(rows: Iterable[dict], *, kind: str, ref: str, metric: str,
+             published_at: datetime | None = None) -> list[dict]:
+    """1 つの対象・指標の観測を時刻の順に並べる。累計の指標 (期間なし) は前の観測との差、
+    公開の時刻があれば公開からの日数を足す。推定・補間はしない (観測した点だけ)。"""
+
+    picked = sorted((r for r in rows if (r["subject_kind"], r["subject_ref"], r["metric"])
+                     == (kind, ref, metric)), key=lambda r: (r["observed_at"], r["id"]))
+    cumulative = (kind, metric) in CUMULATIVE_WITHOUT_PERIOD
+    out, previous = [], None
+    for r in picked:
+        point = {"id": r["id"], "observed_at": r["observed_at"].isoformat(), "value": r["value"],
+                 "period": ([r["period_start"].isoformat(), r["period_end"].isoformat()]
+                            if r["period_start"] else None)}
+        if published_at is not None:
+            point["days_since_publication"] = round(
+                (r["observed_at"] - published_at).total_seconds() / 86400, 1)
+        if cumulative and r["period_start"] is None:
+            if previous is not None:
+                delta = r["value"] - previous["value"]
+                point["delta"] = delta
+                point["days_since_previous"] = round(
+                    (r["observed_at"] - previous["observed_at"]).total_seconds() / 86400, 1)
+                if delta < 0:
+                    point["warning"] = "a running total went down: check the entry"
+            previous = r
+        out.append(point)
+    return out
+
+
+def checkpoints(observed: Iterable[datetime], *, now: datetime, cadence_days: int = 7,
+                count: int = 4, window_days: int = 3) -> dict:
+    """baseline (最初の観測) から ``cadence_days`` ごとの観測の予定と、それぞれの状態。
+
+    状態: ``observed`` (予定の前後 ``window_days`` 日に観測がある)・``missed`` (窓を過ぎた)・
+    ``due`` (いまが窓の中)・``upcoming``。baseline が無ければ ``waiting_for_baseline``。
+    """
+
+    times = sorted(observed)
+    if not times:
+        return {"state": "waiting_for_baseline", "baseline": None, "checkpoints": []}
+    base, window = times[0], timedelta(days=window_days)
+    out = []
+    for k in range(count + 1):
+        target = base + timedelta(days=cadence_days * k)
+        hits = [t for t in times if abs(t - target) <= window]
+        if hits:
+            state, at = "observed", min(hits, key=lambda t: abs(t - target)).isoformat()
+        elif now > target + window:
+            state, at = "missed", None
+        elif now >= target - window:
+            state, at = "due", None
+        else:
+            state, at = "upcoming", None
+        out.append({"label": "baseline" if k == 0 else f"week {k}",
+                    "target": target.date().isoformat(), "state": state, "observed_at": at})
+    done = all(c["state"] == "observed" for c in out)
+    return {"state": "complete" if done else "in_progress", "baseline": base.isoformat(),
+            "checkpoints": out}
+
+
+__all__ = ["CATALOG", "CUMULATIVE_WITHOUT_PERIOD", "MIN_SPAN_DAYS", "MIN_SUBJECTS",
+           "MetricError", "MetricInput", "UNITS", "checkpoints", "entry_key", "summarize",
+           "timeline", "unit_of", "validate"]
