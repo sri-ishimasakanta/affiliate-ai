@@ -1,7 +1,8 @@
 """note の 1 本を人と仕上げる (N1)。**公開は人が note の編集画面で行う。ここは記録だけ。**
 
     uv run python scripts/manage_note_piece.py list
-    uv run python scripts/manage_note_piece.py packet <draft_id>   # 確認用 (.packet.md / .txt)
+    uv run python scripts/manage_note_piece.py packet <draft_id>   # 確認用 (.packet.md / .txt /
+        .paste.html: 見出しは h2・箇条書きは ul の貼り付け用。文字と hash は .txt と同じ)
     uv run python scripts/manage_note_piece.py edit <draft_id> --from edited.md [--editor claude]
     uv run python scripts/manage_note_piece.py meta <draft_id> --tags AI,自動化
         --thumbnail-brief "..."
@@ -153,13 +154,16 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             path.with_suffix(".packet.md").write_text(review.render_packet(draft),
                                                       encoding="utf-8")  # fmt: skip
             path.with_suffix(".txt").write_text(review.plain_text(draft), encoding="utf-8")
+            # 表示の形 (見出しは h2、箇条書きは ul)。文字と hash は .txt と同じ
+            path.with_suffix(".paste.html").write_text(review.paste_html(draft), encoding="utf-8")
             packet = review.review_packet(draft)
             print(json.dumps({k: packet[k] for k in ("draft_id", "status", "access_mode",
                                                      "content_hash", "links", "image_required",
                                                      "images", "errors", "can_submit",
                                                      "can_approve")},
                              ensure_ascii=False, indent=2))  # fmt: skip
-            print(f"wrote {path.with_suffix('.packet.md')} and {path.with_suffix('.txt')}")
+            print(f"wrote {path.with_suffix('.packet.md')}, {path.with_suffix('.txt')} and "
+                  f"{path.with_suffix('.paste.html')}")
             return 0
         if args.command == "check-image":
             state = review.check_image(draft, args.image, root=root)

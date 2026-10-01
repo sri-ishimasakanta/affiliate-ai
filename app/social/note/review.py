@@ -217,6 +217,94 @@ def plain_text(draft: NoteDraft) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
+#: 本文の箇条書きの印。本文の文字として ``content_hash`` に入る (承認の対象は今までと同じ)。
+#: 表示 (``display_blocks`` / ``paste_html``) では印を外して箇条書きにする (2026-10-01)。
+LIST_MARK = "・"
+
+
+def body_lines(draft: NoteDraft) -> list[str]:
+    """承認した本文の行 (見出しと段落。空の行なし)。公開ページの照合の基準。"""
+
+    lines = []
+    for section in draft.sections:
+        lines.append(section["heading"].strip())
+        lines += [p.strip() for p in section["paragraphs"] if p.strip()]
+    return lines
+
+
+def display_blocks(draft: NoteDraft) -> list[dict]:
+    """note に貼るときの表示の形: 見出し・段落・箇条書き。本文の文字と hash は変えない。
+
+    「・」で始まる段落が続けば 1 つの箇条書きにまとめ、表示では印を外す。
+    """
+
+    blocks: list[dict] = []
+    for section in draft.sections:
+        blocks.append({"type": "heading", "text": section["heading"].strip()})
+        for raw in section["paragraphs"]:
+            text = raw.strip()
+            if not text:
+                continue
+            if text.startswith(LIST_MARK) and text[len(LIST_MARK):].strip():
+                item = text[len(LIST_MARK):].strip()
+                if blocks[-1]["type"] == "list":
+                    blocks[-1]["items"].append(item)
+                else:
+                    blocks.append({"type": "list", "items": [item]})
+            else:
+                blocks.append({"type": "paragraph", "text": text})
+    return blocks
+
+
+def canonical_lines(blocks: list[dict]) -> list[str]:
+    """表示の形を、承認した本文の行に戻す (箇条書きの項目には「・」を付け直す)。"""
+
+    lines = []
+    for block in blocks:
+        if block["type"] == "list":
+            lines += [LIST_MARK + item for item in block["items"]]
+        else:
+            lines.append(block["text"])
+    return lines
+
+
+def compare_published(draft: NoteDraft, blocks: list[dict]) -> dict:
+    """公開ページから読んだ形 (見出し・段落・ネイティブの箇条書き) が承認した本文と同じか。
+
+    箇条書きの項目は「・」の印なしでも、印つきの本文の行と同じとみなす (表示の違いだけ)。
+    """
+
+    expected, got = body_lines(draft), canonical_lines(blocks)
+    for index, (want, have) in enumerate(zip(expected, got, strict=False)):
+        if want != have:
+            return {"match": False, "line": index + 1, "expected": want, "published": have}
+    if len(expected) != len(got):
+        return {"match": False, "line": min(len(expected), len(got)) + 1,
+                "expected_lines": len(expected), "published_lines": len(got)}  # fmt: skip
+    return {"match": True, "lines": len(expected)}
+
+
+def paste_html(draft: NoteDraft) -> str:
+    """note の編集画面に貼る形 (HTML): 見出しは h2、箇条書きは ul / li。ブラウザで開いて本文を
+    選んでコピーし、note に貼る (題名は note の題名の欄に別に入れる)。文字は承認した本文と同じ。"""
+
+    import html
+
+    parts = ["<!doctype html>", '<html lang="ja"><head><meta charset="utf-8">',
+             f"<title>{html.escape(draft.working_title)}</title></head><body>",
+             "<!-- paste-ready: the title goes in note's title field; copy everything below -->"]
+    for block in display_blocks(draft):
+        if block["type"] == "heading":
+            parts.append(f"<h2>{html.escape(block['text'])}</h2>")
+        elif block["type"] == "list":
+            parts.append("<ul>" + "".join(f"<li>{html.escape(i)}</li>" for i in block["items"])
+                         + "</ul>")  # fmt: skip
+        else:
+            parts.append(f"<p>{html.escape(block['text'])}</p>")
+    parts.append("</body></html>")
+    return "\n".join(parts) + "\n"
+
+
 def _links_hash(links: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(links)).encode("utf-8")).hexdigest()
 
@@ -638,7 +726,8 @@ def reject(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
 
 
 __all__ = ["APPROVAL_SCHEMA", "CANONICAL_LEGACY", "CANONICAL_SNAPSHOT", "NOTE_IMAGE_MATCH",
-           "SNAPSHOT_DIR", "SNAPSHOT_SCHEMA", "add_evidence", "apply_edit", "approve",
+           "LIST_MARK", "SNAPSHOT_DIR", "SNAPSHOT_SCHEMA", "add_evidence", "apply_edit", "approve",
+           "body_lines", "canonical_lines", "compare_published", "display_blocks", "paste_html",
            "approved_images", "check_image", "check_publication_url", "draft_from_dict",
            "image_required", "inspect_image", "reopen", "snapshot_image", "verify_snapshot",
            "links_of", "load_policy", "parse_markdown", "plain_text", "record_publication",
