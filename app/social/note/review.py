@@ -233,11 +233,39 @@ def set_paid_terms(draft: NoteDraft, *, root: Path | str | None = None,
     return draft
 
 
-def sections_from_markdown(text: str) -> list[dict]:
-    """``## 見出し`` ごとの節にする (有料の記事の取り込み用)。コードの枠は 1 つの段落に、
-    箇条書きの続きの行 (字下げ) は前の項目にまとめる。"""
+#: 段落の先頭で、新しい箇条書きの項目を始める印 (番号つき・印つき・確認の箱)。
+_ITEM_START = re.compile(r"^(?:\d+\. |- \[ \] |- |\* |・)")
 
-    sections, current, fence = [], None, None
+
+def _glue(left: str, right: str) -> str:
+    """折り返した行をつなぐ。日本語どうしは空白なし、英数字が絡むときだけ空白を 1 つ。"""
+
+    if not left:
+        return right
+    return left + ("" if (not left[-1].isascii() and not right[0].isascii()) else " ") + right
+
+
+def sections_from_markdown(text: str) -> list[dict]:
+    """``## 見出し`` ごとの節にする (有料の記事の取り込み用。Markdown の段落の規則に合わせる)。
+
+    - 空行で段落・項目を区切る。折り返した行 (空行の無い続きの行・字下げの続き) は、同じ
+      段落・同じ箇条書きの項目につなぐ (2026-10-01: 前は行ごとに別の段落にしていた)。
+    - 箇条書き (``1. `` / ``- `` / ``- [ ] `` / ``・``) は行の先頭の印で新しい項目を始める。
+    - ``### 見出し``・表の行 (``|``)・コードの枠 (```) はそれぞれ 1 つの段落。コードの枠の中は
+      改行をそのまま残し、ほかの段落とつながない。
+    """
+
+    sections: list[dict] = []
+    current: dict | None = None
+    block: list[str] | None = None  # 今つないでいる段落・項目 (1 つの文字列にする)
+    fence: list[str] | None = None
+
+    def flush() -> None:
+        nonlocal block
+        if block is not None and current is not None and block[0]:
+            current["paragraphs"].append(block[0])
+        block = None
+
     for raw in text.splitlines():
         line = raw.rstrip()
         if fence is not None:
@@ -247,23 +275,30 @@ def sections_from_markdown(text: str) -> list[dict]:
                 fence = None
             continue
         if line.startswith("## "):
+            flush()
             current = {"heading": line[3:].strip(), "role": "imported", "paragraphs": []}
             sections.append(current)
             continue
         if not line.strip():
+            flush()
             continue
         if current is None:
             raise ValueError("text before the first '## ' heading")
+        stripped = line.strip()
         if line.startswith("```"):
+            flush()
             fence = [line]
-        elif (raw.startswith("  ") and current["paragraphs"]
-              and current["paragraphs"][-1].startswith("- ")):
-            prev, nxt = current["paragraphs"][-1], line.strip()
-            # 日本語の途中で折り返した行は空白なしでつなぐ (英数字の間だけ空白)
-            glue = "" if (not prev[-1].isascii() and not nxt[0].isascii()) else " "
-            current["paragraphs"][-1] = prev + glue + nxt
+        elif line.startswith(("### ", "#### ")) or line.startswith("|"):
+            flush()
+            current["paragraphs"].append(stripped)
+        elif _ITEM_START.match(line):
+            flush()
+            block = [stripped]
+        elif block is not None:
+            block[0] = _glue(block[0], stripped)  # 折り返し (字下げの有無によらない)
         else:
-            current["paragraphs"].append(line.strip())
+            block = [stripped]
+    flush()
     if fence is not None:
         raise ValueError("a code block is not closed")
     return [s for s in sections if s["paragraphs"]]
@@ -378,7 +413,17 @@ def display_blocks(draft: NoteDraft) -> list[dict]:
                 continue
             mark = next((m for m in (LIST_MARK, "- [ ] ", "- ") if text.startswith(m)
                          and text[len(m):].strip()), None)  # fmt: skip
-            if text.startswith("```"):
+            number = _ORDERED.match(text)
+            if number and text[number.end():].strip():
+                # 番号つきの項目: 続く番号は 1 つの番号つきの箇条書きにまとめる (番号は残す)
+                value, item = int(number.group(1)), text[number.end():].strip()
+                last = blocks[-1]
+                if last["type"] == "ordered" and last["numbers"][-1] + 1 == value:
+                    last["items"].append(item)
+                    last["numbers"].append(value)
+                else:
+                    blocks.append({"type": "ordered", "items": [item], "numbers": [value]})
+            elif text.startswith("```"):
                 blocks.append({"type": "code", "text": text})
             elif text.startswith("### "):
                 blocks.append({"type": "subheading", "text": text})
@@ -405,6 +450,9 @@ def canonical_lines(blocks: list[dict]) -> list[str]:
             continue
         if block["type"] == "list":
             lines += [block.get("mark", LIST_MARK) + item for item in block["items"]]
+        elif block["type"] == "ordered":
+            lines += [f"{n}. {item}" for n, item in zip(block["numbers"], block["items"],
+                                                         strict=True)]
         else:
             lines.append(block["text"])
     return lines
@@ -414,9 +462,12 @@ def compare_published(draft: NoteDraft, blocks: list[dict]) -> dict:
     """公開ページから読んだ形 (見出し・段落・ネイティブの箇条書き) が承認した本文と同じか。
 
     箇条書きの項目は「・」の印なしでも、印つきの本文の行と同じとみなす (表示の違いだけ)。
+    太字は表示の書式なので、本文の ``**…**`` と公開ページの太字 (``strong_to_markdown`` で
+    ``**…**`` に戻したもの・書式の無い文字) を同じとみなす。
     """
 
-    expected, got = body_lines(draft), canonical_lines(blocks)
+    expected = [display_text(line) for line in body_lines(draft)]
+    got = [display_text(line) for line in canonical_lines(blocks)]
     for index, (want, have) in enumerate(zip(expected, got, strict=False)):
         if want != have:
             return {"match": False, "line": index + 1, "expected": want, "published": have}
@@ -424,6 +475,29 @@ def compare_published(draft: NoteDraft, blocks: list[dict]) -> dict:
         return {"match": False, "line": min(len(expected), len(got)) + 1,
                 "expected_lines": len(expected), "published_lines": len(got)}  # fmt: skip
     return {"match": True, "lines": len(expected)}
+
+
+_ORDERED = re.compile(r"^(\d+)\. ")
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_STRONG = re.compile(r"<(strong|b)>(.*?)</\1>", re.S)
+
+
+def display_text(text: str) -> str:
+    """照らし合わせ用: 太字の印 (``**``) を外した文字 (太字は書式で、文字ではない)。"""
+
+    return _BOLD.sub(r"\1", text)
+
+
+def strong_to_markdown(fragment: str) -> str:
+    """公開ページの HTML の太字 (``<strong>`` / ``<b>``) を本文の ``**…**`` の形に戻す。"""
+
+    return _STRONG.sub(r"**\2**", fragment)
+
+
+def _inline_html(text: str) -> str:
+    import html
+
+    return _BOLD.sub(r"<strong>\1</strong>", html.escape(text))
 
 
 def paste_html(draft: NoteDraft) -> str:
@@ -440,18 +514,23 @@ def paste_html(draft: NoteDraft) -> str:
             parts.append(f"<h2>{html.escape(block['text'])}</h2>")
         elif block["type"] == "list":
             box = "□ " if block.get("mark") == "- [ ] " else ""
-            parts.append("<ul>" + "".join(f"<li>{box}{html.escape(i)}</li>" for i in block["items"])
-                         + "</ul>")  # fmt: skip
+            parts.append("<ul>" + "".join(f"<li>{box}{_inline_html(i)}</li>"
+                                          for i in block["items"]) + "</ul>")  # fmt: skip
+        elif block["type"] == "ordered":
+            start = block["numbers"][0]
+            parts.append((f'<ol start="{start}">' if start != 1 else "<ol>")
+                         + "".join(f"<li>{_inline_html(i)}</li>" for i in block["items"])
+                         + "</ol>")  # fmt: skip
         elif block["type"] == "paid_line":
             parts.append("<hr><p>--- ここで note の有料ラインを入れる (この行は貼らない) ---</p>"
                          "<hr>")
         elif block["type"] == "subheading":
-            parts.append(f"<h3>{html.escape(block['text'][4:])}</h3>")
+            parts.append(f"<h3>{_inline_html(block['text'][4:])}</h3>")
         elif block["type"] == "code":
             inner = block["text"].split("\n")[1:-1]
             parts.append("<pre><code>" + html.escape("\n".join(inner)) + "</code></pre>")
         else:
-            parts.append(f"<p>{html.escape(block['text'])}</p>")
+            parts.append(f"<p>{_inline_html(block['text'])}</p>")
     parts.append("</body></html>")
     return "\n".join(parts) + "\n"
 

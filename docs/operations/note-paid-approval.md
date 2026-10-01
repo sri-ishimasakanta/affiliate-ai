@@ -74,7 +74,18 @@ uv run python scripts/manage_note_piece.py import-paid --title "<題名>" --free
 - migration は要らない (承認と販売の条件は今の JSON の記録に入る。`note_pieces.content_type` に
   制約は無い)。
 
+## Markdown の取り込みと表示 (2026-10-01 の修正)
+
+- 取り込み (`import-paid`) は Markdown の段落の規則に合わせる: 空行で段落・項目を区切り、折り返した行は
+  同じ段落・同じ項目につなぐ (日本語どうしは空白なし)。箇条書き (`1. ` / `- ` / `- [ ] ` / `・`) は行の
+  先頭の印で始まる。`### 見出し`・表の行・コードの枠は独立し、コードの枠の改行はそのまま。
+  (前は折り返した行を別の段落にしていて、番号つきの項目が途中で切れ、note で番号が 1 から振り直された。)
+- 表示 (`.paste.html`): 続く番号は 1 つの `<ol>`、`**…**` は `<strong>` (本文の文字は `**…**` のまま)。
+  公開ページとの照らし合わせでは、太字を書式として扱う (`display_text` / `strong_to_markdown`)。
+
 ## 今の有料記事 (2026-10-01)
 
-- `draft-1caf34dd4c` (`review_ready`): approval-gated-automation-kit 0.2.0、500 JPY。H4 / H5・人の
-  承認・画像・note での価格の設定・公開はまだ。詳しくは [first-paid-product.md](first-paid-product.md)。
+- `draft-1caf34dd4c` (`review_ready`): approval-gated-automation-kit 0.2.0 (H4 / H5 済み)、500 JPY。
+  一度 `note-approval/4` で承認したが、取り込みの不具合 (折り返しの行) が見つかり取り消した (履歴に残る)。
+  直した取り込みで取り込み直し、本文の hash `9859daf3…` (販売の条件の hash `fa4e11bd…` は同じ)。人の
+  承認のやり直しを待つ。note での価格の設定・公開はまだ。詳しくは [first-paid-product.md](first-paid-product.md)。

@@ -50,7 +50,9 @@
   有料の境界は「関連する無料記事」の後 (`paid_from_section = 8`、有料は「この有料部分の使い方」から)。
 - 価格 500 JPY。売る物 `approval-gated-automation-kit` 0.2.0 (content hash・manifest・package の
   完全な hash)。有料の部分は package の資産の行をすべて含む。直した 0.2.0 で取り込み直した
-  (本文 hash `34a8274a…`、販売の条件の hash `fa4e11bd…`)。
+  (本文 hash `34a8274a…`、販売の条件の hash `fa4e11bd…`)。その後 H4 / H5 を経て人が承認したが、
+  取り込みの不具合 (Markdown の折り返しの行を別の段落にしていた) で取り消し、直した取り込みで
+  取り込み直した (本文 hash `9859daf3…`、販売の条件の hash は同じ `fa4e11bd…`)。人の承認のやり直し待ち。
 - 承認できるのは H4 と H5 の後 (`can_approve: false`)。確認用のまとめは
   `reports/note/drafts/draft-1caf34dd4c.packet.md`、H4 の手引きは
   `reports/products/approval-gated-automation-kit/0.2.0/h4-review-guide.md`。
