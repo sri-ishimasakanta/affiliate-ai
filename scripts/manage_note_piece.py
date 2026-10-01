@@ -128,6 +128,8 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     pub.add_argument("--content-hash", required=True)
     pub.add_argument("--image", help="optional check: the image file used in the note (must match "
                      "the approved one; the record itself uses the approval snapshot)")
+    pub.add_argument("--note", help="a short note from checking the published page "
+                     "(stored with the publication; the approval is not changed)")
     rej = sub.add_parser("reject")
     rej.add_argument("draft_id")
     rej.add_argument("--reason", required=True)
@@ -195,7 +197,8 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             review.record_publication(draft, url=args.url, observed_at=observed,
                                       published_hash=args.content_hash, now=now,
                                       policy=review.load_policy(),
-                                      image=args.image, snapshot_root=root)  # fmt: skip
+                                      image=args.image, snapshot_root=root,
+                                      note=args.note)  # fmt: skip
         elif args.command == "reopen":
             review.reopen(draft, reason=args.reason, now=now)
         elif args.command == "reject":

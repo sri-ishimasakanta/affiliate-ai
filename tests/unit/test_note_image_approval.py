@@ -186,6 +186,17 @@ def test_overwriting_the_source_after_approval_keeps_the_approval(tmp_path) -> N
     assert "human responsibility" in pub["note_image_match"]
 
 
+def test_a_publication_note_is_kept_without_changing_the_approval(tmp_path) -> None:
+    root, _path, draft = _ready(tmp_path)
+    _approve(draft, root, _image(tmp_path))
+    approval = dict(draft.approval)
+    review.record_publication(draft, url="https://note.com/u/n/p7", observed_at=NOW,
+                              published_hash=draft.content_hash, now=NOW, policy=POLICY,
+                              snapshot_root=root, note="note stores the tag as #wordpress")
+    assert draft.publication["publication_note"] == "note stores the tag as #wordpress"
+    assert draft.approval == approval  # 承認の記録は変えない
+
+
 def test_publication_with_the_used_file_confirms_the_hash(tmp_path) -> None:
     root, _path, draft = _ready(tmp_path)
     _approve(draft, root, _image(tmp_path))

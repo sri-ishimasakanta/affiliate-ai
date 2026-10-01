@@ -787,6 +787,25 @@ DECISIONS = (
         ),
         "follow_up": "N2 の 4 本目から写しつきの承認で公開する",
     },
+    {
+        "id": "n2-complete-three-controlled-publications",
+        "area": "note",
+        "decision": (
+            "N2 は完了。仕組みの流れの公開が 3 本続き、3 本とも台帳の記録がそろい、公開の hash が"
+            "承認の hash と同じ。G3 の意味は変えない"
+        ),
+        "rationale": (
+            "N2 の完了の条件は「3 本続けて流れを通り、台帳の記録がそろう・承認の hash の無い公開が"
+            "無い」。3 本目は最初の note-approval/3 (画像の写しが正本) で、写しを確かめて記録した"
+        ),
+        "evidence": ["docs/operations/note-channel.md"],
+        "phrase": "N2 は完了 (2026-10-01)",
+        "resulting_state": (
+            "controlled publications 3 / 3 (n5b1256b5861b・nd9f002a5e34e・n53dfa4d2e2c3)。note は"
+            "ハッシュタグ wordpress を小文字で保存する (大文字小文字だけの違いとして記録)"
+        ),
+        "follow_up": "英字のタグは note が保存する表記を公開の前に確かめる。次は N3 の実測 (G4)",
+    },
 )
 
 

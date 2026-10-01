@@ -568,7 +568,8 @@ NOTE_IMAGE_MATCH = ("human responsibility: the system binds the approved image b
 def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
                        published_hash: str, now: datetime, policy: dict,
                        image: Path | str | None = None,
-                       snapshot_root: Path | str | None = None) -> NoteDraft:  # fmt: skip
+                       snapshot_root: Path | str | None = None,
+                       note: str | None = None) -> NoteDraft:  # fmt: skip
     """人が note で公開した後に、その証拠を記録する。承認した本文と違えば記録しない。
 
     -3: 承認の画像の正本は写し (``snapshot_root`` の下)。写しが今も承認の中身であることを確かめて
@@ -576,6 +577,8 @@ def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
     ファイルを渡すと、承認の画像と同じかを比べ、違えば記録しない (取り消して承認し直す)。
     写しの無い古い承認 (legacy) は今までどおり ``image`` が要る。承認した画像の指紋は公開の記録に
     引き継ぐ。note に上がった画像との一致は、仕組みでは確かめられないので人の責任。
+    ``note``: 公開ページの確認で分かったこと (例: note がタグの表記を変えた) を残す短いメモ。
+    承認の記録は変えない。
     """
 
     if draft.status != "approved" or not draft.approval:
@@ -620,6 +623,7 @@ def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
                                 else {"canonical": CANONICAL_LEGACY})}
                             for i in bound],
         **({"image_confirmation": confirmation} if confirmation else {}),
+        **({"publication_note": note.strip()[:500]} if note and note.strip() else {}),
         "note_image_match": NOTE_IMAGE_MATCH if bound else
         "no image was bound at approval"})  # fmt: skip
 
