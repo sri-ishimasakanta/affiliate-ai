@@ -148,7 +148,7 @@ def test_the_t7_completion_criteria_hold(tmp_path) -> None:
     assert isinstance(live["drift"], list) and live["drift"]  # 検出が動いている
     # roadmap は機械で読める (根拠のファイルは本物のリポジトリで確かめる。fixture は一部だけ)
     real = verify_phases(REPO, load_roadmap(REPO), commit_exists=lambda sha: True)
-    # N1〜N5・N7 は外の準備待ちで進行中、N6 は完了。次に始められるフェーズは無い (N8 は N7 の後)
+    # N3〜N5・C11 は外の準備待ちで進行中、N6 は完了、N7 / N8 は延期。次に始められるフェーズは無い
     assert real["problems"] == [] and real["next_phase"] is None
     assert not [f for f in live["drift"] if f["blocking"] or f["classification"] == "unresolved"]
     order = [findings.action_sort_key(a) for a in live["next_actions"]]
@@ -215,8 +215,10 @@ def test_operational_warnings_do_not_block_and_actions_follow_the_order(tmp_path
     assert "t7-validate-project-state" not in order
     assert "start-next-phase" not in order  # 次に始められるフェーズは無い
     later = next(a for a in report["next_actions"] if a["id"] == "later-roadmap-phases")
-    assert "in order: N8 → T6.5-review → C11" in later["action"]
-    assert "after N7" in later["action"] and "T6.5C" in later["action"]
+    # 2026-10-01 の順番: C11 → T6.6 → T6.5-review。延期した N7 / N8 は並べない
+    assert "in order: T6.6 → T6.5-review" in later["action"]
+    assert "after C11" in later["action"] and "T6.5C" in later["action"]
+    assert "N8" not in later["action"]
     assert "c10-after-maturity" not in order  # C10 は完了
 
 

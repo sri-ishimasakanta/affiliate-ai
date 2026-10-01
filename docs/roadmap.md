@@ -13,7 +13,8 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-09-30 (N1–N7 buildable-now work; N6 closed).
+Last updated: 2026-10-01 (human reprioritization: C11 ACTIVE, N7 / N8 DEFERRED, T6.6 Threads
+Performance Snapshot planned).
 
 ---
 
@@ -36,14 +37,21 @@ Last updated: 2026-09-30 (N1–N7 buildable-now work; N6 closed).
 | **C10 Growth platform** | **COMPLETED** (CLOSED) | human-gated items kept under *C10 activation pending* and *C10 recurring human operations* |
 | **N1** note pilot | **COMPLETED** (2026-09-30) | first N1-controlled note publication recorded; G3 3 / 3 (2026-10-01) |
 | **N2** note repeatable production and review workflow | **COMPLETED** (DoD met 2026-10-01) | controlled publications 3 / 3 with complete ledger records and published hash = approved hash; the 3rd is the first `note-approval/3` (immutable image snapshot) |
-| N3–N5, N7 (measurement → Productized Knowledge → Digital Product Automation; SaaS Validation) | **ACTIVE** — build **COMPLETE** (2026-09-30) | Done waits for external gates: more note publications, migration `a4a74a5bcb8b` apply, human product approvals, real pilot users (see *N — Additional revenue track*) |
+| N3–N5 (measurement → Productized Knowledge → Digital Product Automation) | **ACTIVE** — build **COMPLETE** (2026-09-30) | Done waits for external gates: N3 weekly note measurement (continues as planned), human product approvals (see *N — Additional revenue track*) |
+| N7 SaaS Validation | **DEFERRED** (2026-10-01, human) | pilot infrastructure kept; no pilot recruitment, pilot policy unconfirmed and unchanged, 0 pilots registered |
 | **N6** System Productization | **COMPLETED** (DoD met 2026-09-30) | second local site profile dry-runs without code changes; production untouched |
-| N8 SaaS / Service | PLANNED | waits for the N7 decision; nothing buildable |
-| C11 Affiliate Revenue Attribution | PLANNED (after N8) | — |
+| N8 SaaS / Service | **DEFERRED** (2026-10-01, with N7) | nothing buildable |
+| **C11** Affiliate Infrastructure & Revenue Attribution | **ACTIVE** (first half built 2026-10-01) | read-only inventory / coverage / attribution readiness / human action queue; no migration, no external call ([affiliate-infrastructure.md](operations/affiliate-infrastructure.md)) |
+| T6.6 Threads Performance Snapshot | PLANNED (after C11) | formal plan kept, not implemented |
 
-**Development order (human decision, 2026-09-30):** C10 (CLOSED) → N1 → N2 → N3 → N4 → N5 →
-N6 → N7 → N8 → (T6.5 re-evaluation checkpoint) → C11. The T6.5C–H Threads trend-intelligence
-phases stay PLANNED as a separate track that does not block this chain.
+**Development order (human decision, 2026-10-01; replaces the 2026-09-30 order):** N3 measurement
+(continues) → **C11** ASP / affiliate infrastructure / revenue attribution → Threads analysis
+(**T6.6** Performance Snapshot, then the `T6.5-review` checkpoint) → conversion / content /
+technical / operations improvements → hardening → N7 / N8 resumed. N7 and N8 are **DEFERRED**, not
+deleted. The T6.5C–H Threads trend-intelligence phases stay PLANNED as a separate track that does
+not block this chain.
+
+The previous order (2026-09-30) was C10 → N1 → … → N8 → (T6.5 re-evaluation) → C11.
 
 ---
 
@@ -334,7 +342,18 @@ Normal, repeated operations, not pending activations.
   health check (`nightly_missed`, 3 h grace after 03:30) and notified once; a stopped worker is
   detected the same way (`worker_stopped`).
 
-## C11 — Affiliate Revenue Attribution — PLANNED (after N8)
+## C11 — Affiliate Infrastructure & Revenue Attribution — ACTIVE (2026-10-01)
+
+Full detail: [affiliate-infrastructure.md](operations/affiliate-infrastructure.md).
+
+| Part | Status | Production |
+|---|---|---|
+| first half: ASP / program / link inventory, coverage, ASP operations detections, attribution readiness (FULL / PARTIAL / MANUAL / UNKNOWN / NONE), human action queue (P1–P4 by what it blocks), human verification record | **COMPLETED** (2026-10-01) | read-only CLI `scripts/affiliate_inventory.py`; `verify` PLAN by default, local file only; no migration; 0 external calls |
+| provider-side work (status, approval, tracking URLs, SubID / cookie window) | **PENDING HUMAN** | the queue lists it; nothing is done at any ASP by the system |
+| manual ASP revenue import | **STOP — needs a migration** (`manual_metric_entries.subject_kind` CHECK) | human decision; nothing entered |
+| SubID | not applicable yet (no provider verified) | no parameter added to any link |
+| affiliate placement change-request apply | PLANNED (moved from C10-E) | — |
+
 - article-level attribution (needs tracking / provider configuration changes: human decision)
 - readiness assessed in C10-A (`analyze_signal_health.py --section attribution`): per-click
   reference (SubID / clickref) passed back by the ASP, stored on clicks and read by the
@@ -362,8 +381,8 @@ evidence (build-complete ≠ Done).
 | N4 Productized Knowledge | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: knowledge candidates, product spec + traceability + redaction + quality checks, human records; 4 products 0.1.0 check clean with review packets (`approval-gated-automation-kit`, `actionable-alerting-playbook`, `project-state-handoff-template`, `small-sample-measurement-guide`; [products.md](operations/products.md)) | **PENDING** H4 human quality review + content approval (none recorded); 2026-10-01 first paid product prep: top candidate `approval-gated-automation-kit`, free / paid boundary, paid note structure draft, paid publication gate (N3 not required unless the copy uses N3 numbers) ([first-paid-product.md](operations/first-paid-product.md)); price = human; 2026-10-01 human decision: `approval-gated-automation-kit` 0.2.0 → note paid article, initial price 500 JPY (operating value; the earlier 980 JPY plan is not adopted), license set; 0.2.0 checks clean (25-item checklist, content-hash file approval, license); price later set to 500 JPY; `note-approval/4` (paid boundary + price + product identity bound to the approval, needs H5) added; paid note `draft-1caf34dd4c` **review_ready** (not approved, not published) |
 | N5 Digital Product Automation | **ACTIVE** — build **COMPLETE** (2026-09-30) | done: source hashes, stale plan, reproducible zip + manifest, validation, release candidate (built, `verify` reproducible; re-verified 2026-10-01 for all 4, none stale), release gate | **PENDING** H5 human release gate; distribution = separate human workstream |
 | N6 System Productization | **COMPLETED** — DoD met (2026-09-30) | done: coupling inventory, site profile (secret / data boundaries, fail-closed capabilities), bootstrap + network-guarded dry-run; `sites/example-local` passes 9/9 steps ([system-productization.md](operations/system-productization.md)) | hardening done (2026-09-30): per-profile content policy and affiliate / keyword / Threads policy files, log-path defaults via `AFFILIATE_AI_LOG_DIR`; the 4 write services already take injected sessions (inventory corrected); consumer wiring waits for a second real site (human) |
-| N7 SaaS Validation | **ACTIVE** — build **COMPLETE** (planning / measurement only, 2026-09-30) | done: pilot plan, pilot + feedback metrics in the N3 ledger (pseudonymous, personal data refused), proposed go / no-go criteria, evidence summary (`pilot_evidence.py`), decision template ([saas-validation.md](operations/saas-validation.md)); 2026-10-01: **ready to accept real pilots** — pilot record (append-only events, `manage_pilots.py`, PLAN by default), evidence rules (only human-registered real pilots count; missing never 0; inference / hypothesis not counted), `payment_received_jpy`, N7 summary and N8 gate (always `insufficient_evidence` without real pilots); no migration; pre-pilot review packet ([n7-pre-pilot-review.md](operations/n7-pre-pilot-review.md)): hash-bound policy confirmation (policy `aa5e72d4…` still **proposed**), recruitment text (not sent), pilot runbook, payment semantics, stricter privacy refusals | **PENDING** G7 real pilot users (0 so far); the criteria values are a proposal for the human |
-| N8 SaaS / Service | PLANNED | nothing (model not chosen) | the N7 decision, G8 |
+| N7 SaaS Validation | **DEFERRED** (2026-10-01, human; infrastructure kept) — build **COMPLETE** (planning / measurement only, 2026-09-30) | done: pilot plan, pilot + feedback metrics in the N3 ledger (pseudonymous, personal data refused), proposed go / no-go criteria, evidence summary (`pilot_evidence.py`), decision template ([saas-validation.md](operations/saas-validation.md)); 2026-10-01: **ready to accept real pilots** — pilot record (append-only events, `manage_pilots.py`, PLAN by default), evidence rules (only human-registered real pilots count; missing never 0; inference / hypothesis not counted), `payment_received_jpy`, N7 summary and N8 gate (always `insufficient_evidence` without real pilots); no migration; pre-pilot review packet ([n7-pre-pilot-review.md](operations/n7-pre-pilot-review.md)): hash-bound policy confirmation (policy `aa5e72d4…` still **proposed**), recruitment text (not sent), pilot runbook, payment semantics, stricter privacy refusals | deferred: no recruitment, no policy confirmation; resumes when the affiliate / revenue infrastructure and operational safety are sufficient, the quality is good enough for other users, and the human restarts it; G7 real pilot users (0 so far); the criteria values are a proposal for the human |
+| N8 SaaS / Service | **DEFERRED** (2026-10-01, with N7) | nothing (model not chosen) | N7 resumed and decided, G8 |
 
 N4–N8 are the human's formal definitions (2026-09-30), replacing the provisional ones; the useful
 provisional elements were relocated (links → N1–N4 distribution, paid note → N1 / N4, digital
@@ -388,10 +407,19 @@ build work.
   T6.5G Strategy Recommendations, T6.5H Controlled Feedback — PLANNED (kept)
 - **Separate, non-blocking track:** T6.5C–H are not part of the C10 → N1…N8 → C11 main chain and
   never block it.
-- **Re-evaluation checkpoint `T6.5-review`:** at N8 completion or before C11 starts (whichever
-  comes first), the human re-evaluates T6.5C–H (keep, re-scope, or drop) with the Threads data
-  accumulated by then. The checkpoint is recorded in `docs/project-roadmap.json` as C11's
-  prerequisite.
+- **Re-evaluation checkpoint `T6.5-review`:** moved on 2026-10-01 to after T6.6 (after C11): the
+  human re-evaluates T6.5C–H (keep, re-scope, or drop) with the snapshot data accumulated by then.
+  Recorded in `docs/project-roadmap.json` with T6.6 as its prerequisite.
+
+## T6.6 — Threads Performance Snapshot — PLANNED (after C11; formal plan, not implemented)
+
+- own posts observed at **03:00 / 09:00 / 15:00 / 21:00 JST**, up to about **100 posts** each time
+- each observation keeps `post_id`, `published_at`, `observed_at`, `post_age`, content angle,
+  Growth or regular post, and the metrics (raw, append-only; missing ≠ 0)
+- **03:30 JST nightly deep analysis:** initial velocity, 6h / 12h / 24h, long tail, time-of-day
+  patterns (descriptive; no automatic feedback to generation)
+- builds on T4 measurement and T6.5A features; the observation budget and the read path are
+  decided when it starts
 
 ## Intentionally excluded
 
@@ -400,10 +428,13 @@ build work.
 
 ## Deferred (cross-cutting)
 
+- **N7 SaaS Validation / N8 SaaS / Service** (2026-10-01, human): not deleted; pilot
+  infrastructure kept; restart conditions in *N — Additional revenue track*.
+
 - Mirror the C9 units (and the C10 sub-units) into `docs/project-roadmap.json`. Since
   2026-09-30 the ledger has C10 (complete), N1–N8 and C11 (planned) with `next_phase` N1; C9 and
   the C10-A…F sub-units are still tracked only here.
 - Mobile Growth Action review (relay redeploy) — see C9-A.
 - Growth digest scheduled trigger — see C9-A.
-- Affiliate placement change-request apply — C11 (text edit and meta description apply paths were
+- Affiliate placement change-request apply — C11 (planned part; text edit and meta description apply paths were
   implemented in C10-E and wait for their first human-approved production run).

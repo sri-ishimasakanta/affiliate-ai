@@ -118,16 +118,18 @@
      "evidence": {"files": ["docs/operations/n-track-plan.md", "docs/operations/products.md"], "commits": ["9c446a5"]}, "note": "build complete 2026-09-30 (reproducible build, manifest, validation, stale plan, release candidate); Done waits for H5 the human release gate; distribution is a separate human workstream"},
     {"id": "N6", "title": "System Productization", "status": "complete", "prerequisites": ["N5"],
      "evidence": {"files": ["docs/operations/n-track-plan.md", "docs/operations/system-productization.md"], "commits": ["c976dd1", "c880d73"]}, "note": "DoD met 2026-09-30: the second local site profile bootstraps and dry-runs without code changes, with its own content policy, 0 network attempts and production untouched; remaining non-blocking scope is listed in system-productization.md"},
-    {"id": "N7", "title": "SaaS Validation", "status": "active", "prerequisites": ["N6"],
-     "evidence": {"files": ["docs/operations/n-track-plan.md", "docs/operations/saas-validation.md"], "commits": ["50c443f"]}, "note": "planning / measurement build complete 2026-09-30; Done waits for G7 real pilot users and the human go / no-go decision"},
-    {"id": "N8", "title": "SaaS / Service", "status": "planned", "prerequisites": ["N7"],
-     "evidence": {"files": ["docs/operations/n-track-plan.md"], "commits": []}, "note": "formal definition (2026-09-30): builds only the model chosen in N7"},
+    {"id": "N7", "title": "SaaS Validation", "status": "deferred", "prerequisites": ["N6"],
+     "evidence": {"files": ["docs/operations/n-track-plan.md", "docs/operations/saas-validation.md"], "commits": ["50c443f"]}, "note": "DEFERRED 2026-10-01 (human): pilot recruitment and the pilot policy confirmation are paused; the pilot infrastructure stays (registry, evidence rules, pre-pilot packet; policy aa5e72d4 still proposed and unchanged; 0 pilots registered). Resumes only when the affiliate / revenue infrastructure and operational safety are sufficient, the quality is good enough for other users, and the human explicitly restarts it. Build complete 2026-09-30 / 2026-10-01"},
+    {"id": "N8", "title": "SaaS / Service", "status": "deferred", "prerequisites": ["N7"],
+     "evidence": {"files": ["docs/operations/n-track-plan.md"], "commits": []}, "note": "DEFERRED 2026-10-01 (human) together with N7; formal definition (2026-09-30) unchanged: builds only the model chosen in N7"},
     {"id": "C10", "title": "Growth platform (analysis foundation, content intelligence, nightly analysis, site growth orchestration and operations)", "status": "complete", "prerequisites": ["T7", "N0"],
      "evidence": {"files": ["docs/roadmap.md", "docs/operations/site-growth-operations.md"], "commits": ["9fe1a1a", "f83301f", "3deee8d", "ebbc63d"]},
      "note": "closed 2026-09-30; human-gated activation items stay listed under 'C10 activation pending' in docs/roadmap.md"},
-    {"id": "T6.5-review", "title": "Re-evaluate the T6.5C-H Threads trend-intelligence track", "status": "planned", "prerequisites": ["N8"],
-     "evidence": {"files": ["docs/roadmap.md"], "commits": []}, "note": "checkpoint at N8 completion or before C11 starts; T6.5C-H are a separate track that never blocks the main chain"},
-    {"id": "C11", "title": "Affiliate revenue attribution", "status": "planned", "prerequisites": ["T6.5-review"],
-     "evidence": {"files": ["docs/roadmap.md"], "commits": []}, "note": "after N8 in the development order (human, 2026-09-30)"}
+    {"id": "C11", "title": "Affiliate infrastructure & revenue attribution", "status": "active", "prerequisites": ["C10"],
+     "evidence": {"files": ["docs/roadmap.md", "docs/operations/affiliate-infrastructure.md"], "commits": []}, "note": "ACTIVE 2026-10-01 (human reprioritization: N3 measurement, then C11, then Threads analysis, then conversion / content / technical / operations, then hardening, then N7 / N8). First half built: read-only inventory, coverage, ASP operations detections, attribution readiness, human action queue, human verification record (PLAN by default); no migration, no external call. Done waits for the provider-side human work in the queue and the manual-revenue migration decision"},
+    {"id": "T6.6", "title": "Threads Performance Snapshot (03:00 / 09:00 / 15:00 / 21:00 JST, nightly deep analysis)", "status": "planned", "prerequisites": ["C11"],
+     "evidence": {"files": ["docs/roadmap.md"], "commits": []}, "note": "formal plan kept (human, 2026-10-01), not implemented: own posts observed 4 times a day (up to about 100 posts each); each observation keeps post_id, published_at, observed_at, post_age, content angle, Growth or regular, metrics; 03:30 JST nightly deep analysis of initial velocity, 6h / 12h / 24h, long tail and time-of-day patterns"},
+    {"id": "T6.5-review", "title": "Re-evaluate the T6.5C-H Threads trend-intelligence track", "status": "planned", "prerequisites": ["T6.6"],
+     "evidence": {"files": ["docs/roadmap.md"], "commits": []}, "note": "checkpoint after the T6.6 snapshot data has accumulated (moved after C11 on 2026-10-01); T6.5C-H are a separate track that never blocks the main chain"}
   ]
 }

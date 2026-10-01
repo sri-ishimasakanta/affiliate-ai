@@ -460,6 +460,12 @@ How to read the graph:
 
 ## N7 — SaaS Validation
 
+> **DEFERRED (2026-10-01, human decision).** N7 / N8 are postponed until the affiliate / revenue
+> infrastructure (C11) and operational safety are sufficient, the quality is good enough for
+> other users, and the human explicitly restarts them. Nothing here is deleted: the pilot
+> registry, evidence rules and pre-pilot packet stay as they are; no pilot is recruited or
+> registered, and the pilot policy stays proposed and unchanged. See `docs/roadmap.md`.
+
 - **Purpose:** find out, with **real users**, whether the productized system is worth something to
   others, and choose between SaaS, Managed Service and Hybrid.
 - **Entry criteria:** N6 Done. Real pilot users are recruited by the human.
@@ -507,6 +513,8 @@ How to read the graph:
 - **Next-phase dependencies:** N8 builds only the chosen model.
 
 ## N8 — SaaS / Service
+
+> **DEFERRED (2026-10-01, human decision)** together with N7; the definition below is unchanged.
 
 - **Purpose:** make the model chosen in N7 externally available.
 - **Entry criteria:** N7 Done with a recorded decision.

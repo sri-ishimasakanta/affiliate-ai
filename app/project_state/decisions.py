@@ -929,6 +929,46 @@ DECISIONS = (
         ),
         "follow_up": "人が本物の試しの利用者を集め、登録してから計測を始める",
     },
+    {
+        "id": "c11-first-n7-n8-deferred",
+        "area": "roadmap",
+        "decision": (
+            "開発の順番を N3 の計測 → C11 (ASP・アフィリエイトの基盤・成果の帰属) → Threads の分析 "
+            "(T6.6) → 転換・内容・技術・運用 → 堅牢化 → N7 / N8 の再開 にする。N7 / N8 は消さずに "
+            "DEFERRED にし、試しの利用者の仕組みは残す (募集・ポリシーの確定・登録はしない)"
+        ),
+        "rationale": (
+            "他の人に渡す前に、affiliate-ai そのものの収益の導線と運用の安全を確かなものにする "
+            "(人の判断 2026-10-01)"
+        ),
+        "evidence": ["docs/roadmap.md"],
+        "phrase": "replaces the 2026-09-30 order",
+        "resulting_state": (
+            "C11 = active (前半: 読むだけの棚卸し・帰属のできる度合い・人の作業の一覧)、N7 / N8 = "
+            "deferred、T6.6 = planned、T6.5-review は T6.6 の後"
+        ),
+        "follow_up": (
+            "人が ASP の側の作業 (状態・承認・トラッキング URL) をする。手入力の ASP 成果の記録は "
+            "migration が要るので人が決める"
+        ),
+    },
+    {
+        "id": "c11-provider-capabilities-need-evidence",
+        "area": "revenue/affiliate-infrastructure",
+        "decision": (
+            "提供元の能力 (SubID・成果の参照・取り込み・Cookie の期間) は、リポジトリの"
+            "証拠か人の確認の記録があるときだけ true / false。ほかは unknown のまま。"
+            "SubID に対応していると確かめた提供元が無いので、どのリンクにもパラメータを"
+            "足さない"
+        ),
+        "rationale": "ASP の一般的な知識から推測した値で帰属を判断しないため",
+        "evidence": ["docs/operations/affiliate-infrastructure.md"],
+        "phrase": "Nothing comes from public knowledge of an ASP.",
+        "resulting_state": (
+            "帰属: PARTIAL 1 (Make)・UNKNOWN 18・FULL 0。SubID の設計は not_applicable_yet"
+        ),
+        "follow_up": "人が ASP の画面で確かめ、verify で記録する",
+    },
 )
 
 

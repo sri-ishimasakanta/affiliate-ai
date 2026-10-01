@@ -1,5 +1,11 @@
 # SaaS Validation (N7): pilot plan and measurement infrastructure
 
+> **DEFERRED (2026-10-01, human decision).** N7 / N8 are postponed until the affiliate / revenue
+> infrastructure (C11) and operational safety are sufficient, the quality is good enough for
+> other users, and the human explicitly restarts them. Nothing here is deleted: the pilot
+> registry, evidence rules and pre-pilot packet stay as they are; no pilot is recruited or
+> registered, and the pilot policy stays proposed and unchanged. See `docs/roadmap.md`.
+
 N7 finds out, **with real pilot users**, whether the productized system (N6) is worth something
 to others, and prepares the SaaS / Managed Service / Hybrid decision. Until real pilots exist,
 only the plan and the measurement infrastructure are built. **No usage, cost or

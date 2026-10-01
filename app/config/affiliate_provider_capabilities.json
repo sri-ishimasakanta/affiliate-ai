@@ -1,0 +1,80 @@
+{
+  "schema": "affiliate-provider-capabilities/1",
+  "note": "C11 (2026-10-01): what this project KNOWS about each provider label used in affiliate_programs.provider. A capability is true / false only with evidence from this repository (code that exercises it) or a human verification record; otherwise it is \"unknown\". Nothing here is inferred from public knowledge of an ASP. Changing a value needs evidence.",
+  "capability_keys": {
+    "subid_in_tracking_url": "the provider accepts a per-click / per-placement reference on the tracking URL (SubID, clickref)",
+    "click_reference_in_commission_report": "conversions come back with that reference",
+    "commission_import_api": "this project reads conversions through an API",
+    "commission_report_manual": "conversions are only visible in the provider dashboard (a human copies them)",
+    "program_filter_in_import": "the import can be limited to one program",
+    "cookie_window_days": "attribution window, in days"
+  },
+  "providers": {
+    "make": {
+      "kind": "vendor affiliate program with API",
+      "capabilities": {
+        "commission_import_api": {"value": true, "evidence": "code: app/affiliate/make_client.py + scripts/import_make_affiliate_commissions.py (E1); 17 succeeded import runs"},
+        "click_reference_in_commission_report": {"value": false, "evidence": "code: app/affiliate/make_commission_rows.py reads no click reference (C10-A, attribution_readiness.KNOWN_IMPORTERS)"},
+        "program_filter_in_import": {"value": false, "evidence": "code: the import reads every commission (attribution_readiness.KNOWN_IMPORTERS)"},
+        "subid_in_tracking_url": {"value": "unknown", "evidence": null},
+        "commission_report_manual": {"value": "unknown", "evidence": null},
+        "cookie_window_days": {"value": "unknown", "evidence": null}
+      }
+    },
+    "PartnerStack": {
+      "kind": "affiliate network",
+      "capabilities": {
+        "subid_in_tracking_url": {"value": "unknown", "evidence": null},
+        "click_reference_in_commission_report": {"value": "unknown", "evidence": null},
+        "commission_import_api": {"value": false, "evidence": "code: no PartnerStack importer or credential exists in this repository"},
+        "commission_report_manual": {"value": "unknown", "evidence": null},
+        "program_filter_in_import": {"value": "unknown", "evidence": null},
+        "cookie_window_days": {"value": "unknown", "evidence": null}
+      }
+    },
+    "Impact": {
+      "kind": "affiliate network",
+      "capabilities": {
+        "subid_in_tracking_url": {"value": "unknown", "evidence": null},
+        "click_reference_in_commission_report": {"value": "unknown", "evidence": null},
+        "commission_import_api": {"value": false, "evidence": "code: no Impact importer or credential exists in this repository"},
+        "commission_report_manual": {"value": "unknown", "evidence": null},
+        "program_filter_in_import": {"value": "unknown", "evidence": null},
+        "cookie_window_days": {"value": "unknown", "evidence": null}
+      }
+    },
+    "FirstPromoter": {
+      "kind": "affiliate platform (per vendor)",
+      "capabilities": {
+        "subid_in_tracking_url": {"value": "unknown", "evidence": null},
+        "click_reference_in_commission_report": {"value": "unknown", "evidence": null},
+        "commission_import_api": {"value": false, "evidence": "code: no FirstPromoter importer or credential exists in this repository"},
+        "commission_report_manual": {"value": "unknown", "evidence": null},
+        "program_filter_in_import": {"value": "unknown", "evidence": null},
+        "cookie_window_days": {"value": "unknown", "evidence": null}
+      }
+    },
+    "direct": {
+      "kind": "the vendor's own program (no network); capabilities differ per vendor",
+      "capabilities": {
+        "subid_in_tracking_url": {"value": "unknown", "evidence": null},
+        "click_reference_in_commission_report": {"value": "unknown", "evidence": null},
+        "commission_import_api": {"value": false, "evidence": "code: no importer for any direct program except Make (listed separately)"},
+        "commission_report_manual": {"value": "unknown", "evidence": null},
+        "program_filter_in_import": {"value": "unknown", "evidence": null},
+        "cookie_window_days": {"value": "unknown", "evidence": null}
+      }
+    },
+    "multi_network": {
+      "kind": "offered through more than one network; which one is used is not recorded",
+      "capabilities": {
+        "subid_in_tracking_url": {"value": "unknown", "evidence": null},
+        "click_reference_in_commission_report": {"value": "unknown", "evidence": null},
+        "commission_import_api": {"value": false, "evidence": "code: no importer exists"},
+        "commission_report_manual": {"value": "unknown", "evidence": null},
+        "program_filter_in_import": {"value": "unknown", "evidence": null},
+        "cookie_window_days": {"value": "unknown", "evidence": null}
+      }
+    }
+  }
+}
