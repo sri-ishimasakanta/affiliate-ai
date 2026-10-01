@@ -23,6 +23,74 @@
       "content_hash": "e22787406b1fa4e216f1764f8c8e26149ef4ca7a485dadf503c4cbfc2ec57272",
       "version": "0.2.0",
       "meaning": "ready for release; not a sale or a publication"
+    },
+    {
+      "type": "release_approval",
+      "by": "human",
+      "at": "2026-10-01T06:18:00+00:00",
+      "version": "0.2.0",
+      "manifest_hash": "837ff0e3d3c79a7812427f2fec8cb72560d5d149eb3912c0af96dfac2f52bc3d",
+      "package_sha256": "b76c1c1c9241e70f4de0cc4b5758076bd72a0b79068f09ee371001c17758968b",
+      "content_hash": "e22787406b1fa4e216f1764f8c8e26149ef4ca7a485dadf503c4cbfc2ec57272",
+      "manifest": {
+        "build_input_hash": "d555e5e689b78eca7e502ef20c5be7991deb0c61d7f5b10cdfb3982b02e60422",
+        "builder": "product-build/1",
+        "content_hash": "e22787406b1fa4e216f1764f8c8e26149ef4ca7a485dadf503c4cbfc2ec57272",
+        "files": [
+          {
+            "bytes": 1472,
+            "path": "approval-gated-automation-kit-0.2.0/CHANGELOG.md",
+            "sha256": "5b476be6586a2555cd991b7ce43fd7405a88df4daf2df20935f52ba66ef4c58a"
+          },
+          {
+            "bytes": 1327,
+            "path": "approval-gated-automation-kit-0.2.0/README.md",
+            "sha256": "ecd22002523e9cc7c46b3ca33dc63bf03db48b0ac747c34338be9e1655ac7a33"
+          },
+          {
+            "bytes": 2898,
+            "path": "approval-gated-automation-kit-0.2.0/assets/approval-policy.example.json",
+            "sha256": "6e215924e15e98cd573270db41052ea0a203be51c1d01bcce34724caceff289c"
+          },
+          {
+            "bytes": 3687,
+            "path": "approval-gated-automation-kit-0.2.0/assets/checklist.md",
+            "sha256": "7d83f5839f29be5e07112a8af9e633f03818dc6327320b5e7373a3eb9820ba51"
+          },
+          {
+            "bytes": 6646,
+            "path": "approval-gated-automation-kit-0.2.0/assets/guide.md",
+            "sha256": "b925e6b8de32a3dddcbf821db5669f47cd7d47a164e009ec29b6ad7b988c3c08"
+          },
+          {
+            "bytes": 1964,
+            "path": "approval-gated-automation-kit-0.2.0/assets/license.md",
+            "sha256": "508a24d1b8dbd7fcc94c304c5fe02e7b8ef1dfc293a93f83b26eb7e7c5368b16"
+          }
+        ],
+        "product_id": "approval-gated-automation-kit",
+        "schema": "product-release/1",
+        "sources": {
+          "decision:approval-kit-first-paid-product": "885f3fac0da69a20bec9e46b426aaf52c7462b6997e3d12a48ea939c579ca891",
+          "decision:approval-kit-license-team-use": "bfb5f623a849a85a1e2d968a119ba82e81de81228d6c1cd3d1132be7de453dfb",
+          "decision:c10-growth-approval-never-applies": "3b6c4e0bc6bf246e8910d4d935f89939c469497dd0eaf183be93338a5f9cc3b1",
+          "decision:note-approval-image-snapshot": "3cbbc62d69d9543a21d80a81a0e484e70c05e49f77de108a259f2f03596cc350",
+          "decision:threads-human-approval-required": "60539efed7a779fe1d97601879721649c23615d2f2aba9fd3283f18766ed8213",
+          "decision:threads-no-catch-up-burst": "e5b96c62e771e9a5ce5ef4ab95ca906608c271dbd02cd8afe1f91071c4607da0",
+          "doc:docs/operations/note-channel.md#上書きしない": "0e038dcf39ca1599ac4ae62ee39c8cb61230119cf696ad19e7016ded07e61013",
+          "doc:docs/operations/note-channel.md#公開の前に承認したかのように時刻や履歴を書き換えていない": "0e038dcf39ca1599ac4ae62ee39c8cb61230119cf696ad19e7016ded07e61013",
+          "doc:docs/operations/note-channel.md#承認した画像は、中身の hash で固定する": "0e038dcf39ca1599ac4ae62ee39c8cb61230119cf696ad19e7016ded07e61013",
+          "doc:docs/operations/site-growth-operations.md#Automation boundary.": "140b2721dc9c741818c024e20acea7ca41d12e6d2610873f8f7ec6585b388369",
+          "doc:docs/operations/site-growth-operations.md#Autonomy classification (A–E)": "140b2721dc9c741818c024e20acea7ca41d12e6d2610873f8f7ec6585b388369",
+          "doc:docs/operations/site-growth-operations.md#There is no approve-all entry point.": "140b2721dc9c741818c024e20acea7ca41d12e6d2610873f8f7ec6585b388369",
+          "doc:docs/operations/site-growth-operations.md#never applies anything": "140b2721dc9c741818c024e20acea7ca41d12e6d2610873f8f7ec6585b388369",
+          "doc:docs/operations/threads-proposal-stock.md#1 件の提案は必ず 1 つの区分に入る": "5be3c012cb5d6da67dd5aa7b5113f77b294313368bf09ff8fd70486fdb131027",
+          "doc:docs/operations/threads-worker.md#| `not_approved` | まだ承認されていない |": "b0c2a41b3db08765158986045424f4d3cc9922704c305a3d1b3469b06d60c2db",
+          "phase:C10": "db06710c4620bda316ccfebe7f88844753eba3392fd495db28f893ff89a42e99"
+        },
+        "version": "0.2.0"
+      },
+      "meaning": "release candidate approved; distribution is a separate human decision"
     }
   ]
 }
