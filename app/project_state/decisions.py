@@ -826,6 +826,28 @@ DECISIONS = (
         ),
         "follow_up": "人が baseline を記録する (note のダッシュボード)",
     },
+    {
+        "id": "approval-kit-first-paid-product",
+        "area": "products",
+        "decision": (
+            "人の決定: 最初の有料の product は approval-gated-automation-kit の 0.2.0、"
+            "配布は note の有料記事、最初の価格は 980 円 (運用の値。版とは別)。"
+            "利用は購入者本人の個人・業務利用と"
+            "改変まで、第三者への再配布・共有・再販売・再パッケージ販売は禁止"
+        ),
+        "rationale": (
+            "具体性・出どころの強さ・環境への依存の少なさで最有力だった。N3 の数を主張に使わない"
+            "ので、N3 の 4 週間を出す条件にしない。販売の実績が無いので、価格の良し悪しは"
+            "言わない"
+        ),
+        "evidence": ["docs/operations/first-paid-product.md"],
+        "phrase": "最初の有料の product | `approval-gated-automation-kit`",
+        "resulting_state": (
+            "0.2.0 を準備 (ファイルと生成物の承認を中身の hash で固定する原則・利用の条件)。価格は"
+            "まだ note に設定していない。H4 / H5・有料記事の承認・公開・販売はまだ"
+        ),
+        "follow_up": "人が H4 (品質の確認・内容の承認) を行う",
+    },
 )
 
 

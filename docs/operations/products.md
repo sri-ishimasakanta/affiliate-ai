@@ -141,3 +141,9 @@ for N3 unless the copy uses N3 numbers. Nothing is priced, listed, approved or s
 On 2026-10-01 all four release candidates still rebuilt to the same bytes (`verify`), and none
 is stale. The review packet of `approval-gated-automation-kit` 0.1.0 was regenerated (manifest
 `8c551ed0…`).
+
+On 2026-10-01 the human chose `approval-gated-automation-kit` 0.2.0 for a note paid article (initial
+price 980 JPY as an operating value; license in `assets/license.md`). 0.2.0 adds content-hash file
+approval to the checklist (now 25 items), guide and config example. It checks with 0 errors and
+0 warnings, and its build is reproducible (manifest `65ac6fbb…`). H4 / H5 are still pending. The asset
+kind `license` was added.

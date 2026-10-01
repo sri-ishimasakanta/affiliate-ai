@@ -1,6 +1,6 @@
 {
-  "schema": "approval-policy-example/1",
-  "about": "設定の例です。既定はすべて安全側 (無効・人の承認あり) にしてあります。秘密 (パスワード・トークン) はここに書かず、環境ごとの秘密の置き場に置いてください。",
+  "schema": "approval-policy-example/2",
+  "about": "設定の例です。既定はすべて安全側 (無効・人の承認あり) にしてあります。秘密 (パスワード・トークン) はここに書かず、環境ごとの秘密の置き場に置いてください。数値は例であり、推奨値ではありません。",
   "targets": [
     {
       "name": "article_body_update",
@@ -19,6 +19,29 @@
       "enabled": false
     },
     {
+      "name": "generated_image_or_attachment",
+      "stage": "C",
+      "approval": {
+        "required": true,
+        "bound_to": "file_content_hash",
+        "path_or_filename_is_not_the_approval_target": true,
+        "invalidated_when_content_changes": true
+      },
+      "snapshot": {
+        "enabled": true,
+        "store": "approved-snapshots/<item-id>/",
+        "file_name": "<sha256>.<ext>",
+        "overwrite": false,
+        "delete": false,
+        "verify_after_write": ["bytes", "sha256", "file_type"],
+        "canonical_after_approval": "snapshot"
+      },
+      "before_publish": ["verify_snapshot_matches_approved_hash"],
+      "on_content_change": "reopen_resubmit_reapprove",
+      "on_snapshot_failure": "do_not_approve",
+      "enabled": false
+    },
+    {
       "name": "first_automatic_email",
       "stage": "D",
       "approval": {"required": true, "first_run_observed_by_human": true},
@@ -32,6 +55,11 @@
     }
   ],
   "suggestions": {"approve_all": false, "suggestion_approval_writes_anything": false},
+  "approvals": {
+    "history": "append_only",
+    "superseded_approvals_are_kept": true,
+    "retrospective_approval": {"allowed": true, "must_be_marked_as_after_publication": true, "rewrite_times": false}
+  },
   "notifications": {"only_when_action_needed": true, "group_same_problem": true, "renotify_after_hours": 168, "auto_resolve": true},
   "records": {"append_only": true, "corrections_supersede": true}
 }

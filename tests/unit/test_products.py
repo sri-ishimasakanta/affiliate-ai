@@ -40,7 +40,8 @@ def _repo(tmp_path: Path) -> Path:
     (root / "docs/operations").mkdir(parents=True)
     shutil.copy2(REPO / "docs/project-roadmap.json", root / "docs/project-roadmap.json")
     shutil.copytree(REPO / "docs/decision-log", root / "docs/decision-log")
-    for name in ("site-growth-operations.md", "threads-performance-analysis.md"):
+    for name in ("site-growth-operations.md", "threads-performance-analysis.md",
+                 "note-channel.md"):
         shutil.copy2(REPO / "docs/operations" / name, root / "docs/operations" / name)
     shutil.copytree(REPO / "products" / PID, root / "products" / PID)
     (root / "products" / PID / "records.json").unlink(missing_ok=True)
@@ -136,7 +137,7 @@ def test_undeclared_files_and_missing_sources_are_errors(tmp_path) -> None:
 def test_the_content_hash_ignores_the_version_but_not_the_assets(tmp_path) -> None:
     root = _repo(tmp_path)
     before = load_product(root, PID).content_hash
-    _edit(root, "product.json", '"version": "0.1.0"', '"version": "0.1.1"')
+    _edit(root, "product.json", '"version": "0.2.0"', '"version": "0.2.1"')
     assert load_product(root, PID).content_hash == before
     _edit(root, "assets/guide.md", "## 進め方", "## 進め方 (改)")
     assert load_product(root, PID).content_hash != before
@@ -153,7 +154,7 @@ def test_builds_are_reproducible_and_manifests_have_no_timestamps(tmp_path) -> N
     text = json.dumps(first["manifest"])
     assert "2026" not in text and "at\"" not in text
     names = zipfile.ZipFile(BytesIO(first["package"])).namelist()
-    assert f"{PID}-0.1.0/MANIFEST.json" in names and f"{PID}-0.1.0/assets/guide.md" in names
+    assert f"{PID}-0.2.0/MANIFEST.json" in names and f"{PID}-0.2.0/assets/guide.md" in names
     (root / "products" / PID / "CHANGELOG.md").write_text("# 変更の記録\n", encoding="utf-8")
     broken = pb.build_candidate(load_product(root, PID), result["sources"], policy=policy,
                                 terms=[])
@@ -243,14 +244,14 @@ def test_the_cli_runs_the_local_lifecycle_without_network(tmp_path, monkeypatch,
     assert run("review", PID, "--by", "human", "--confirm-all") == 0
     content_hash = load_product(root, PID).content_hash
     assert run("approve-content", PID, "--content-hash", content_hash, "--by", "human") == 0
-    candidate = json.loads((root / "reports/products" / PID / "0.1.0" / "candidate.json")
+    candidate = json.loads((root / "reports/products" / PID / "0.2.0" / "candidate.json")
                            .read_text(encoding="utf-8"))
     assert run("approve-release", PID, "--manifest-hash", candidate["manifest_hash"],
                "--by", "human") == 0
     capsys.readouterr()
     assert run("status", PID) == 0
     status = capsys.readouterr().out
-    assert '"0.1.0"' in status and "not decided" in status
+    assert '"0.2.0"' in status and "not decided" in status
 
 
 def test_the_products_code_has_no_distribution_paths() -> None:

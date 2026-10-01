@@ -1,25 +1,26 @@
 {
   "schema": "product-spec/1",
   "id": "approval-gated-automation-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "title": "AI自動化に「人の承認の門」を組み込むためのチェックリストと設定例",
   "target_user": "AIで記事・投稿・運用の作業を自動化し始めた、個人や小さなチームの運営者",
   "problem": "AIに任せる範囲が広がるほど、誤った書き込みや公開をどこで止めるかが曖昧になり、一度の承認が別の書き込みまで許してしまう",
-  "intended_outcome": "作業を5つの自動化の段階に分け、承認を内容の hash に結びつけ、新しい書き込みの形は最初の1回を人が確かめてから有効にする運用を、自分の仕組みに当てはめられる",
+  "intended_outcome": "作業を5つの自動化の段階に分け、承認を内容の hash に結びつけ、画像や添付などのファイルも中身の hash で固定し、中身が変わったら承認し直し、新しい書き込みの形は最初の1回を人が確かめてから有効にする運用を、自分の仕組みに当てはめられる",
   "reusable_scope": "書き込み先 (CMS・SNS・メール・設定) を持つ小規模な自動化全般。特定のサービスやツールには依存しない",
   "site_specific_excluded": [
     "このサイトのサービス名・アカウント・予定の時刻",
     "このサイトの数字 (記事数・投稿数・成果)",
-    "このサイトの内部のコマンド名とファイル名"
+    "このサイトの内部のコマンド名とファイル名",
+    "このサイトの承認の記録の形式・写しの保存場所・識別子・hash の値"
   ],
   "format": "guide_bundle",
-  "license": "未定 (人が決める)",
+  "license": "購入者本人の個人利用・業務利用と、購入者自身による改変を許可。第三者への再配布・共有・再販売・商品としての再パッケージ販売は禁止 (assets/license.md)",
   "distribution": null,
   "assets": [
     {
       "path": "assets/checklist.md",
       "kind": "checklist",
-      "title": "承認の門のチェックリスト (20項目)",
+      "title": "承認の門のチェックリスト (25項目)",
       "site_specific": false,
       "sources": [
         {
@@ -35,6 +36,13 @@
         {
           "ref": "doc:docs/operations/site-growth-operations.md",
           "phrase": "There is no approve-all entry point."
+        },
+        {
+          "ref": "decision:note-approval-image-snapshot"
+        },
+        {
+          "ref": "doc:docs/operations/note-channel.md",
+          "phrase": "承認した画像は、中身の hash で固定する"
         }
       ]
     },
@@ -53,6 +61,13 @@
         },
         {
           "ref": "decision:threads-no-catch-up-burst"
+        },
+        {
+          "ref": "decision:note-approval-image-snapshot"
+        },
+        {
+          "ref": "doc:docs/operations/note-channel.md",
+          "phrase": "公開の前に承認したかのように時刻や履歴を書き換えていない"
         }
       ]
     },
@@ -68,6 +83,21 @@
         },
         {
           "ref": "decision:c10-growth-approval-never-applies"
+        },
+        {
+          "ref": "doc:docs/operations/note-channel.md",
+          "phrase": "上書きしない"
+        }
+      ]
+    },
+    {
+      "path": "assets/license.md",
+      "kind": "license",
+      "title": "利用の条件",
+      "site_specific": false,
+      "sources": [
+        {
+          "ref": "decision:approval-kit-first-paid-product"
         }
       ]
     }
@@ -76,6 +106,7 @@
     "特定のサービス (CMS・SNS) の設定手順は含まない。各サービスの画面や API の操作は利用者の環境による",
     "承認の hash の計算や自動実行のコードは含まない (考え方・確認表・設定の例まで)",
     "この分け方で事故がなくなる、収益が上がる、とは言えない (観測した結果ではない)",
-    "設定例の数値 (1 日の上限・間隔・知らせ直しの時間) は例であり、推奨値ではない"
+    "設定例の数値 (1 日の上限・間隔・知らせ直しの時間) は例であり、推奨値ではない",
+    "承認した写しの保管の場所・容量・期間の管理は含まない (利用者の環境による)"
   ]
 }

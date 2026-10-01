@@ -3,7 +3,8 @@
 商品は ``products/<id>/`` に置く (git で管理する):
 
 - ``product.json`` (``product-spec/1``): 誰の・どんな問題を・どうできるようにするか、版 (semver)、
-  資産 (template / checklist / guide / config_example) と、それぞれの **出どころ** (``doc:`` /
+  資産 (template / checklist / guide / config_example / license) と、それぞれの
+  **出どころ** (``doc:`` /
   ``decision:`` / ``phase:``)、再利用できる範囲とサイト固有として外したもの。
 - ``assets/``: 読み手に見せる本文 (出どころの書き方は本文に出さない。仕様に書く)。
 - ``CHANGELOG.md``: 版ごとの変更 (N5)。
@@ -32,7 +33,8 @@ from app.social.note import safety
 from app.social.note.sources import SourceBundle
 
 SCHEMA = "product-spec/1"
-ASSET_KINDS = ("template", "checklist", "guide", "config_example")
+#: ``license``: 利用の条件 (2026-10-01。人が決めた条件を読み手向けに書いた物。出どころは決定)
+ASSET_KINDS = ("template", "checklist", "guide", "config_example", "license")
 PRODUCTS_DIR = Path("products")
 POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "product_policy.json"
 _SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
