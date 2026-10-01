@@ -118,7 +118,8 @@ uv run python scripts/manage_note_piece.py record-publication <draft_id> --url h
   人が確かめ直す。
 - 承認は `review_ready` の本文の hash に結びつく。外部リンクがあれば `--links-approved` が要る。
   承認には公開の形 (free / paid)・リンクの一覧と hash が入る。
-- **承認の記録 (`note-approval/2`、2026-09-30)**: 承認の記録の中で、次をそれぞれ別に追える。
+- **承認の記録 (`note-approval/2`、2026-09-30。画像の写しを足した `-3` は下の節)**: 承認の記録の
+  中で、次をそれぞれ別に追える。
   - 本文: `content_hash` (題名と本文だけ。意味は変えていない。画像は入らない)
   - 外部リンク: 一覧・`links_hash`・`links_approved` (リンクがあれば `--links-approved` が要る)
   - タグ・公開の形 (`access_mode`)・サムネイルの指示 (`thumbnail_brief`)
@@ -138,6 +139,39 @@ uv run python scripts/manage_note_piece.py record-publication <draft_id> --url h
   アップロードした画像が同じものかは、仕組みでは確かめられない (note の API を使わない)。
   公開の記録の `note_image_match` にそう書く。確かめるのは人。
 - 古い承認 (画像の情報が無い `note-approval/1` 相当) はそのまま有効で、画像の情報を補わない。
+
+### 承認した画像の写し (`note-approval/3`、2026-10-01)
+
+きっかけ: 3 本目で、承認の後に `artifacts/note/actionable-alert-thumbnail.png` が同じパスのまま
+上書きされ、承認した画像 (1,274,938 bytes、sha256 `4a4a7e8c…`) と公開した画像 (1,366,737 bytes、
+sha256 `0277d7d6…`) がずれた。承認が「手元のファイルの指紋」だけを持ち、ファイル自体は
+上書きできる場所にあったため。
+
+- **承認した画像は、中身の hash で固定する (immutable)。** `approve ... --image <file>` は、承認の
+  前に画像を `reports/note/approved-images/<draft_id>/<sha256>.<ext>` へ写す (git 管理外)。
+  順番: 先頭のバイトで形式を確かめる → 大きさと sha256 → 写しを作る (既にあれば作らない。
+  上書きしない) → 写しを読み直して大きさ・sha256・形式を確かめる → 承認を記録する。写しが
+  作れない・確かめられなければ **承認しない**。写しは読むだけの属性にする。
+- **承認の後の正本 (canonical) は写し。** 承認の画像の記録 (`images[]`) には、名前・大きさ・
+  sha256・形式に加えて、`source` (元のファイルの名前と、リポジトリの中ならその相対パス。
+  **出どころの記録だけで、承認の後は正本ではない**)・`snapshot` (写しの相対パス・大きさ・sha256・
+  形式・`reused`)・`canonical: approval_snapshot` が入る。絶対パスは記録しない。
+- **元のファイルは後で変わってよい。** `artifacts/` の画像を上書き・削除しても、承認は書き換わらず
+  有効なまま (`check-image` は `changed_since_approval` と `approval_valid: true` を出す)。
+- **画像を変えるときだけ** `reopen` → `submit` → 新しい画像で `approve`。承認済みのまま画像だけを
+  替えることはできない。新しい中身なら新しい写し、同じ中身なら前の写しを確かめて使う
+  (`reused: true`)。
+- **前の写しは消さない。** 効かなくなった承認は `approval_history` に写しの参照ごと残るので、
+  過去の承認の画像もたどれる。事後の承認 (`--note`・`--after-publication-at`) も同じ。
+- **公開の記録は承認の写しで確かめる。** `record-publication` は、写しが今もあり、承認の大きさ・
+  sha256・形式と同じであることを確かめて記録する (元のファイルが変わっていても失敗しない)。
+  写しが無い・変わった・置き場の外を指す、なら記録しない。`--image` は任意の確認で、人が note に
+  使ったファイルを渡すと承認の画像と比べ、違えば記録しない (取り消して承認し直す)。公開の記録の
+  `approved_images` に写しの参照と `canonical`、`image_confirmation` に確認の有無が入る。
+- **古い承認はそのまま有効。** 写しの無い承認 (`note-approval/2` まで。controlled #1・#2) は
+  `legacy` として扱い、後から画像を推して写しを作らない。そうした承認の公開の記録には、今までどおり
+  `--image` が要る。画像の無い承認も今までどおり。
+- note に上げた画像が承認の画像と同じかは、今までどおり人が確かめる (`note_image_match`)。
 - 公開の記録は、承認した hash と同じ本文を人が公開したときだけ。URL は https で、
   `app/config/note_channel_policy.json` の `publication_url_hosts` の host に限る。
 - **有料 (paid) は記録するだけ。** 値段を決める・販売を始めるのは人が note で行う (人の確認点)。

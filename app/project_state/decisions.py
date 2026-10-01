@@ -768,6 +768,25 @@ DECISIONS = (
         ),
         "follow_up": "差し替えの提案は通常どおり人が承認か却下を決める",
     },
+    {
+        "id": "note-approval-image-snapshot",
+        "area": "note",
+        "decision": (
+            "note の承認した画像は、承認の時に中身の sha256 の名前で写し、写しを正本にする。元の"
+            "ファイルは出どころの記録だけ。画像を変えるときだけ取り消して承認し直す"
+        ),
+        "rationale": (
+            "3 本目で承認の後に同じパスの画像が上書きされ、承認と公開の画像がずれた。承認が手元の"
+            "ファイルの指紋しか持たず、ファイル自体は上書きできる場所にあった"
+        ),
+        "evidence": ["docs/operations/note-channel.md"],
+        "phrase": "承認した画像は、中身の hash で固定する",
+        "resulting_state": (
+            "note-approval/3。写しは reports/note/approved-images/ (git 管理外・上書きしない・"
+            "消さない)。公開の記録は写しで確かめる。写しの無い過去の承認は legacy として有効"
+        ),
+        "follow_up": "N2 の 4 本目から写しつきの承認で公開する",
+    },
 )
 
 

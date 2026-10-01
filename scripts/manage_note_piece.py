@@ -14,10 +14,12 @@
         [--links-approved] [--image <file>]     # サムネイルがある下書きは --image が必須
     uv run python scripts/manage_note_piece.py reopen <draft_id> --reason "..."   # 承認を取り消す
     uv run python scripts/manage_note_piece.py record-publication <draft_id> --url <https://note.com/...>
-        --observed-at <ISO> --content-hash <sha> [--image <file>]
+        --observed-at <ISO> --content-hash <sha> [--image <file>]   # 画像は承認の写しで確かめる
     uv run python scripts/manage_note_piece.py reject <draft_id> --reason "..."
 
-書くのは ``reports/note/drafts/`` (git 管理外) だけ。note・WordPress・Threads・DB には書かない。
+書くのは ``reports/note/drafts/`` と、承認した画像の写し ``reports/note/approved-images/`` (どちらも
+git 管理外。写しは中身の sha256 の名前で、上書きしない・消さない) だけ。note・WordPress・
+Threads・DB には書かない。
 ネットワークも LLM も使わない。
 """
 
@@ -124,7 +126,8 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
     pub.add_argument("--url", required=True)
     pub.add_argument("--observed-at", required=True)
     pub.add_argument("--content-hash", required=True)
-    pub.add_argument("--image", help="the image file used in the note (must be the approved one)")
+    pub.add_argument("--image", help="optional check: the image file used in the note (must match "
+                     "the approved one; the record itself uses the approval snapshot)")
     rej = sub.add_parser("reject")
     rej.add_argument("draft_id")
     rej.add_argument("--reason", required=True)
@@ -157,7 +160,7 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             print(f"wrote {path.with_suffix('.packet.md')} and {path.with_suffix('.txt')}")
             return 0
         if args.command == "check-image":
-            state = review.check_image(draft, args.image)
+            state = review.check_image(draft, args.image, root=root)
             print(json.dumps({"image_required": review.image_required(draft), **state},
                              ensure_ascii=False, indent=2))  # fmt: skip
             return 0 if state["state"] != "changed_since_approval" else 1
@@ -183,7 +186,8 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
                             if args.after_publication_at else None)  # fmt: skip
             review.approve(draft, content_hash=args.content_hash, approved_by=args.by, now=now,
                            links_approved=args.links_approved, image=args.image,
-                           note=args.note, after_publication_at=published_at)  # fmt: skip
+                           note=args.note, after_publication_at=published_at,
+                           snapshot_root=root)  # fmt: skip
         elif args.command == "record-publication":
             observed = datetime.fromisoformat(args.observed_at)
             if observed.tzinfo is None:
@@ -191,7 +195,7 @@ def main(argv=None, *, root: Path = ROOT, now: datetime | None = None) -> int:
             review.record_publication(draft, url=args.url, observed_at=observed,
                                       published_hash=args.content_hash, now=now,
                                       policy=review.load_policy(),
-                                      image=args.image)  # fmt: skip
+                                      image=args.image, snapshot_root=root)  # fmt: skip
         elif args.command == "reopen":
             review.reopen(draft, reason=args.reason, now=now)
         elif args.command == "reject":

@@ -7,8 +7,11 @@
 - 確認用のまとめ (``review_packet`` / ``render_packet`` / ``plain_text``)
 - 承認 (``approve``。本文の hash に結びつく。リンク・タグ・公開の形・サムネイルの画像の
   ファイル (名前・大きさ・sha256) も承認に入る。効かなくなった承認は ``approval_history``)
+- 承認した画像の写し (``snapshot_image``、``note-approval/3``。承認の時に、画像を中身の sha256 の
+  名前で ``reports/note/approved-images/<下書き>/`` へ写す。上書きしない・消さない。承認の後の
+  正本はこの写しで、元のファイル (``artifacts/`` など) は出どころの記録だけ)
 - 公開の記録 (``record_publication``。承認した hash と同じ本文を人が公開したときだけ。URL は
-  https で、方針の host に限る)
+  https で、方針の host に限る。画像は承認の写しで確かめる)
 
 有料 (``access_mode == "paid"``) は記録するだけ。値段を決める・販売を始めるのは人が note で行う。
 """
@@ -17,7 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -25,6 +30,7 @@ from urllib.parse import urlparse
 from app.social.note import safety
 from app.social.note.models import (
     ACCESS_MODES,
+    TRANSITIONS,
     Claim,
     EvidenceRef,
     NoteDraft,
@@ -223,7 +229,17 @@ _IMAGE_SIGNATURES = (
     (b"GIF87a", "image/gif"),
     (b"GIF89a", "image/gif"),
 )
-APPROVAL_SCHEMA = "note-approval/2"
+#: -3 (2026-10-01): 画像は承認の時に中身の sha256 の名前で写し、写しを正本にする。
+#: -2 までの承認 (写しが無い) は legacy として有効なまま (後から写しを作らない)。
+APPROVAL_SCHEMA = "note-approval/3"
+#: 承認した画像の写しの置き場 (root からの相対。git 管理外の ``reports/`` の下)。
+SNAPSHOT_DIR = Path("reports/note/approved-images")
+SNAPSHOT_SCHEMA = "note-image-snapshot/1"
+CANONICAL_SNAPSHOT = "approval_snapshot"
+CANONICAL_LEGACY = "legacy_no_snapshot"
+_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _mime_of(data: bytes) -> str | None:
@@ -235,13 +251,7 @@ def _mime_of(data: bytes) -> str | None:
     return None
 
 
-def inspect_image(path: Path | str) -> dict:
-    """承認・公開に使う画像の指紋 (名前・大きさ・sha256・中身から分かる形式)。
-
-    無い・読めない・空・形式が分からない、はすべて拒む (fail closed)。記録するのは
-    ファイルの名前だけで、手元のパスは記録しない。
-    """
-
+def _read_image(path: Path | str) -> tuple[bytes, dict]:
     file = Path(path)
     if not file.is_file():
         raise NoteStatusError(f"image file is missing: {file.name}")
@@ -255,8 +265,110 @@ def inspect_image(path: Path | str) -> dict:
     mime = _mime_of(data)
     if mime is None:
         raise NoteStatusError(f"unsupported image type: {file.name} (PNG / JPEG / GIF / WebP)")
-    return {"filename": file.name, "bytes": len(data),
-            "sha256": hashlib.sha256(data).hexdigest(), "mime_type": mime}  # fmt: skip
+    return data, {"filename": file.name, "bytes": len(data),
+                  "sha256": hashlib.sha256(data).hexdigest(), "mime_type": mime}  # fmt: skip
+
+
+def inspect_image(path: Path | str) -> dict:
+    """承認・公開に使う画像の指紋 (名前・大きさ・sha256・中身から分かる形式)。
+
+    無い・読めない・空・形式が分からない、はすべて拒む (fail closed)。記録するのは
+    ファイルの名前だけで、手元のパスは記録しない。
+    """
+
+    return _read_image(path)[1]
+
+
+def _same(info: dict, other: dict) -> bool:
+    return all(info.get(k) == other.get(k) for k in ("bytes", "sha256", "mime_type"))
+
+
+def snapshot_image(source: Path | str, *, root: Path | str, draft_id: str) -> dict:
+    """承認する画像を、中身の sha256 の名前で写す (上書きしない)。写しを読み直して確かめる。
+
+    同じ中身の写しが既にあれば、中身を確かめてそのまま使う (``reused``)。既にある写しの中身が
+    名前の hash と違えば拒む (直さない・上書きしない)。返すのは、元のファイルの指紋と写しの
+    参照 (root からの相対パス。手元の絶対パスは記録しない)。
+    """
+
+    if not _SAFE_ID.match(draft_id or ""):
+        raise NoteStatusError(f"unsafe draft id for the image snapshot: {draft_id!r}")
+    data, info = _read_image(source)
+    rel = SNAPSHOT_DIR / draft_id / f"{info['sha256']}.{_EXTENSIONS[info['mime_type']]}"
+    target = Path(root) / rel
+    created = False
+    if not target.exists():
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise NoteStatusError(f"the image snapshot store could not be created "
+                                  f"({type(exc).__name__}); nothing was approved") from exc
+        try:
+            with open(target, "xb") as handle:  # 既にあれば作らない (上書きしない)
+                created = True
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except FileExistsError:
+            created = False  # 同時に作られた: 下で中身を確かめる
+        except OSError as exc:
+            if created:
+                target.unlink(missing_ok=True)
+            raise NoteStatusError(f"the image snapshot could not be written "
+                                  f"({type(exc).__name__}); nothing was approved") from exc
+    try:
+        _data, written = _read_image(target)
+    except NoteStatusError as exc:
+        if created:
+            target.unlink(missing_ok=True)
+        raise NoteStatusError(f"the image snapshot cannot be read back ({exc}); "
+                              "nothing was approved") from exc  # fmt: skip
+    if not _same(info, written):
+        if created:
+            target.unlink(missing_ok=True)
+            raise NoteStatusError("the image snapshot does not match the image; nothing was "
+                                  "approved")  # fmt: skip
+        raise NoteStatusError(f"the existing snapshot {rel.as_posix()} does not match its hash; "
+                              "it is not overwritten (check it by hand)")  # fmt: skip
+    if created:
+        target.chmod(stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)  # 読むだけにする
+    source_path = Path(source)
+    try:
+        provenance = source_path.resolve().relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        provenance = None  # root の外: 名前だけ
+    return {**info,
+            "source": {"filename": source_path.name, "path": provenance,
+                       "role": "provenance only; not canonical after approval"},
+            "snapshot": {"schema": SNAPSHOT_SCHEMA, "path": rel.as_posix(),
+                         "bytes": written["bytes"], "sha256": written["sha256"],
+                         "mime_type": written["mime_type"], "reused": not created},
+            "canonical": CANONICAL_SNAPSHOT}  # fmt: skip
+
+
+def verify_snapshot(image: dict, root: Path | str | None) -> dict:
+    """承認の画像の写しが、今も承認したときの中身か。写しの無い古い承認は ``legacy``。"""
+
+    snap = image.get("snapshot")
+    if not snap:
+        return {"state": "legacy", "canonical": CANONICAL_LEGACY,
+                "note": "approved before image snapshots; valid as is (not backfilled)"}
+    if root is None:
+        return {"state": "unchecked", "note": "no snapshot store was given"}
+    base = (Path(root) / SNAPSHOT_DIR).resolve()
+    path = (Path(root) / str(snap.get("path") or "")).resolve()
+    if not path.is_relative_to(base) or not _SHA256.match(str(snap.get("sha256") or "")):
+        return {"state": "invalid", "path": snap.get("path"),
+                "note": "the snapshot reference is outside the snapshot store"}
+    if not path.is_file():
+        return {"state": "missing", "path": snap.get("path")}
+    try:
+        _data, current = _read_image(path)
+    except NoteStatusError as exc:
+        return {"state": "unreadable", "path": snap.get("path"), "note": str(exc)}
+    same = _same(current, snap) and _same(current, image)
+    return {"state": "ok" if same else "changed", "path": snap.get("path"),
+            "sha256": current["sha256"], "bytes": current["bytes"]}
 
 
 def image_required(draft: NoteDraft) -> bool:
@@ -271,9 +383,13 @@ def approved_images(draft: NoteDraft) -> list[dict]:
     return list((draft.approval or {}).get("images") or [])
 
 
-def check_image(draft: NoteDraft, path: Path | str) -> dict:
+def check_image(draft: NoteDraft, path: Path | str, *, root: Path | str | None = None) -> dict:
     """手元の画像が、承認したときの画像と同じか (大きさと sha256)。名前が同じでも中身が
-    変われば同じではない。"""
+    変われば同じではない。
+
+    -3: 承認の正本は写し。元のファイルが後で変わっても承認は効いたまま (``approval_valid``)。
+    変わった画像を note に使うなら、取り消して承認し直す。
+    """
 
     approved = approved_images(draft)
     current = inspect_image(path)
@@ -282,10 +398,18 @@ def check_image(draft: NoteDraft, path: Path | str) -> dict:
                 "note": "the current approval binds no image"}  # fmt: skip
     same = any(a["sha256"] == current["sha256"] and a["bytes"] == current["bytes"]
                for a in approved)  # fmt: skip
-    return {"state": "matches_approval" if same else "changed_since_approval",
-            "current": current, "approved": approved,
-            "note": ("this is the approved image" if same else
-                     "the image differs from the approved one: reopen and approve again")}
+    snapshots = [verify_snapshot(a, root) for a in approved]
+    out = {"state": "matches_approval" if same else "changed_since_approval",
+           "current": current, "approved": approved, "snapshots": snapshots,
+           "note": ("this is the approved image" if same else
+                    "this file differs from the approved image: to use it in note, reopen and "
+                    "approve again")}  # fmt: skip
+    if all(s["state"] == "ok" for s in snapshots):
+        out["approval_valid"] = True
+        if not same:
+            out["note"] += ("; the approval itself is still valid (its canonical image is the "
+                            "approval snapshot)")  # fmt: skip
+    return out
 
 
 def _archive_approval(draft: NoteDraft, reason: str, now: datetime) -> None:
@@ -305,7 +429,9 @@ def review_packet(draft: NoteDraft) -> dict:
         "access_mode": draft.access_mode, "content_hash": draft.content_hash,
         "links": links, "links_hash": _links_hash(links),
         "image_required": image_required(draft),
-        "images": [{k: i.get(k) for k in ("filename", "bytes", "sha256", "mime_type")}
+        "images": [{**{k: i.get(k) for k in ("filename", "bytes", "sha256", "mime_type")},
+                    "snapshot": (i.get("snapshot") or {}).get("path"),
+                    "canonical": i.get("canonical") or CANONICAL_LEGACY}
                    for i in approved_images(draft)],
         "errors": list(draft.errors), "warnings": list(draft.warnings),
         "edited_by_human": draft.edited_by_human, "edited_by": draft.edited_by,
@@ -333,14 +459,18 @@ def render_packet(draft: NoteDraft) -> str:
              f"- links ({len(packet['links'])}): " + (", ".join(packet["links"]) or "none")]
     if packet["images"]:
         lines += [f"- approved image: {i['filename']} · {i['bytes']} bytes · {i['mime_type']} · "
-                  f"sha256 {i['sha256']}" for i in packet["images"]]  # fmt: skip
+                  f"sha256 {i['sha256']} · canonical: "
+                  + (f"snapshot {i['snapshot']}" if i["snapshot"] else
+                     "legacy (no snapshot; not backfilled)")
+                  for i in packet["images"]]  # fmt: skip
     elif packet["image_required"]:
         lines.append("- image: **required** (the thumbnail brief is set) — not bound yet; the "
                      "human approves with the final image file (`approve ... --image <file>`)")
     else:
         lines.append("- images: none")
-    lines += ["- the system binds the local image file only; the human checks that the image "
-              "uploaded to note is the same one"] if packet["image_required"] else []  # fmt: skip
+    lines += ["- the system binds the approved image by content hash (a snapshot copy); the "
+              "human checks that the image uploaded to note is the same one"] if packet[
+        "image_required"] else []  # fmt: skip
     lines += [f"- error: {e}" for e in draft.errors] or ["- errors: none"]
     lines += [f"- warning: {w}" for w in draft.warnings]
     lines += ["", "## 根拠 (事実の文を確かめるため。公開の前に消す)", ""]
@@ -359,13 +489,17 @@ def submit(draft: NoteDraft) -> NoteDraft:
 def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datetime,
             links_approved: bool = False, image: Path | str | None = None,
             note: str | None = None,
-            after_publication_at: datetime | None = None) -> NoteDraft:  # fmt: skip
-    """人の承認を記録する (``note-approval/2``)。
+            after_publication_at: datetime | None = None,
+            snapshot_root: Path | str | None = None) -> NoteDraft:  # fmt: skip
+    """人の承認を記録する (``note-approval/3``)。
 
     承認に入るもの (それぞれ別に追える): 本文 (``content_hash``。本文と題名だけ、今までと同じ)・
     外部リンク (一覧と hash。``links_approved`` が要る)・タグ・公開の形・サムネイルの指示・
     **画像** (``image`` のファイルの名前・大きさ・sha256・形式)。サムネイルの指示がある下書きは、
     画像のファイルを渡さないと承認できない (真偽値だけの「画像も承認」は作らない)。
+
+    -3: 画像は承認の前に ``snapshot_root`` の写しの置き場へ写し、写しを読み直して確かめる。
+    写しが作れない・確かめられなければ承認しない。承認の正本の画像は写し。
     """
 
     if draft.errors:
@@ -375,10 +509,20 @@ def approve(draft: NoteDraft, *, content_hash: str, approved_by: str, now: datet
         raise NoteStatusError(f"{len(links)} external link(s) need explicit approval")
     if not approved_by.strip():
         raise NoteStatusError("approved_by is required")
-    images = [inspect_image(image)] if image is not None else []
-    if image_required(draft) and not images:
+    if image_required(draft) and image is None:
         raise NoteStatusError("this draft uses a thumbnail: approve it with the final image "
                               "file (--image <file>)")  # fmt: skip
+    # 写しを作る前に、承認できる下書きかを確かめる (状態と本文の hash)
+    if "approved" not in TRANSITIONS[draft.status]:
+        raise NoteStatusError(f"{draft.status} -> approved is not allowed (an approved draft "
+                              "changes its image only by reopen, submit and approve)")  # fmt: skip
+    if content_hash != draft.content_hash:
+        raise NoteStatusError("approval is for a different content hash")
+    images = []
+    if image is not None:
+        if snapshot_root is None:
+            raise NoteStatusError("an image approval needs the snapshot store (snapshot_root)")
+        images = [snapshot_image(image, root=snapshot_root, draft_id=draft.id)]
     extra: dict = {}
     if note and note.strip():
         extra["approval_note"] = note.strip()[:500]
@@ -417,17 +561,20 @@ def check_publication_url(url: str, policy: dict) -> str:
     return url.strip()
 
 
-NOTE_IMAGE_MATCH = ("human responsibility: the system binds the approved local image file; "
+NOTE_IMAGE_MATCH = ("human responsibility: the system binds the approved image by content hash; "
                     "it cannot check the image uploaded to note")
 
 
 def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
                        published_hash: str, now: datetime, policy: dict,
-                       image: Path | str | None = None) -> NoteDraft:  # fmt: skip
+                       image: Path | str | None = None,
+                       snapshot_root: Path | str | None = None) -> NoteDraft:  # fmt: skip
     """人が note で公開した後に、その証拠を記録する。承認した本文と違えば記録しない。
 
-    承認に画像が拘束されていれば、公開に使った手元の画像 (``image``) が承認の画像と同じで
-    ないと記録しない (名前が同じでも中身が変われば別物)。承認した画像の指紋は公開の記録に
+    -3: 承認の画像の正本は写し (``snapshot_root`` の下)。写しが今も承認の中身であることを確かめて
+    記録する (元のファイルが後で変わっても失敗しない)。``image`` は任意の確認: 人が note に使った
+    ファイルを渡すと、承認の画像と同じかを比べ、違えば記録しない (取り消して承認し直す)。
+    写しの無い古い承認 (legacy) は今までどおり ``image`` が要る。承認した画像の指紋は公開の記録に
     引き継ぐ。note に上がった画像との一致は、仕組みでは確かめられないので人の責任。
     """
 
@@ -439,24 +586,40 @@ def record_publication(draft: NoteDraft, *, url: str, observed_at: datetime,
     if draft.approval.get("access_mode", "free") != draft.access_mode:
         raise NoteStatusError("the access mode changed after approval")
     bound = approved_images(draft)
-    if bound:
-        if image is None:
-            raise NoteStatusError("the approval binds an image: pass the image file used for "
-                                  "the publication (--image <file>)")  # fmt: skip
-        state = check_image(draft, image)
-        if state["state"] != "matches_approval":
-            current = state["current"]
+    states = [verify_snapshot(i, snapshot_root) for i in bound]
+    for i, state in zip(bound, states, strict=True):
+        if state["state"] not in ("ok", "legacy"):
+            raise NoteStatusError(f"the approved image snapshot of {i.get('filename')} is "
+                                  f"{state['state']} ({state.get('path')}); nothing recorded")
+    legacy = any(s["state"] == "legacy" for s in states)
+    confirmation = None
+    if bound and image is not None:
+        check = check_image(draft, image, root=snapshot_root)
+        current = check["current"]
+        if check["state"] != "matches_approval":
             raise NoteStatusError(f"the image is not the approved one ({current['filename']}, "
                                   f"sha256 {current['sha256'][:12]}); reopen and approve the "
                                   "new image first")  # fmt: skip
+        confirmation = {"checked": True, "filename": current["filename"],
+                        "sha256": current["sha256"], "matches_approval": True}  # fmt: skip
+    elif bound and legacy:
+        raise NoteStatusError("the approval binds an image without a snapshot (legacy): pass "
+                              "the image file used for the publication (--image <file>)")
+    elif bound:
+        confirmation = {"checked": False,
+                        "note": "no file given; the canonical image is the approval snapshot"}
     return transition(draft, "published", publication={
         "url": check_publication_url(url, policy),
         "observed_at": observed_at.isoformat(timespec="seconds"),
         "recorded_at": now.isoformat(timespec="seconds"),
         "content_hash": published_hash, "access_mode": draft.access_mode,
         "published_by": "human (note editor)",
-        "approved_images": [{k: i.get(k) for k in ("filename", "bytes", "sha256", "mime_type")}
+        "approved_images": [{**{k: i.get(k) for k in ("filename", "bytes", "sha256", "mime_type")},
+                             **({"snapshot": i["snapshot"]["path"],
+                                 "canonical": CANONICAL_SNAPSHOT} if i.get("snapshot")
+                                else {"canonical": CANONICAL_LEGACY})}
                             for i in bound],
+        **({"image_confirmation": confirmation} if confirmation else {}),
         "note_image_match": NOTE_IMAGE_MATCH if bound else
         "no image was bound at approval"})  # fmt: skip
 
@@ -470,9 +633,10 @@ def reject(draft: NoteDraft, *, reason: str, now: datetime) -> NoteDraft:
     return draft
 
 
-__all__ = ["APPROVAL_SCHEMA", "NOTE_IMAGE_MATCH", "add_evidence", "apply_edit", "approve",
+__all__ = ["APPROVAL_SCHEMA", "CANONICAL_LEGACY", "CANONICAL_SNAPSHOT", "NOTE_IMAGE_MATCH",
+           "SNAPSHOT_DIR", "SNAPSHOT_SCHEMA", "add_evidence", "apply_edit", "approve",
            "approved_images", "check_image", "check_publication_url", "draft_from_dict",
-           "image_required", "inspect_image", "reopen",
+           "image_required", "inspect_image", "reopen", "snapshot_image", "verify_snapshot",
            "links_of", "load_policy", "parse_markdown", "plain_text", "record_publication",
            "recheck", "reject", "render_packet", "review_packet", "set_access_mode", "set_meta",
            "submit"]

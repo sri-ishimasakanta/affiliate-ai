@@ -26,8 +26,13 @@ Thumbs.db
 
 data/
 
-# Runtime diagnostic reports (live production data)
+# Runtime diagnostic reports (live production data). Includes the note approval image
+# snapshots (reports/note/approved-images/), which are kept, never committed.
 reports/
+
+# Local working files (note thumbnails etc.). Never committed; after approval the canonical
+# note image is the approval snapshot, not the file here.
+artifacts/
 
 # T6.5B read-only Threads observer: browser profile (cookies / session) and screenshots.
 # Never commit these.
