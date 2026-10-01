@@ -74,12 +74,19 @@ from app.social.threads.growth import (
     growth_date,
     growth_reason_ids,
     profile_hash,
+    purpose_similarity,
     target_reached,
     validate,
+    wording_similarity,
 )
+from app.social.threads.growth import similarity as growth_similarity
 from app.social.threads.prompt import parse_generated
 from app.social.threads.proposal import build_publish_text, compute_proposal_hash
-from app.social.threads.topic import CONTENT_KIND_ACCOUNT_GROWTH, CONTENT_KIND_KEY
+from app.social.threads.topic import (
+    CONTENT_KIND_ACCOUNT_GROWTH,
+    CONTENT_KIND_KEY,
+    growth_topic_on,
+)
 
 DEFAULT_DIRECTORY = Path("data/threads-growth")
 
@@ -297,9 +304,11 @@ class ThreadsGrowthService:
                 "proposal_id": proposal.id if proposal else None,
                 "model_calls": len(calls),
                 "candidates": sum(1 for c in calls if c.get("result") == "ok"),
+                # -4: 似すぎの分類 (全文・言い回し・書き出し・結び・組み立て。古い ID も数える)
                 "similarity_rejections": sum(
                     1 for c in calls
-                    if "growth_duplicate" in ((c.get("validation") or {}).get("reason_ids") or [])
+                    if c.get("failure_class") == gs.VALIDATION_SIMILARITY
+                    or "growth_duplicate" in ((c.get("validation") or {}).get("reason_ids") or [])
                 ),
                 "format_repairs": sum(1 for c in calls if c.get("purpose") == "repair"),
                 "strategy_retries": sum(1 for c in calls if c.get("purpose") == "strategy_retry"),
@@ -360,6 +369,55 @@ class ThreadsGrowthService:
             ],
         }
 
+    def preview(self, *, day, count: int = 3, generate: bool = False) -> list[dict]:
+        """Growth Post の下見 (-4)。**提案を保存しない・その日の呼び出しの記録に数えない。**
+
+        その日の書き方の順で、``count`` 個の **違う** 書き方 (family / hook / CTA / structure) を
+        選ぶ。``generate`` のときだけ生成器を呼び (1 案に 1 回)、最近の Growth Post と、先に作った
+        下見の案の両方と比べて検査する (同じ目的でも、表現が違うことを確かめる)。
+        """
+
+        facts = gs.active_facts(gs.load_facts(), day)
+        kinds = set(facts)
+        topic = growth_topic_on(day)
+        if topic:
+            kinds.add(gs.FACT_GROWTH_TOPIC)
+        families = gs.eligible_families(kinds)
+        history = self.strategy_history(day)
+        recent = self._recent_items()
+        tried: list[gs.Strategy] = []
+        out: list[dict] = []
+        for _ in range(max(0, min(count, 3))):
+            strategy = gs.next_strategy(day, families=families, history=history, tried=tried)
+            if strategy is None:
+                break
+            tried.append(strategy)
+            brief = self._brief(day, None, strategy, (), None, topic=topic)
+            prompt = build_prompt(brief)
+            item = {"strategy": strategy.as_dict(), "topic": topic,
+                    "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest()}
+            if generate and self._client is not None:
+                result = self._client.generate(prompt, angles=[brief.angle], feedback=None,
+                                               link_mode="none", growth_assessment=True)
+                # 本番と同じ検査 (最近の Growth Post と比べる)。下見の案どうしは同じ枠の別案なので
+                # 検査には入れず、どれだけ違うかを別に記録する。
+                check = self._check(result.text, brief, recent)
+                body = check.get("body") or ""
+                item.update(body=check.get("body"), ok=check["ok"],
+                            problems=check.get("problems"), similarity=check.get("similarity"),
+                            purpose=check.get("purpose"), model=result.model,
+                            prose_length=check.get("prose_length"),
+                            character_count=check.get("character_count"),
+                            versus_other_previews=[
+                                {"preview": i + 1,
+                                 "wording": wording_similarity(body, p["body"]),
+                                 "purpose": purpose_similarity(body, p["body"]),
+                                 "full": growth_similarity(body, p["body"])}
+                                for i, p in enumerate(out) if p.get("body")])  # fmt: skip
+            out.append(item)
+        self._session.rollback()
+        return out
+
     # -- internals -----------------------------------------------------------------------
     def recent_framings(self, day) -> list[dict]:
         """その日より前の Growth Post の軸と結び (新しい順)。記録が無い古い提案は本文から読む。"""
@@ -375,7 +433,8 @@ class ThreadsGrowthService:
         return out[:RECENT_GROWTH_WINDOW]
 
     def _brief(self, day, observation: FollowerObservation | None, strategy: gs.Strategy,
-               facts: tuple[str, ...], retry_direction: str | None) -> GrowthBrief:  # fmt: skip
+               facts: tuple[str, ...], retry_direction: str | None,
+               topic: str | None = None) -> GrowthBrief:  # fmt: skip
         recent = self.growth_proposals()[:RECENT_GROWTH_WINDOW]
         framings = self.recent_framings(day)
         return GrowthBrief(
@@ -390,6 +449,7 @@ class ThreadsGrowthService:
             framing=gp.choose_framing(day, family=strategy.family, strategy_cta=strategy.cta,
                                       recent=framings),
             recent_framings=tuple(framings),
+            topic=topic,
         )
 
     def strategy_history(self, day) -> list[gs.HistoryItem]:
@@ -436,6 +496,10 @@ class ThreadsGrowthService:
         calls = record.setdefault("history", [])
         facts = gs.active_facts(gs.load_facts(), day)
         kinds = set(facts) | ({gs.FACT_FOLLOWER_COUNT} if observation is not None else set())
+        # -4: その日にトピック (企画) が付くなら、参加の表明の書き方も選べる
+        topic = growth_topic_on(day)
+        if topic:
+            kinds.add(gs.FACT_GROWTH_TOPIC)
         families = gs.eligible_families(kinds)
         history = self.strategy_history(day)
         recent = self._recent_items()
@@ -468,7 +532,7 @@ class ThreadsGrowthService:
             self._write_record(rid, record)  # 呼ぶ前に残す (落ちても数は戻らない)
             made += 1
             used = tuple(f.text for f in facts.get(gs.FAMILIES[strategy.family].requires or "", ()))
-            brief = self._brief(day, observation, strategy, used, direction)
+            brief = self._brief(day, observation, strategy, used, direction, topic=topic)
             prompt = build_prompt(brief)
             self._dir.mkdir(parents=True, exist_ok=True)
             (self._dir / f"{rid}.prompt.txt").write_text(prompt, encoding="utf-8")

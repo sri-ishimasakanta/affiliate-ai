@@ -30,7 +30,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-GROWTH_PURPOSE_POLICY_VERSION = "threads-growth-purpose-1"
+#: -2 (2026-10-01): 本文の中心が Growth であること (参加・フォロー・目標・つながり・コメント・
+#: こちらからも見に行く・応援し合う) を確かめる。開発の出来事・学びが中心の本文は、最後に
+#: フォローのお願いを足しても通さない (#36・#51)。
+GROWTH_PURPOSE_POLICY_VERSION = "threads-growth-purpose-2"
 
 #: Growth の柱 (何を伝えるか)。``build_in_public`` は **補助の材料** で、単独では成立しない。
 PILLARS: Mapping[str, str] = {
@@ -65,9 +68,19 @@ MINIMUM_POSITIVE_SIGNALS = 2
 DIARY_SHARE = 0.5
 #: 記事の説明のような文がこの割合以上で、自己紹介の印が無ければ「記事の要約のよう」。
 ARTICLE_SHARE = 0.5
-#: フォローの言葉・お願いの文がこれ以上は「お願いのしすぎ」。
+#: フォローの言葉・フォローのお願いの文がこれより多いと「お願いのしすぎ」(-2: つながり・交流の
+#: 呼びかけは Growth Post の本題なので数えない。押し売りの言葉は不可)。
 MAX_FOLLOW_MENTIONS = 2
 MAX_CTA_SENTENCES = 2
+#: -2: Growth の意図 (自己紹介とは別に) が少なくともこの数の種類あること。
+MIN_GROWTH_INTENTS = 2
+#: -2: 開発の話の文の割合がこれを超えるか、書き出しの文が開発の話なら、開発が中心とみなす。
+DEVELOPMENT_MAX_SHARE = 0.25
+#: -2: 自己紹介か Growth の意図を持つ文が、本文のこの割合以上あること。
+GROWTH_SENTENCE_MIN_SHARE = 0.5
+#: -2: Growth の意図の種類 (自己紹介 ``who`` は別に必須)。
+GROWTH_INTENTS = ("participation", "follow_invitation", "follower_goal", "peers", "interaction",
+                  "reciprocity", "mutual_support")  # fmt: skip
 
 #: 検査の理由 (英語の文。``growth.GROWTH_REASON_IDS`` が ID に変える)。
 PROBLEM_WHO = "growth purpose: say who the account is or what it shares"
@@ -78,14 +91,20 @@ PROBLEM_GENERIC = "growth purpose: generic motivation only"
 PROBLEM_CTA = "growth purpose: too many follow requests"
 PROBLEM_WEAK = "growth purpose: not enough growth signals"
 PROBLEM_SELF = "growth purpose: the generator's own assessment flagged"
+PROBLEM_DEV_CENTER = "growth purpose: the body is centered on development, not on connecting"
+PROBLEM_INTENTS = ("growth purpose: not enough growth intents (participation / follow / goal / "
+                   "peers / comments / follow-back / mutual support)")  # fmt: skip
+PROBLEM_TAIL = "growth purpose: growth appears only as a closing line"
+PROBLEM_GROWTH_SHARE = "growth purpose: most sentences are not about the account or connecting"
 
 #: 目的に落ちたときの書き直しの指示 (同じ事実のまま、主役を入れ替える)。
 REWRITE_INSTRUCTION = "\n".join([
     "Growth Post として書き直す (目的の検査に通らなかった):",
-    "- 開発の出来事を主役から外す (出来事は 1 文までの補助の材料にする)。",
-    "- このアカウントが何をしていて、誰に向けたアカウントかをはっきり書く。",
-    "- フォローすると、これから何が見られるか (発信・共有の予告) につなげる。",
-    "- 自然なつながり・フォローの呼びかけを 1 つ入れる (押し売りにしない)。",
+    "- 開発・実装・データの話・学びを本文に入れない (Growth Post の主題ではない)。",
+    "- 自己紹介は 1 文で短く (例: AI自動化・Web運用を実際に試しながら発信しています)。",
+    "- 本文の中心は、フォロワーの目標・同じ目標の人とつながりたいこと・フォロー歓迎・"
+    "コメント歓迎・こちらからも見に行くこと・一緒に頑張ること、のうち 2 つ以上。",
+    "- 最後の 1 文だけでお願いするのではなく、本文全体をつながりの呼びかけにする。",
     "- 元の事実以上のこと (出来事・数字・実績) を作らない。",
 ])  # fmt: skip
 
@@ -122,6 +141,13 @@ FAMILY_AXES: Mapping[str, tuple[str, ...]] = {
     "next_step": ("future_value", "goal"),
     "milestone": ("goal", "future_value"),
     "mutual_growth": ("connection", "goal"),
+    # -2: Growth の目的の書き方
+    "participation": ("connection", "goal"),
+    "follow_goal": ("goal", "connection"),
+    "connect_with_peers": ("connection", "identity"),
+    "introduction": ("identity", "connection"),
+    "mutual_support": ("connection", "goal"),
+    "comment_invitation": ("connection", "identity"),
 }
 #: 書き方の結び (``growth_strategy.CTAS``) → 合う結びの種類。``none`` でも予告は入れる
 #: (結びなしの Growth を当たり前にしない)。
@@ -132,6 +158,12 @@ STRATEGY_CTA_KINDS: Mapping[str, tuple[str, ...]] = {
     "experience_share": ("comment", "same_theme_call"),
     "soft_connection": ("connect", "same_theme_call"),
     "none": ("future_preview",),
+    # -2
+    "follow_welcome": ("follow", "connect"),
+    "connect_peers": ("same_theme_call", "connect"),
+    "comment_welcome": ("comment", "same_theme_call"),
+    "reciprocal_visit": ("follow", "connect"),
+    "mutual_support": ("connect", "same_theme_call"),
 }
 #: 開発の話を材料にする書き方 (目的の柱につなげることを prompt で特に求める)。
 DEVELOPMENT_FAMILIES = frozenset({"build_in_public", "behind_the_scenes", "lesson_learned",
@@ -174,6 +206,7 @@ _FOLLOW_INVITE = re.compile(
     r"|(?:よければ|よかったら|気軽に|ぜひ)[^。！!？?\n]{0,20}フォロー"
     r"|(?:続けて|これからも|今後も|引き続き|次の投稿も|次回も)[^。！!？?\n]{0,12}"
     r"(?:見て|読んで|のぞいて|チェック|見守って|お付き合い)"
+    r"|(?:見に|のぞきに|覗きに|遊びに)来て"
 )  # fmt: skip
 _COMMENT = re.compile(r"コメント|教えて|聞かせ|[？?]\s*$")
 _GOAL = re.compile(r"目標|目指")
@@ -192,6 +225,63 @@ _MOTIVATION = re.compile(r"頑張|がんば|挑戦し続け|一歩ずつ|継続�
                          r"成長し続け|大切なのは|信じ|負けず|努力")  # fmt: skip
 _PUSHY = re.compile(r"今すぐフォロー|絶対(?:に)?フォロー|必ずフォロー|フォローしないと|拡散|"
                     r"フォロー(?:を)?お願いします[！!]{2,}")  # fmt: skip
+
+# -- -2: Growth の意図 (本文の中心が Growth か) ----------------------------------------------
+#: 企画への参加の表明 (「インサイト祭り」という語だけでは数えない)。
+_PARTICIPATION = re.compile(r"(?:参加|参戦)(?:します|しました|しています|中|させて|してみ)|"
+                            r"(?:祭り|企画)[^。！!？?\n]{0,10}(?:参加|参戦|混ぜ|乗っ)")  # fmt: skip
+#: フォロワーの目標 (「100人」という語だけでは数えない)。
+_FOLLOWER_GOAL = re.compile(r"(?:フォロワー|\d+\s*人)[^。！!？?\n]{0,15}(?:目標|目指)|"
+                            r"(?:目標|目指)[^。！!？?\n]{0,15}(?:フォロワー|\d+\s*人)")  # fmt: skip
+#: 同じ目標・関心の人への呼びかけ。
+_PEERS = re.compile(r"(?:同じように|同じ目標|同じく|一緒に)[^。！!？?\n]{0,20}(?:人|方|仲間)|"
+                    r"目指して(?:いる|る)(?:人|方)")  # fmt: skip
+#: コメント・やり取りの歓迎。
+_INTERACTION = re.compile(r"コメント|返信|やり取り|交換|話しかけ|話せたら|語り合|"
+                          r"気軽に(?:声|話|絡|コメント)|絡んで|教えて")  # fmt: skip
+#: こちらからも見に行く・フォローを返す。
+_RECIPROCITY = re.compile(r"こちらからも|見に行|見にいき|遊びに行|フォロバ|フォロー返|"
+                          r"お返し")  # fmt: skip
+#: 一緒に伸ばす・応援し合う。
+_MUTUAL = re.compile(r"一緒に(?:頑張|がんば|伸ば|目指|増や|進め|盛り上)|応援し合|お互い|"
+                     r"励まし合|支え合|盛り上げ")  # fmt: skip
+#: フォローの歓迎 (``_FOLLOW_INVITE`` に足す)。
+_FOLLOW_WELCOME = re.compile(r"フォロー[^。！!？?\n]{0,8}(?:歓迎|大歓迎|嬉し|うれし|お待ち)")
+#: Growth Post で主題にしない、開発・実装・データ・学びの話 (通常の投稿の検査には使わない)。
+_DEV_DETAIL = re.compile(
+    r"実装|デバッグ|データ|見比べ|照らし合わせ|気づけ|気づい|検証してみ|試してみ|作ってみ|"
+    r"仕組みで|直し|設定を|処理|取り出|読み取|比較し|原因|改善し|学び|教訓|分かった|分かりました|"
+    r"わかりました|ズレ|ずれ|不具合|エラー|バグ|修正|うまくいかな"
+)  # fmt: skip
+
+INTENT_PATTERNS: Mapping[str, re.Pattern] = {
+    "participation": _PARTICIPATION,
+    "follower_goal": _FOLLOWER_GOAL,
+    "peers": _PEERS,
+    "interaction": _INTERACTION,
+    "reciprocity": _RECIPROCITY,
+    "mutual_support": _MUTUAL,
+}
+
+
+def growth_intents(sentence: str) -> set[str]:
+    """1 つの文の Growth の意図 (自己紹介は含めない)。"""
+
+    found = {name for name, pattern in INTENT_PATTERNS.items() if pattern.search(sentence)}
+    if _FOLLOW_INVITE.search(sentence) or _FOLLOW_WELCOME.search(sentence):
+        found.add("follow_invitation")
+    if _CONNECTION.search(sentence):
+        found.add("peers")
+    return found
+
+
+def intent_set(body: str) -> set[str]:
+    """本文全体の Growth の意図の種類 (重複の検査の purpose similarity にも使う)。"""
+
+    out: set[str] = set()
+    for sentence in sentences(body):
+        out |= growth_intents(sentence)
+    return out
 
 
 def sentences(text: str) -> list[str]:
@@ -275,8 +365,10 @@ def evaluate(body: str, *, self_assessment: Mapping | None = None) -> PurposeEva
             hits["explainer"].append(i)
         if _MOTIVATION.search(sentence):
             hits["motivation"].append(i)
-        if (_FOLLOW.search(sentence) or _FOLLOW_INVITE.search(sentence)
-                or _CONNECTION.search(sentence)) and not _FUTURE.search(sentence):
+        # -2: お願いの文は、フォローそのものの依頼だけを数える (つながり・交流の呼びかけは
+        # Growth Post の本題なので「お願いのしすぎ」に数えない)
+        if (_FOLLOW.search(sentence) or _FOLLOW_INVITE.search(sentence)) and not _FUTURE.search(
+                sentence):  # fmt: skip
             hits["cta"].append(i)
     n = len(items) or 1
     development_share = round(len(hits["development"]) / n, 3)
@@ -294,6 +386,8 @@ def evaluate(body: str, *, self_assessment: Mapping | None = None) -> PurposeEva
     who = signals["identity_signal"] or signals["account_purpose_signal"]
     why = (signals["future_value_signal"] or signals["connection_signal"]
            or signals["follow_invitation_signal"])  # fmt: skip
+    # -2: Growth の意図 (目標・参加・コメント・こちらからも見に行く等) もフォローの理由になる
+    why = why or any(growth_intents(s) for s in items)
     signals["development_diary_only"] = bool(
         hits["development"] and development_share >= DIARY_SHARE
         and not (signals["future_value_signal"] or signals["connection_signal"]))  # fmt: skip
@@ -307,11 +401,38 @@ def evaluate(body: str, *, self_assessment: Mapping | None = None) -> PurposeEva
     signals["excessive_cta"] = bool(follow_mentions > MAX_FOLLOW_MENTIONS
                                     or len(hits["cta"]) > MAX_CTA_SENTENCES
                                     or _PUSHY.search(body or ""))  # fmt: skip
+    # -- -2: 本文の中心が Growth か (文ごと) ------------------------------------------------
+    intro_idx = set(hits["identity"]) | set(hits["account_purpose"])
+    per_intents = [growth_intents(s) for s in items]
+    intents = set().union(*per_intents) if per_intents else set()
+    # 開発・学びの話の文。アカウントの発信の予告 (「学びを共有していきます」) は数えない。
+    dev_idx = [i for i, s in enumerate(items)
+               if (_DEV_DETAIL.search(s) or _DEVELOPMENT.search(s))
+               and not (_FUTURE.search(s) or _SHARE.search(s) or per_intents[i])]  # fmt: skip
+    dev_share = round(len(dev_idx) / n, 3)
+    growth_idx = [i for i in range(len(items)) if i in intro_idx or per_intents[i]]
+    growth_share = round(len(growth_idx) / n, 3)
+    intent_idx = [i for i in range(len(items)) if per_intents[i]]
+    head = items[:-1]
+    head_intro = sum(1 for i in range(len(head)) if i in intro_idx or _FUTURE.search(head[i]))
+    signals["development_centered"] = bool(dev_idx and (0 in dev_idx
+                                                        or dev_share > DEVELOPMENT_MAX_SHARE))
+    signals["growth_tail_only"] = bool(len(items) >= 2 and intent_idx
+                                       and set(intent_idx) == {len(items) - 1}
+                                       and head_intro * 2 < len(head))  # fmt: skip
     problems = []
     if not who:
         problems.append(PROBLEM_WHO)
     if not why:
         problems.append(PROBLEM_WHY)
+    if len(intents) < MIN_GROWTH_INTENTS:
+        problems.append(PROBLEM_INTENTS)
+    if signals["development_centered"]:
+        problems.append(PROBLEM_DEV_CENTER)
+    if signals["growth_tail_only"]:
+        problems.append(PROBLEM_TAIL)
+    if growth_share < GROWTH_SENTENCE_MIN_SHARE:
+        problems.append(PROBLEM_GROWTH_SHARE)
     positives = sum(1 for s in POSITIVE_SIGNALS if signals[s])
     if who and why and positives < MINIMUM_POSITIVE_SIGNALS:
         problems.append(PROBLEM_WEAK)  # pragma: no cover - who と why で 2 つ以上になる
@@ -336,13 +457,18 @@ def evaluate(body: str, *, self_assessment: Mapping | None = None) -> PurposeEva
         "interaction_cta_signal": hits["comment"], "goal_signal": hits["goal"],
         "build_in_public_signal": hits["build"], "development_sentences": hits["development"],
         "explainer_sentences": hits["explainer"], "motivation_sentences": hits["motivation"],
-        "cta_sentences": hits["cta"],
+        "cta_sentences": hits["cta"], "development_detail_sentences": dev_idx,
+        "growth_sentences": growth_idx,
+        **{f"intent_{name}": [i for i, found in enumerate(per_intents) if name in found]
+           for name in GROWTH_INTENTS},
     }  # fmt: skip
     return PurposeEvaluation(
         signals=signals,
         evidence={k: tuple(v) for k, v in evidence.items()},
         shares={"development": development_share, "explainer": explainer_share,
-                "sentences": len(items), "follow_mentions": follow_mentions},  # fmt: skip
+                "sentences": len(items), "follow_mentions": follow_mentions,
+                "development_detail": dev_share, "growth_sentences": growth_share,
+                "growth_intents": len(intents)},  # fmt: skip
         problems=tuple(problems),
         self_assessment=assessment,
         self_assessment_disagrees=tuple(disagrees),
@@ -432,30 +558,37 @@ def repeated_framing(framing: Mapping[str, str | None],
                 and framing.get("cta_kind") == previous.get("cta_kind"))  # fmt: skip
 
 
-def prompt_section(*, family: str, framing: Framing | None) -> list[str]:
-    """Growth の生成の prompt に必ず入れる、目的の節。"""
+def prompt_section(*, family: str, framing: Framing | None,
+                   topic: str | None = None) -> list[str]:  # fmt: skip
+    """Growth の生成の prompt に必ず入れる、目的の節 (-2)。"""
 
     lines = [
         "## この投稿の目的 (Growth Post。いちばん優先する)",
-        "読んだ人が「このアカウントをこれからも見たい」と感じる投稿にする。",
-        "通常の投稿の追加の枠・開発日記・記事の別の切り口ではない。",
-        "本文だけから、次のうち十分な組み合わせが分かるようにする:",
-        "- A. 何をしている人・アカウントか (自己紹介・発信していること)",
-        "- B. これからどんな情報・学び・検証の結果を共有するか",
-        "- C. フォローすると何が得られるか",
-        "- D. どんな人とつながりたいか、または自然なやり取りの呼びかけ",
-        "A を必ず入れ、B・C・D の少なくとも 1 つを入れる。",
-        "- 単なる技術メモ・作業の報告・開発日記・一般的な励ましにしない。",
-        "- 開発・検証の話は補助の材料 (1〜2 文まで)。「こんな開発をした」で終えず、"
-        "このアカウントで何を共有していくか・誰の役に立つかにつなげる。",
-        "- フォローのお願いは自然に 1 回まで。「フォローしてください」を繰り返さない。",
-        "- 同じことに興味がある人への「つながりましょう」、フォロバの言葉は自然なら書いてよい。",
-        "- 毎回同じ自己紹介の文にしない。",
+        "目的は、読んだ人が「フォローしたい」「つながりたい」「話しかけたい」と感じること。",
+        "開発の内容を説明する投稿ではない。通常の投稿の追加の枠・開発日記・記事の別の切り口"
+        "でもない。",
+        "本文の中心にするもの (2 つ以上を、本文全体で):",
+        "- フォロワーの目標 (まずは 100 人) を目指していること",
+        "- 同じように目標を目指す人・同じことに関心がある人と、一緒につながりたいこと",
+        "- フォローを歓迎すること (押し付けない)",
+        "- コメント・やり取りを歓迎すること",
+        "- フォローしてくれた人のところへ、こちらからも見に行くこと",
+        "- 一緒に頑張りたい・応援し合いたいこと",
+        "自己紹介は 1 文で短く (例: AI自動化・Web運用を実際に試しながら発信しています 程度)。",
+        "- 書かないこと: 開発の出来事・実装・デバッグ・データのズレ・仕組みの改善・学び・"
+        "分かったこと (Growth Post の主題にしない)。",
+        "- 最後に「フォローしてください」を 1 文足すだけの投稿にしない "
+        "(本文全体を呼びかけにする)。",
+        "- フォローの語は 2 回まで。押し売り (今すぐ・必ず・拡散) にしない。",
         "- 誇張・作った実績・作った体験談は書かない (上の事実だけ)。",
+        "- 毎回同じ文にしない: 書き出し・段落の組み立て・結び・絵文字の置き方を変える。"
+        "目的は同じでよい。",
     ]
-    if family in DEVELOPMENT_FAMILIES:
-        lines.append("- この書き方は開発の話を材料にする。出来事を主役にしないで、"
-                     "アカウントの価値 (これから何を共有するか・誰と話したいか) で結ぶ。")
+    if topic:
+        lines += [
+            f"- 今日は Threads の企画「{topic}」に参加する日。トピックは公開のときに自動で付く。"
+            f"本文では「{topic}」に参加していることを自然な言葉で伝えてよい (「#」は付けない)。",
+        ]
     if framing is not None:
         lines += [
             f"- 今回の中心: {FRAMING_AXES[framing.axis]}。",

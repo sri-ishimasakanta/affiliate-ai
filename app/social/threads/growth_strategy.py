@@ -26,7 +26,10 @@ from datetime import date
 from itertools import product
 from pathlib import Path
 
-GROWTH_STRATEGY_POLICY_VERSION = "threads-growth-strategy-1"
+#: -2 (2026-10-01): Growth の目的の書き方 (参加・目標・つながり・自己紹介・応援し合う・
+#: コメント) だけを選ぶ。開発の話を材料にする書き方 (学び・失敗と改善・裏側・実験・作りながら) は
+#: Growth では選ばない (定義は古い提案の履歴を読むために残す)。
+GROWTH_STRATEGY_POLICY_VERSION = "threads-growth-strategy-2"
 #: JST の 1 日の Growth の呼び出しの上限 (最初・書き直し・別の書き方を合わせて)。
 MAX_GROWTH_MODEL_CALLS_PER_DAY = 4
 #: 書き方の履歴を見る件数 (最近の Growth Post の提案)。
@@ -36,6 +39,8 @@ MAX_REPAIRS_PER_STRATEGY = 1
 
 FACTS_PATH = Path(__file__).resolve().parents[3] / "app" / "config" / "threads_growth_facts.json"
 FACT_FOLLOWER_COUNT = "follower_count"
+#: その日の Growth Post にトピック (企画。例: インサイト祭り) が付く日 (``topic.growth_topic_on``)。
+FACT_GROWTH_TOPIC = "growth_topic"
 
 # -- 書き方の部品 ------------------------------------------------------------------------------
 
@@ -48,6 +53,11 @@ HOOKS: Mapping[str, str] = {
     "lesson": "分かったこと (学び) から始める (下の事実の範囲で)",
     "challenge": "いま取り組んでいる難しさから始める (下の事実の範囲で)",
     "direct_statement": "何をしているアカウントかを、はっきり言い切って始める",
+    # -2: Growth の目的の書き出し
+    "participation_statement": "企画 (今日のトピック) に参加することを、ひとことで言って始める",
+    "goal_statement": "まずはフォロワーの目標を、ひとことで言って始める",
+    "self_intro": "短い自己紹介 (何を発信しているか) から始める",
+    "peer_call": "同じ目標・同じ関心の人への呼びかけから始める",
 }
 CTAS: Mapping[str, str] = {
     "follow_connect": "最後に、フォロー・つながりのお願いを 1 つ (自然に)",
@@ -56,6 +66,12 @@ CTAS: Mapping[str, str] = {
     "experience_share": "最後に、読んだ人の経験を聞かせてほしいとお願いする (コメントで)",
     "soft_connection": "最後に、同じことに取り組む人とつながれたら嬉しい、と軽く添える",
     "none": "お願いは書かない (内容だけで終える)",
+    # -2: Growth の目的の結び
+    "follow_welcome": "最後に、フォローを歓迎することを 1 つ (押し付けない)",
+    "connect_peers": "最後に、同じ目標の人と一緒につながりたいことを 1 つ",
+    "comment_welcome": "最後に、コメント・やり取りを歓迎することを 1 つ",
+    "reciprocal_visit": "最後に、フォローしてくれた人のところへこちらからも見に行くことを 1 つ",
+    "mutual_support": "最後に、一緒に頑張りたい・応援し合いたいことを 1 つ",
 }
 STRUCTURES: Mapping[str, str] = {
     "single_short_point": "1 つの短い段落で、言いたいことを 1 つだけ",
@@ -64,6 +80,11 @@ STRUCTURES: Mapping[str, str] = {
     "lesson_then_question": "分かったこと → 問いかけ、の 2 つの段落",
     "observation_then_connection": "気づいたこと → つながりのお願い、の 2 つの段落",
     "question_then_context": "問いかけ → 背景 (なぜ聞くか)、の 2 つの段落",
+    # -2: Growth の目的の組み立て (短い行を数行。段落ごとに 1 つのこと)
+    "announce_intro_call": "参加・目標 → 短い自己紹介 → 呼びかけ、の短い行",
+    "goal_intro_invite": "目標 → 短い自己紹介 → フォローやコメントの歓迎、の短い行",
+    "intro_goal_peers": "短い自己紹介 → 目標 → 同じ目標の人への呼びかけ、の短い行",
+    "call_then_intro": "呼びかけ → 短い自己紹介 → やり取りの歓迎、の短い行",
 }
 
 
@@ -120,8 +141,36 @@ FAMILIES: Mapping[str, Family] = {
         Family("mutual_growth", "一緒に伸ばしていきたいこと・フォローを返すこと", None, True,
                ("direct_statement", "question", "opinion"), ("mutual_growth", "follow_connect"),
                ("two_paragraph", "single_short_point")),
+        # -2: Growth の目的の書き方 (Growth で選ぶのはこれと goal_progress だけ)
+        Family("participation", "今日の企画 (トピック) への参加の表明と、つながりの呼びかけ",
+               FACT_GROWTH_TOPIC, False,
+               ("participation_statement", "goal_statement"),
+               ("connect_peers", "reciprocal_visit", "follow_welcome"),
+               ("announce_intro_call", "goal_intro_invite")),
+        Family("follow_goal", "まずはフォロワーの目標と、同じ目標の人とつながりたいこと", None,
+               True,
+               ("goal_statement", "self_intro"),
+               ("connect_peers", "follow_welcome", "reciprocal_visit"),
+               ("goal_intro_invite", "intro_goal_peers")),
+        Family("connect_with_peers", "同じ目標・同じ関心の人とつながりたいこと", None, False,
+               ("peer_call", "question"), ("connect_peers", "comment_welcome"),
+               ("call_then_intro", "intro_goal_peers")),
+        Family("introduction", "短い自己紹介 (何を発信しているか) と、フォロー・交流の歓迎", None,
+               False, ("self_intro", "direct_statement"),
+               ("follow_welcome", "comment_welcome", "reciprocal_visit"),
+               ("intro_goal_peers", "goal_intro_invite")),
+        Family("mutual_support", "同じように頑張る人と応援し合いたいこと", None, True,
+               ("peer_call", "goal_statement"), ("mutual_support", "reciprocal_visit"),
+               ("call_then_intro", "announce_intro_call")),
+        Family("comment_invitation", "コメント・やり取りの歓迎と、つながりの呼びかけ", None, False,
+               ("question", "peer_call"), ("comment_welcome", "connect_peers"),
+               ("call_then_intro", "question_then_context")),
     )
 }  # fmt: skip
+#: -2: Growth で選んでよい書き方 (Growth の目的が中心のもの)。開発の話を材料にする書き方・考え方・
+#: 節目・次の一歩は選ばない (通常の投稿の役目)。
+GROWTH_PURPOSE_FAMILIES = ("participation", "follow_goal", "connect_with_peers", "introduction",
+                           "mutual_support", "comment_invitation", "goal_progress")  # fmt: skip
 FAMILY_NAMES = tuple(FAMILIES)
 #: T6.3.3 の切り口 (``angle``) → 今の family (古い提案の履歴を読むため)。
 LEGACY_ANGLE_FAMILY = {"account_identity": "account_identity", "goal_progress": "goal_progress",
@@ -170,6 +219,16 @@ _REASON_CLASS = {
     "growth_generic_motivation_only": VALIDATION_PURPOSE,
     "growth_excessive_cta": VALIDATION_PURPOSE,
     "growth_self_assessment_flag": VALIDATION_PURPOSE,
+    # -2
+    "growth_development_centered": VALIDATION_PURPOSE,
+    "growth_intents_missing": VALIDATION_PURPOSE,
+    "growth_tail_only": VALIDATION_PURPOSE,
+    "growth_low_growth_share": VALIDATION_PURPOSE,
+    "growth_near_copy": VALIDATION_SIMILARITY,
+    "growth_wording_duplicate": VALIDATION_SIMILARITY,
+    "growth_same_opening": VALIDATION_SIMILARITY,
+    "growth_same_closing": VALIDATION_SIMILARITY,
+    "growth_same_structure": VALIDATION_SIMILARITY,
 }
 #: 目的の検査の理由の ID (書き直しの指示を足すため)。
 GROWTH_PURPOSE_REASON_IDS = frozenset(
@@ -247,10 +306,14 @@ def active_facts(facts: Iterable[GrowthFact], day: date) -> dict[str, tuple[Grow
 
 
 def eligible_families(fact_kinds: Iterable[str]) -> tuple[str, ...]:
-    """事実がそろっている書き方だけ (事実の要らない書き方はいつも使える)。"""
+    """Growth の目的の書き方のうち、事実がそろっているものだけ (-2: 開発の話の書き方は選ばない)。
+
+    ``participation`` はその日にトピック (企画) があるときだけ (``FACT_GROWTH_TOPIC``)。
+    """
 
     have = set(fact_kinds)
-    return tuple(n for n, f in FAMILIES.items() if f.requires is None or f.requires in have)
+    return tuple(n for n in GROWTH_PURPOSE_FAMILIES
+                 if FAMILIES[n].requires is None or FAMILIES[n].requires in have)
 
 
 # -- 書き方 (signature) ------------------------------------------------------------------------
@@ -382,8 +445,10 @@ def history_from_meta(rows: Iterable[tuple[str | None, Mapping | None]]) -> list
 
 
 __all__ = [
-    "CTAS", "FACT_FOLLOWER_COUNT", "FACT_KINDS", "FAILURE_CLASSES", "FAMILIES", "FAMILY_NAMES",
+    "CTAS", "FACT_FOLLOWER_COUNT", "FACT_GROWTH_TOPIC", "FACT_KINDS", "FAILURE_CLASSES",
+    "FAMILIES", "FAMILY_NAMES",
     "FOLLOWER_TARGET_REACHED", "Family", "GROWTH_GENERATION_EXHAUSTED",
+    "GROWTH_PURPOSE_FAMILIES",
     "GROWTH_PURPOSE_REASON_IDS", "GROWTH_STRATEGY_POLICY_VERSION", "GrowthFact",
     "GrowthStrategyError", "HOOKS", "HistoryItem", "LEGACY_ANGLE_FAMILY",
     "MAX_GROWTH_MODEL_CALLS_PER_DAY", "MAX_REPAIRS_PER_STRATEGY", "MODEL_CALL_BUDGET_EXHAUSTED",

@@ -37,7 +37,8 @@ from app.social.threads.quality import prose_length
 GROWTH_POLICY_VERSION = "t6.3.3"
 #: -2 (T6.3.3c): 書き方を選び、似すぎたら別の書き方で書き直す (1 日に多くても 4 回呼ぶ)。
 #: -3: Growth の目的の節と目的の検査 (``growth_purpose``)、Luna の自己評価 (否決にだけ使う)。
-GROWTH_GENERATOR_VERSION = "threads-growth-3"
+#: -4 (2026-10-01): Growth の目的の書き方だけ・本文の中心の検査・Growth 専用の重複の方針。
+GROWTH_GENERATOR_VERSION = "threads-growth-4"
 #: 方針として有効か。本番で動かすには、さらに worker を ``--maintain-growth-posts`` で起動する。
 GROWTH_POSTS_ENABLED = True
 #: JST の 1 日あたりの目安 (上限でもある)。取り戻さない。
@@ -86,9 +87,20 @@ GROWTH_PROSE_BOUNDS = (80, 320)
 GROWTH_HARD_LIMIT = 500
 #: 絵文字は控えめに。
 GROWTH_MAX_EMOJI = 3
-#: 最近の Growth Post と比べる件数と、3-gram の重なりの上限 (これ以上は書き直し)。
+#: 最近の Growth Post と比べる件数と、本文全体の 3-gram の重なり (包含) の上限。-4: これは
+#: 「ほぼ同じ全文」を止めるための上限 (0.80 以上で書き直し)。同じ目的の言葉 (インサイト祭り・
+#: フォロワー100人・つながり・フォロー歓迎など) が共通するのは Growth では正常なので、言い回しの
+#: 近さは ``GROWTH_WORDING_MAX`` で、決まった言葉を除いてから、直近
+#: ``GROWTH_WORDING_WINDOW`` 本と比べる。
 RECENT_GROWTH_WINDOW = 7
-GROWTH_SIMILARITY_MAX = 0.5
+GROWTH_SIMILARITY_MAX = 0.8
+#: -4: 決まった言葉を除いた言い回しの重なりの上限 (直近 2 本と比べる。以上で書き直し)。
+GROWTH_WORDING_WINDOW = 2
+GROWTH_WORDING_MAX = 0.5
+#: -4: 書き出し・結びの文が、直近 2 本の書き出し・結びとこれ以上重なれば同じとみなす。
+GROWTH_EDGE_MAX = 0.8
+#: -4: 文の組み立て (文ごとの意図の並び) が同じで、言い回しがこれ以上重なれば「数語だけ替えた」。
+GROWTH_SAME_STRUCTURE_WORDING = 0.35
 #: フォロワー数の観測が「新しい」とみなす長さ (控えめに。生成の直前に読む)。
 FOLLOWER_OBSERVATION_MAX_AGE = timedelta(hours=6)
 
@@ -202,6 +214,8 @@ class GrowthBrief:
     framing: gp.Framing | None = None
     #: 最近の Growth Post の軸と結び (新しい順。同じなら警告だけ)。
     recent_framings: tuple[Mapping, ...] = ()
+    #: -4: その日に Growth Post に付くトピック (企画。例: インサイト祭り)。無ければ None。
+    topic: str | None = None
 
     @property
     def goal_required(self) -> bool:
@@ -232,6 +246,8 @@ class GrowthBrief:
             out["facts_used"] = len(self.facts)
         if self.framing is not None:
             out["framing"] = self.framing.as_dict()
+        if self.topic:
+            out["topic"] = self.topic
         return out
 
 
@@ -290,7 +306,7 @@ def build_prompt(brief: GrowthBrief) -> str:
             "- 最近の Growth Post と同じ言い回しにしない:",
             recent,
             "",
-            *gp.prompt_section(family=brief.angle, framing=brief.framing),
+            *gp.prompt_section(family=brief.angle, framing=brief.framing, topic=brief.topic),
             "",
             "## 出力",
             f'JSON: {{"proposals": [{{"angle": "{brief.angle}", "link_mode": "none", '
@@ -314,15 +330,13 @@ def _strategy_prompt(brief: GrowthBrief, progress: str, recent: str) -> str:
         "あなたは Threads のアカウントの中の人として、アカウントを育てる短い投稿を 1 本書く。",
         "記事の宣伝ではない。**下の事実だけ** を使う。出来事・数字・実績を作らない。",
         "",
-        *gp.prompt_section(family=strategy.family, framing=brief.framing),
+        *gp.prompt_section(family=strategy.family, framing=brief.framing, topic=brief.topic),
         "",
         "## アカウント (事実の境界)",
         ACCOUNT_IDENTITY,
         "実際にあるもの: " + "、".join(PROJECT_AREAS),
         "",
-        "## 今回の書き方で使ってよい事実",
-        *facts,
-        "",
+        *(["## 今回の書き方で使ってよい事実", *facts, ""] if brief.facts else []),
         "## 今日の投稿",
         f"- 日付 (JST): {brief.day.isoformat()}",
         f"- 書き方の種類: {strategy.family} ({family.intent})",
@@ -340,13 +354,16 @@ def _strategy_prompt(brief: GrowthBrief, progress: str, recent: str) -> str:
         f"- 本文は {GROWTH_PROSE_TARGET[0]}〜{GROWTH_PROSE_TARGET[1]} 字くらい。",
         "- 親しみやすく、会話のように。会社の告知のようにしない。箇条書きを並べない。",
         f"- 絵文字は使っても {GROWTH_MAX_EMOJI} 個まで。",
-        "- 必ず入れること: このアカウントが AI で何を自動化しているか (ひとことでよい)。",
+        "- 必ず入れること: 短い自己紹介 1 文 (AI と自動化について発信していること。"
+        "例: AI自動化・Web運用を実際に試しながら発信しています)。",
         "- フォローを返すことは書いてよいが、必ず返す・全員に返信する、とは約束しない。",
         "- 書かないこと: 収益・売上・報酬・金額 / 利用者や顧客の数 / 達成した・"
         "突破したなどの実績 / 家族・仕事・生活などの個人の話 / 上に無い数字。",
-        "- URL・リンク・{link}・ハッシュタグ・トピックの言葉は書かない。",
-        "- 「フォロワー100人を目指しています」から書き始めない。",
-        "- 最近の Growth Post と同じ言い回し・同じ書き出しにしない:",
+        ("- URL・リンク・{link}・ハッシュタグ (「#」) は書かない "
+         "(トピックは公開のときに自動で付く)。" if brief.topic
+         else "- URL・リンク・{link}・ハッシュタグ・トピックの言葉は書かない。"),
+        "- 最近の Growth Post と同じ言い回し・同じ書き出し・同じ結びにしない "
+        "(目的が同じなのはよい):",
         recent,
         "",
         "## 出力",
@@ -377,8 +394,13 @@ _GOAL = re.compile(r"目標|目指")
 _QUESTION = re.compile(r"[？?]")
 _SHARE = re.compile(r"[？?]|教えて|聞かせ|コメント|シェア")
 #: 書き方の結び (CTA) → 本文に要る言葉 (``None`` は要らない)。
+_RECIPROCAL = re.compile(r"こちらからも|見に行|見にいき|フォロバ|フォロー返|お返し")
+_TOGETHER_SUPPORT = re.compile(r"一緒に|応援|お互い|支え合|励まし合")
 _CTA_PATTERN = {"follow_connect": _CTA, "mutual_growth": _CTA, "soft_connection": _CTA,
-                "question": _QUESTION, "experience_share": _SHARE, "none": None}  # fmt: skip
+                "question": _QUESTION, "experience_share": _SHARE, "none": None,
+                # -4
+                "follow_welcome": _CTA, "connect_peers": _CTA, "comment_welcome": _SHARE,
+                "reciprocal_visit": _RECIPROCAL, "mutual_support": _TOGETHER_SUPPORT}  # fmt: skip
 
 
 def emoji_count(text: str) -> int:
@@ -396,26 +418,109 @@ def similarity(candidate: str, recent: str) -> float:
     return round(len(a & b) / len(a), 3) if a else 0.0
 
 
-def recent_similarity(body: str, recent: Iterable[Mapping]) -> dict:
-    """最近の Growth Post との比較の記録 (上位 3 件・最大・止めた相手)。"""
+#: -4: Growth の目的として毎回出てよい決まった言葉 (言い回しの比較の前に除く)。
+_STABLE_GROWTH_PHRASES = re.compile(
+    r"インサイト祭り|フォロワー\s*\d*\s*人?|\d+\s*人|目標|目指(?:して|す|し)?|"
+    r"つなが(?:り|って|れ|る|りたい|りましょう)?|繋が(?:り|って|れ|る)?|フォロー|フォロバ|"
+    r"歓迎|大歓迎|コメント|こちらからも|見に行き(?:ます)?|遊びに行き(?:ます)?|"
+    r"一緒に|頑張(?:り|ろ)?|がんば(?:り|ろ)?|応援|よろしく(?:お願いします)?|"
+    r"AI\s*自動化|Web\s*運用|自動化|発信(?:して)?(?:います|中)?|参加(?:します|しています|中)?|"
+    r"同じように|同じ目標|気軽に|ぜひ|まずは|です|ます|ました|ません"
+)
 
-    compared = sorted(
-        (
-            {"ref": item.get("ref"), "similarity": similarity(body, item.get("text") or "")}
-            for item in recent
-        ),
-        key=lambda c: (-c["similarity"], str(c["ref"])),
-    )
-    top = compared[:3]
-    worst = top[0] if top else None
-    blocked = worst is not None and worst["similarity"] >= GROWTH_SIMILARITY_MAX
+
+def _strip_stable(text: str) -> str:
+    return _STABLE_GROWTH_PHRASES.sub(" ", unicodedata.normalize("NFKC", text or ""))
+
+
+def wording_similarity(candidate: str, recent: str) -> float:
+    """決まった Growth の言葉を除いたあとの 3-gram の包含 (言い回しの近さ)。"""
+
+    a, b = _grams(_strip_stable(candidate)), _grams(_strip_stable(recent))
+    return round(len(a & b) / len(a), 3) if a else 0.0
+
+
+def _structure(text: str) -> tuple[str, ...]:
+    """文ごとの Growth の意図の並び (組み立ての形)。"""
+
+    return tuple("+".join(sorted(gp.growth_intents(s))) or "-" for s in gp.sentences(text))
+
+
+def _edge(text: str, *, last: bool) -> str:
+    items = gp.sentences(text)
+    return (items[-1] if last else items[0]) if items else ""
+
+
+def purpose_similarity(candidate: str, recent: str) -> float:
+    """Growth の意図の種類の重なり (Jaccard)。**Growth では高くてよい** (止める理由にしない)。"""
+
+    a, b = gp.intent_set(candidate), gp.intent_set(recent)
+    return round(len(a & b) / len(a | b), 3) if (a | b) else 0.0
+
+
+def recent_similarity(body: str, recent: Iterable[Mapping]) -> dict:
+    """最近の Growth Post との比較 (-4: Growth 専用の重複の方針)。
+
+    ``recent`` は新しい順。止める (書き直す) のは:
+
+    - ほぼ同じ全文: 本文全体の 3-gram の包含が ``GROWTH_SIMILARITY_MAX`` 以上 (最近 7 本の
+      どれか。少し古くても止める)
+    - 直近 ``GROWTH_WORDING_WINDOW`` 本と比べて: 決まった言葉を除いた言い回しの包含が
+      ``GROWTH_WORDING_MAX`` 以上 / 書き出しの文が同じ / 結びの文が同じ / 文の組み立てが同じで
+      言い回しが ``GROWTH_SAME_STRUCTURE_WORDING`` 以上
+
+    目的の重なり (purpose similarity) は記録するだけで、止める理由にしない。
+    """
+
+    items = [dict(i) for i in recent]
+    body_structure = _structure(body)
+    compared = []
+    for index, item in enumerate(items):
+        text = item.get("text") or ""
+        latest = index < GROWTH_WORDING_WINDOW
+        entry = {"ref": item.get("ref"), "similarity": similarity(body, text),
+                 "wording": wording_similarity(body, text),
+                 "purpose": purpose_similarity(body, text), "latest": latest,
+                 "opening": similarity(_edge(body, last=False), _edge(text, last=False)),
+                 "closing": similarity(_edge(body, last=True), _edge(text, last=True)),
+                 "same_structure": body_structure == _structure(text)}  # fmt: skip
+        rules = []
+        if entry["similarity"] >= GROWTH_SIMILARITY_MAX:
+            rules.append("near_copy")
+        if latest:
+            if entry["wording"] >= GROWTH_WORDING_MAX:
+                rules.append("wording")
+            if entry["opening"] >= GROWTH_EDGE_MAX:
+                rules.append("same_opening")
+            if entry["closing"] >= GROWTH_EDGE_MAX:
+                rules.append("same_closing")
+            if entry["same_structure"] and entry["wording"] >= GROWTH_SAME_STRUCTURE_WORDING:
+                rules.append("same_structure")
+        entry["rules"] = rules
+        compared.append(entry)
+    severity = ("near_copy", "wording", "same_structure", "same_opening", "same_closing")
+
+    def rank_of(c: dict) -> int:
+        return min((severity.index(r) for r in c["rules"]), default=len(severity))
+
+    ranked = sorted(compared, key=lambda c: (rank_of(c), -c["similarity"], str(c["ref"])))
+    blocked = [c for c in ranked if c["rules"]]
+    worst = blocked[0] if blocked else None
+    all_rules = sorted({r for c in blocked for r in c["rules"]}, key=severity.index)
+    latest = [c for c in compared if c["latest"]]
     return {
+        "policy": "growth-duplication-2",
         "recent_window": len(compared),
-        "max_similarity": worst["similarity"] if worst else 0.0,
+        "wording_window": GROWTH_WORDING_WINDOW,
+        "max_similarity": max((c["similarity"] for c in compared), default=0.0),
         "threshold": GROWTH_SIMILARITY_MAX,
-        "top": top,
-        "blocked": blocked,
-        "blocked_by": worst["ref"] if blocked else None,
+        "max_wording_similarity": max((c["wording"] for c in latest), default=0.0),
+        "wording_threshold": GROWTH_WORDING_MAX,
+        "max_purpose_similarity": max((c["purpose"] for c in latest), default=0.0),
+        "top": ranked[:3],
+        "blocked": bool(blocked),
+        "blocked_by": worst["ref"] if worst else None,
+        "blocked_rules": all_rules,
     }
 
 
@@ -481,10 +586,17 @@ def validate(body: str, brief: GrowthBrief, recent: Iterable[Mapping] = (), *,
             problems.append("the requested question hook is missing from the opening")
     audit = recent_similarity(text, recent)
     if audit["blocked"]:
-        problems.append(
-            f"too similar to the recent growth post {audit['blocked_by']} "
-            f"({audit['max_similarity']}); vary the wording and angle"
-        )
+        ref = audit["blocked_by"]
+        messages = {
+            "near_copy": f"near copy of the recent growth post {ref}; write a new post",
+            "wording": f"wording too close to the recent growth post {ref} (the same purpose "
+                       "is fine; change the expressions)",
+            "same_opening": f"same opening as the recent growth post {ref}; change the hook",
+            "same_closing": f"same closing call as the recent growth post {ref}; change the CTA",
+            "same_structure": f"same structure with a few words changed as the recent growth "
+                              f"post {ref}; change the structure",
+        }  # fmt: skip
+        problems += [messages[r] for r in audit["blocked_rules"]]
     purpose = gp.evaluate(text, self_assessment=self_assessment)
     problems += list(purpose.problems)
     if gp.repeated_framing(purpose.framing, brief.recent_framings):
@@ -523,6 +635,17 @@ GROWTH_REASON_IDS = (
     ("growth_cta_missing", re.compile(r"invitation to follow|end with the requested")),
     ("growth_hook_mismatch", re.compile(r"requested question hook")),
     ("growth_duplicate", re.compile(r"too similar to the recent growth post")),
+    # -4: Growth 専用の重複の方針
+    ("growth_near_copy", re.compile(r"near copy of the recent growth post")),
+    ("growth_wording_duplicate", re.compile(r"wording too close to the recent growth post")),
+    ("growth_same_opening", re.compile(r"same opening as the recent growth post")),
+    ("growth_same_closing", re.compile(r"same closing call as the recent growth post")),
+    ("growth_same_structure", re.compile(r"same structure with a few words changed")),
+    ("growth_development_centered", re.compile(r"growth purpose: the body is centered on "
+                                               r"development")),  # fmt: skip
+    ("growth_intents_missing", re.compile(r"growth purpose: not enough growth intents")),
+    ("growth_tail_only", re.compile(r"growth purpose: growth appears only as a closing")),
+    ("growth_low_growth_share", re.compile(r"growth purpose: most sentences are not about")),
     ("growth_purpose_who_missing", re.compile(r"growth purpose: say who the account is")),
     ("growth_follow_reason_missing", re.compile(r"growth purpose: give a reason to follow")),
     ("growth_development_diary_only", re.compile(r"growth purpose: reads as a development")),

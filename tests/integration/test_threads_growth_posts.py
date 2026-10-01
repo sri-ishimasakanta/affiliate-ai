@@ -273,7 +273,7 @@ def test_case_a_one_growth_post_is_prepared_for_the_day(session, tmp_path) -> No
     assert meta["date_jst"] == "2026-09-28" and meta["follower_target"] == 100
     assert meta["follower_observation"] is None and meta["uses_follower_count"] is False
     assert meta["angle"] in FAMILY_NAMES and meta["strategy"]["family"] == meta["angle"]
-    assert meta["strategy_policy_version"] == "threads-growth-strategy-1"
+    assert meta["strategy_policy_version"] == "threads-growth-strategy-2"
     assert (meta["model_call_index"], meta["attempt_index"]) == (1, 1)
     start, end = day_window(DAY, JST)
     assert row.not_before.replace(tzinfo=UTC) == start
@@ -503,7 +503,8 @@ def test_a_near_duplicate_switches_to_a_different_strategy(session, tmp_path) ->
             record["strategy_retries"]) == (2, 2, 0, 1)  # fmt: skip
     first, second = record["history"]
     assert first["purpose"] == "initial" and first["output"]["proposals"][0]["body"] == BODY_A
-    assert first["validation"]["reason_ids"] == ["growth_duplicate"]
+    # -4: 同じ全文は「ほぼ同じ全文」(言い回し・書き出し・結びも同じ)
+    assert "growth_near_copy" in first["validation"]["reason_ids"]
     assert first["failure_class"] == "validation_similarity"
     assert first["similarity"]["max"] >= 0.5 and first["similarity"]["compared"]
     assert first["next_action"]["purpose"] == "strategy_retry"

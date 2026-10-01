@@ -64,13 +64,15 @@ def test_the_36_shape_is_rewritten_once_and_only_the_passing_post_is_saved(
     assert fake.calls == 2 and out["created"]
     first, second = _record(tmp_path)["history"]
     assert "growth_development_diary_only" in first["validation"]["reason_ids"]
-    assert "growth_follow_reason_missing" in first["validation"]["reason_ids"]
+    # -2: 開発が中心 (最後のコメントのお願いは、フォローの理由として数えても通さない)
+    assert "growth_development_centered" in first["validation"]["reason_ids"]
     # その日の書き方は問いかけの書き出し: 分類は hook (目的の理由も残り、書き直しの指示が付く)。
     assert first["failure_class"] in ("validation_hook", "validation_purpose")
     assert first["validation"]["purpose"]["signals"]["development_diary_only"] is True
     assert second["purpose"] == "repair" and second["strategy"] == first["strategy"]
     repair = fake.payload(1)["input"][-1]["content"]
-    assert "開発の出来事を主役から外す" in repair and "元の事実以上のこと" in repair
+    assert "開発・実装・データの話・学びを本文に入れない" in repair
+    assert "元の事実以上のこと" in repair
     rows = _growth_rows(session)
     assert [r.content_text for r in rows] == [BODY_A]
     row = rows[0]

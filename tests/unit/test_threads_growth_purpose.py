@@ -91,8 +91,10 @@ OK_BUILD_IN_PUBLIC = (
     "検証しています。こうした試行錯誤も含めてこれからも共有していくので、同じことに取り組む方と"
     "つながれたら嬉しいです。"
 )
+#: -2: 開発の出来事から始める OK_BUILD_IN_PUBLIC は、もう Growth Post として通さない (人の判断、
+#: 2026-10-01: Growth は開発の説明ではなく、フォロー・交流のための投稿)。
 OK_BODIES = {"intro": OK_INTRO, "goal": OK_GOAL, "connection": OK_CONNECTION,
-             "future": OK_FUTURE, "build_in_public": OK_BUILD_IN_PUBLIC}  # fmt: skip
+             "future": OK_FUTURE}  # fmt: skip
 
 
 def _brief(family="build_in_public", cta="follow_connect", **kw) -> GrowthBrief:
@@ -108,12 +110,13 @@ def test_the_36_post_is_rejected_as_a_development_diary() -> None:
     assert e.signals["development_diary_only"] is True
     assert e.signals["future_value_signal"] is False and e.signals["connection_signal"] is False
     assert e.signals["follow_invitation_signal"] is False
-    assert gp.PROBLEM_WHY in e.problems and gp.PROBLEM_DIARY in e.problems
+    # -2: 最後のコメントのお願いはフォローの理由として数えても、開発が中心なので通さない
+    assert gp.PROBLEM_DEV_CENTER in e.problems and gp.PROBLEM_DIARY in e.problems
     # 理由を追える: どの文が開発の話か。
     assert e.as_dict()["evidence_sentences"]["development_sentences"][:3] == [0, 1, 2]
     verdict = validate(NG_36, _brief("failure_improvement", "experience_share"))
     assert verdict["ok"] is False
-    assert {"growth_follow_reason_missing", "growth_development_diary_only"} <= set(
+    assert {"growth_development_centered", "growth_development_diary_only"} <= set(
         growth_reason_ids("; ".join(verdict["problems"])))  # fmt: skip
 
 
@@ -132,11 +135,11 @@ def test_growth_posts_that_connect_to_the_account_pass(name) -> None:
     assert validate(OK_BODIES[name], _brief())["ok"], validate(OK_BODIES[name], _brief())
 
 
-def test_build_in_public_passes_only_when_connected_to_account_value() -> None:
+def test_a_development_story_is_rejected_even_when_connected_to_account_value() -> None:
     connected = gp.evaluate(OK_BUILD_IN_PUBLIC)
-    assert connected.signals["build_in_public_signal"] and connected.accepted
-    assert connected.signals["development_diary_only"] is False
-    assert gp.evaluate(NG_36).accepted is False  # 同じ事実でも、出来事で終われば通らない
+    assert connected.signals["development_diary_only"] is False  # v1 では通っていた形
+    assert connected.accepted is False and gp.PROBLEM_DEV_CENTER in connected.problems
+    assert gp.evaluate(NG_36).accepted is False
 
 
 @pytest.mark.parametrize(("body", "signal", "problem"), [
@@ -217,7 +220,8 @@ def test_the_growth_prompt_states_the_purpose_and_ignores_performance_feedback()
     prompt = build_prompt(_brief("failure_improvement", "experience_share", framing=framing,
                                  facts=("読み取り方を直しました",)))  # fmt: skip
     assert "## この投稿の目的 (Growth Post。いちばん優先する)" in prompt
-    assert "開発日記" in prompt and "出来事を主役にしないで" in prompt
+    assert "開発日記" in prompt and "開発の内容を説明する投稿ではない" in prompt
+    assert "主題にしない" in prompt and "フォロワーの目標" in prompt
     assert f"今回の中心: {gp.FRAMING_AXES[framing.axis]}" in prompt
     assert "growth_assessment" in prompt
     assert "成績の参考は Growth には使わない" in prompt
@@ -297,12 +301,13 @@ def test_explicit_follow_or_continued_watching_is_a_follow_invitation(sentence) 
     assert e.signals["follow_invitation_signal"] is True
 
 
-def test_the_accepted_preview_stays_accepted_without_a_follow_invitation() -> None:
+def test_the_0930_preview_shape_is_no_longer_enough_for_growth() -> None:
+    # v1 で通っていた形 (進み具合と予定の説明 + 最後に 1 文のつながり)。-2 では Growth の意図が
+    # 1 種類 (つながり) だけなので通さない (人の判断、2026-10-01)。
     e = gp.evaluate(PREVIEW_0930)
-    assert e.accepted is True
-    assert e.signals["follow_invitation_signal"] is False
     assert all(e.signals[s] for s in ("identity_signal", "account_purpose_signal",
                                       "future_value_signal", "connection_signal"))  # fmt: skip
+    assert e.accepted is False and gp.PROBLEM_INTENTS in e.problems
 
 
 def test_a_comment_request_alone_is_still_not_a_connection() -> None:

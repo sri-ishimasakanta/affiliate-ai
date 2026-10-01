@@ -22,11 +22,13 @@ from sqlalchemy import select
 from app.approval.review_snapshot import build_snapshot
 from app.models import ThreadsPostProposal, ThreadsPublicationAttempt
 from app.services.threads_approval_digest_service import _topic_text
+from app.social.threads import growth_purpose as gp
 from app.social.threads import growth_strategy as gs
 from app.social.threads.growth import (
     GROWTH_SIMILARITY_MAX,
     GrowthBrief,
     day_window,
+    growth_reason_ids,
     profile_hash,
     validate,
 )
@@ -79,36 +81,50 @@ def _yesterday(session, tmp_path, body=BODY_A) -> None:
 
 
 def test_the_strategy_policy_is_versioned_and_bounded() -> None:
-    assert gs.GROWTH_STRATEGY_POLICY_VERSION == "threads-growth-strategy-1"
+    assert gs.GROWTH_STRATEGY_POLICY_VERSION == "threads-growth-strategy-2"
     assert gs.MAX_GROWTH_MODEL_CALLS_PER_DAY == 4
     assert set(gs.FAMILY_NAMES) == {
         "account_identity", "goal_progress", "build_in_public", "behind_the_scenes",
         "lesson_learned", "failure_improvement", "experiment", "community_question", "principle",
-        "next_step", "milestone", "mutual_growth"}  # fmt: skip
-    assert set(gs.HOOKS) == {"question", "experience", "progress", "observation", "opinion",
-                             "lesson", "challenge", "direct_statement"}  # fmt: skip
-    assert set(gs.CTAS) == {"follow_connect", "mutual_growth", "question", "experience_share",
-                            "soft_connection", "none"}  # fmt: skip
-    assert set(gs.STRUCTURES) == {"single_short_point", "two_paragraph", "progress_then_invite",
-                                  "lesson_then_question", "observation_then_connection",
-                                  "question_then_context"}  # fmt: skip
+        "next_step", "milestone", "mutual_growth",
+        # -2: Growth の目的の書き方
+        "participation", "follow_goal", "connect_with_peers", "introduction", "mutual_support",
+        "comment_invitation"}  # fmt: skip
+    assert set(gs.GROWTH_PURPOSE_FAMILIES) == {
+        "participation", "follow_goal", "connect_with_peers", "introduction", "mutual_support",
+        "comment_invitation", "goal_progress"}  # fmt: skip
+    assert {"participation_statement", "goal_statement", "self_intro", "peer_call"} <= set(gs.HOOKS)
+    assert {"follow_welcome", "connect_peers", "comment_welcome", "reciprocal_visit",
+            "mutual_support"} <= set(gs.CTAS)  # fmt: skip
+    assert {"announce_intro_call", "goal_intro_invite", "intro_goal_peers",
+            "call_then_intro"} <= set(gs.STRUCTURES)  # fmt: skip
     for family in gs.FAMILIES.values():
         assert set(family.hooks) <= set(gs.HOOKS) and set(family.ctas) <= set(gs.CTAS)
         assert set(family.structures) <= set(gs.STRUCTURES)
 
 
-def test_the_similarity_threshold_is_unchanged() -> None:
-    assert GROWTH_SIMILARITY_MAX == 0.5
+def test_the_growth_duplication_thresholds() -> None:
+    # -4: 全文の重なり (包含) は「ほぼ同じ全文」を止める上限で、以上なら書き直し (0.5 → 0.8 に
+    # 上げた = 同じ目的の言葉の共通を許す)。言い回しは決まった言葉を除いて直近 2 本と比べる。
+    from app.social.threads import growth as g
+
+    assert GROWTH_SIMILARITY_MAX == 0.8
+    assert (g.GROWTH_WORDING_MAX, g.GROWTH_WORDING_WINDOW, g.GROWTH_EDGE_MAX,
+            g.GROWTH_SAME_STRUCTURE_WORDING, g.RECENT_GROWTH_WINDOW) == (0.5, 2, 0.8, 0.35, 7)
 
 
 def test_fact_families_need_real_facts() -> None:
     without = set(gs.eligible_families(()))
-    assert without == {"account_identity", "build_in_public", "community_question", "principle",
-                       "mutual_growth"}  # fmt: skip
+    assert without == {"follow_goal", "connect_with_peers", "introduction", "mutual_support",
+                       "comment_invitation"}  # fmt: skip
     assert "goal_progress" not in without  # フォロワー数の観測が無いと進み具合は書かない
-    assert "milestone" not in without and "experiment" not in without
+    assert "participation" not in without  # 企画 (トピック) の日だけ
+    assert "participation" in gs.eligible_families({gs.FACT_GROWTH_TOPIC})
     assert "goal_progress" in gs.eligible_families({gs.FACT_FOLLOWER_COUNT})
-    assert "experiment" in gs.eligible_families({"experiment"})
+    # -2: 開発の話を材料にする書き方は、事実があっても Growth では選ばない
+    every_fact = set(gs.FACT_KINDS) | {gs.FACT_FOLLOWER_COUNT, gs.FACT_GROWTH_TOPIC}
+    assert not set(gs.eligible_families(every_fact)) & set(gp.DEVELOPMENT_FAMILIES)
+    assert "experiment" not in gs.eligible_families({"experiment"})  # -2: Growth では選ばない
 
 
 def test_the_facts_file_is_public_safe_and_dated(tmp_path) -> None:
@@ -165,19 +181,29 @@ def test_failure_classification() -> None:
 
 
 def test_validation_follows_the_strategy_without_weakening_the_fact_guard() -> None:
+    # -2: 開発の学びの書き方 (lesson_learned) の本文は、Growth では目的の検査で落ちる
     lesson = gs.Strategy("lesson_learned", "lesson", "question", "lesson_then_question")
-    brief = GrowthBrief(day=DAY, angle="lesson_learned", follower_target=100, strategy=lesson)
-    body = ("AIでメディア運営を自動化していて分かったのは、画面と照らさないとズレに気づけない"
-            "ことでした。記録の仕組みも、少しずつ直しながら育てています。\n\n"
-            "同じように自動化を試している方は、どうやって確かめていますか？")  # fmt: skip
+    lesson_brief = GrowthBrief(day=DAY, angle="lesson_learned", follower_target=100,
+                               strategy=lesson)  # fmt: skip
+    lesson_body = ("AIでメディア運営を自動化していて分かったのは、画面と照らさないとズレに"
+                   "気づけないことでした。記録の仕組みも、少しずつ直しながら育てています。\n\n"
+                   "同じように自動化を試している方は、どうやって確かめていますか？")  # fmt: skip
+    assert "growth_development_centered" in growth_reason_ids(
+        "; ".join(validate(lesson_body, lesson_brief)["problems"]))  # fmt: skip
+    peers = gs.Strategy("connect_with_peers", "peer_call", "comment_welcome", "call_then_intro")
+    brief = GrowthBrief(day=DAY, angle="connect_with_peers", follower_target=100, strategy=peers)
+    body = ("同じようにAI自動化に取り組んでいる方と、もっとつながりたいです。\n\n"
+            "このアカウントでは、AI自動化・Web運用を実際に試しながら発信しています。"
+            "気軽にコメントで話しかけてください。")  # fmt: skip
     assert validate(body, brief)["ok"] is True  # 目標の人数は、この書き方では書かなくてよい
     identity = GrowthBrief(day=DAY, angle="account_identity", follower_target=100,
                            strategy=gs.Strategy("account_identity", "question",
                                                 "soft_connection", "two_paragraph"))  # fmt: skip
     assert "state the current goal (100 followers)" in validate(body, identity)["problems"]
-    no_question = body.replace("いますか？", "います。")
-    assert any("closing" in p for p in validate(no_question, brief)["problems"])
-    invented = body.replace("分かったのは", "フォロワーが現在48人になって分かったのは")
+    no_comment = body.replace("気軽にコメントで話しかけてください。", "よろしくお願いします。")
+    assert any("closing" in p for p in validate(no_comment, brief)["problems"])
+    invented = body.replace("もっとつながりたいです",
+                            "フォロワーが現在48人なので、もっとつながりたいです")
     assert any("unsupported follower number" in p or "state progress" in p
                for p in validate(invented, brief)["problems"])  # fmt: skip
     hook = GrowthBrief(day=DAY, angle="community_question", follower_target=100,
@@ -205,14 +231,15 @@ def test_e2e_a_the_first_candidate_passes_with_one_call(session, tmp_path) -> No
     assert fake.calls == 1 and out["model_calls_today"] == 1 and len(_growth_rows(session)) == 1
     record = _record(tmp_path)
     assert record["outcome"] == "stored" and record["strategy_policy_version"] == (
-        "threads-growth-strategy-1")  # fmt: skip
+        "threads-growth-strategy-2")  # fmt: skip
     call = record["history"][0]
     assert call["purpose"] == "initial" and call["strategy"]["signature"].count("+") == 3
     row = _growth_rows(session)[0]
     assert row.learning_guidance_json["growth"]["strategy"] == call["strategy"]
     prompt = fake.payload(0)["input"][0]["content"]
     assert f"書き方の種類: {call['strategy']['family']}" in prompt
-    assert "インサイト祭り" not in prompt and "トピックの言葉は書かない" in prompt
+    # -4: 企画の日 (10/4 まで) は参加を自然な言葉で伝えてよい。「#」は付けない。
+    assert "インサイト祭り" in prompt and "「#」は付けない" in prompt
 
 
 def test_e2e_b_similarity_then_success_with_a_different_strategy(session, tmp_path) -> None:
