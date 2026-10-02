@@ -19,13 +19,14 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.affiliate.destination_policy import is_host_approved
+from app.affiliate.destination_policy import is_destination_approved
 from app.affiliate.destination_safety import (
     AffiliateDestinationError,
     DestinationFacts,
     validate_destination_url,
 )
 from app.affiliate.link_identity import compute_link_identity_hash
+from app.affiliate.program_host_approvals import load_program_host_policy
 from app.affiliate.token import generate_token
 from app.article.fact_freshness import to_storage_utc
 from app.exceptions import AffiliateLinkTargetError, EntityNotFoundError
@@ -55,12 +56,17 @@ class AffiliateLinkTargetService:
         session: Session,
         *,
         host_policy: Mapping[str, frozenset[str]] | None = None,
+        program_host_policy: Mapping[int, frozenset[tuple[str, str, str]]] | None = None,
     ) -> None:
         self._session = session
         self._repo = AffiliateLinkTargetRepository(session)
         self._relations = ArticleAffiliateProgramRepository(session)
         # None -> production の DEFAULT policy (fail closed)。tests は明示注入する。
         self._host_policy = host_policy
+        # C11: program 単位の許可 (None -> version 管理の記録を読む。tests は明示注入する)
+        self._program_host_policy = (
+            load_program_host_policy() if program_host_policy is None else program_host_policy
+        )
 
     # -- create ------------------------------------------------------
     def create_target(
@@ -334,10 +340,13 @@ class AffiliateLinkTargetService:
             raise AffiliateLinkTargetError(
                 f"destination validation failed: {exc}"
             ) from exc
-        if not is_host_approved(
+        if not is_destination_approved(
+            program_id=program.id,
+            program_name=program.name,
             provider=program.provider,
             destination_host=facts.destination_host,
             policy=self._host_policy,
+            program_policy=self._program_host_policy,
         ):
             raise AffiliateLinkTargetError(
                 "destination host is not independently approved for this provider"

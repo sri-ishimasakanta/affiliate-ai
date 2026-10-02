@@ -40,8 +40,16 @@ def _bool(text: str) -> bool:
     return text == "true"
 
 
+def _tri(text: str):
+    """true / false / unknown (画面で見たが分からなかった)。書かなければ記録しない。"""
+
+    if text not in ("true", "false", "unknown"):
+        raise argparse.ArgumentTypeError("true, false or unknown")
+    return {"true": True, "false": False}.get(text, "unknown")
+
+
 def _parser() -> argparse.ArgumentParser:
-    from app.revenue.affiliate_inventory import PROVIDER_STATUSES
+    from app.revenue.affiliate_inventory import COMMISSION_TYPES, NOTICE_STATES, PROVIDER_STATUSES
 
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -59,10 +67,22 @@ def _parser() -> argparse.ArgumentParser:
     ver.add_argument("program_id", type=int)
     ver.add_argument("--status", choices=PROVIDER_STATUSES)
     ver.add_argument("--provider-program-id")
-    ver.add_argument("--subid-supported", type=_bool)
+    ver.add_argument("--link-id")
+    ver.add_argument("--actual-provider", help="the platform actually used (e.g. Impact)")
+    ver.add_argument("--subid-supported", type=_tri)
+    ver.add_argument("--click-reporting", type=_tri)
+    ver.add_argument("--conversion-reporting", type=_tri)
+    ver.add_argument("--source-attribution", type=_tri,
+                     help="conversions come back with the article / source reference")
     ver.add_argument("--cookie-window-days", type=int)
     ver.add_argument("--tracking-url-obtained", type=_bool)
     ver.add_argument("--commission-terms-confirmed", type=_bool)
+    ver.add_argument("--commission-type", choices=COMMISSION_TYPES)
+    ver.add_argument("--commission-value", type=float)
+    ver.add_argument("--commission-currency")
+    ver.add_argument("--landing-host", help="host name only (no URL)")
+    ver.add_argument("--pause-end-notice", choices=NOTICE_STATES)
+    ver.add_argument("--notice-effective-date", help="YYYY-MM-DD")
     ver.add_argument("--source", required=True)
     ver.add_argument("--by", required=True)
     ver.add_argument("--observed-at", required=True)
@@ -129,10 +149,20 @@ def main(argv=None, *, session_factory=None, now: datetime | None = None,
             if args.command == "verify":
                 fields = {"status_at_provider": args.status,
                           "provider_program_id": args.provider_program_id,
+                          "link_id": args.link_id, "actual_provider": args.actual_provider,
                           "subid_supported": args.subid_supported,
+                          "click_reporting_supported": args.click_reporting,
+                          "conversion_reporting_supported": args.conversion_reporting,
+                          "content_source_attribution_supported": args.source_attribution,
                           "cookie_window_days": args.cookie_window_days,
                           "tracking_url_obtained": args.tracking_url_obtained,
-                          "commission_terms_confirmed": args.commission_terms_confirmed}
+                          "commission_terms_confirmed": args.commission_terms_confirmed,
+                          "commission_type_observed": args.commission_type,
+                          "commission_value_observed": args.commission_value,
+                          "commission_currency_observed": args.commission_currency,
+                          "landing_host_observed": args.landing_host,
+                          "pause_end_notice": args.pause_end_notice,
+                          "notice_effective_date": args.notice_effective_date}
                 result = service.verify(program_id=args.program_id, source=args.source,
                                         verified_by=args.by, observed_at=args.observed_at,
                                         fields=fields, execute=args.execute, now=now)

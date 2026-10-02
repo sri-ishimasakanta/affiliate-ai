@@ -969,6 +969,27 @@ DECISIONS = (
         ),
         "follow_up": "人が ASP の画面で確かめ、verify で記録する",
     },
+    {
+        "id": "c11-program-level-host-authorization",
+        "area": "revenue/affiliate-infrastructure",
+        "decision": (
+            "tracking URL の行き先の host は、既存の provider 単位の許可 (Make) に加えて program "
+            "単位で許す。direct など複数のベンダーをまとめたラベルには provider 単位の許可を使わ"
+            "ない。許可は program の名前と provider に結びつき、人が確かめて PLAN → --execute で"
+            "記録したものだけ。catalog の landing page の host は許可にならない"
+        ),
+        "rationale": (
+            "direct を provider 単位で許すと、direct の全 program が互いの host を使えてしまう。"
+            "Make の既存の許可はそのまま"
+        ),
+        "evidence": ["docs/operations/affiliate-infrastructure.md"],
+        "phrase": "provider-level rules are never used for aggregate labels",
+        "resulting_state": (
+            "汎用の tracking URL の登録 (非表示の入力・PLAN 既定・DB だけ) と program 単位の許可の"
+            "記録 (app/config/affiliate_program_host_approvals.json、まだ空)。migration なし"
+        ),
+        "follow_up": "人が P1 の ASP の画面で確かめ、登録と許可を PLAN から行う",
+    },
 )
 
 

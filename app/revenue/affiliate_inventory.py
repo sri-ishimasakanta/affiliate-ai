@@ -16,12 +16,33 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections import Counter, defaultdict
 from datetime import datetime
+from urllib.parse import urlsplit
 
 CATALOG_STATUSES = ("active", "paused", "ended", "unknown")
 PROVIDER_STATUSES = ("applied", "approved", "active", "paused", "rejected", "ended", "unknown")
 ATTRIBUTION_CLASSES = ("FULL", "PARTIAL", "MANUAL", "UNKNOWN", "NONE")
+#: 人の確認で true / false / "unknown" をとる能力 (書かなければ記録なし = missing)
+TRISTATE_FIELDS = ("subid_supported", "click_reporting_supported", "conversion_reporting_supported",
+                   "content_source_attribution_supported")  # fmt: skip
+NOTICE_STATES = ("none_seen", "pause_announced", "end_announced", "unknown")
+COMMISSION_TYPES = ("percentage", "fixed", "tiered", "hybrid", "other")
+#: 実クリックと分ける既知の合成 probe (token の SHA-256 だけ。token は持たない)。
+#: 根拠: docs/operations/synthetic-runtime-click-e2e.md (2026-09-13 の /go の E2E 確認)。
+KNOWN_SYNTHETIC_PROBE_FINGERPRINTS = {
+    "dc207140d0a49fb28cd432cfd2784745806918a8e175aacb7ba6aec1c9ae4a45":
+        "docs/operations/synthetic-runtime-click-e2e.md",
+}  # fmt: skip
+#: 能力 -> (人の確認の項目, 提供元の設定の項目)
+CAPABILITY_SOURCES = {
+    "subid": ("subid_supported", "subid_in_tracking_url"),
+    "click_reporting": ("click_reporting_supported", None),
+    "conversion_reporting": ("conversion_reporting_supported", "commission_import_api"),
+    "source_attribution": ("content_source_attribution_supported",
+                           "click_reference_in_commission_report"),
+}  # fmt: skip
 
 
 def capability(capabilities: dict, provider: str, key: str):
@@ -32,7 +53,7 @@ def capability(capabilities: dict, provider: str, key: str):
 
 
 def latest_verifications(records: list[dict]) -> dict[int, dict]:
-    """案件ごとの最新の人の確認 (追記だけの記録。後の記録が前を置き換える)。"""
+    """案件ごとの最新の人の確認の記録 (記録そのもの)。"""
 
     out: dict[int, dict] = {}
     for record in sorted(records, key=lambda r: (r["verified_at"], r["id"])):
@@ -40,32 +61,71 @@ def latest_verifications(records: list[dict]) -> dict[int, dict]:
     return out
 
 
+def merge_verifications(records: list[dict]) -> dict[int, dict]:
+    """項目ごとに最新の値をとる (状態だけの確認が、前に確かめた SubID を消さない)。
+
+    返り値: program_id -> {"fields": {項目: 値}, "provenance": {項目: {verified_at, record_id,
+    verified_by, source}}, "last_verified": 最後の確認の時刻}
+    """
+
+    out: dict[int, dict] = {}
+    for record in sorted(records, key=lambda r: (r["verified_at"], r["id"])):
+        merged = out.setdefault(int(record["program_id"]),
+                                {"fields": {}, "provenance": {}, "last_verified": None})
+        for key, value in (record.get("fields") or {}).items():
+            merged["fields"][key] = value
+            merged["provenance"][key] = {"verified_at": record["verified_at"],
+                                         "record_id": record["id"],
+                                         "verified_by": record.get("verified_by"),
+                                         "source": record.get("source")}  # fmt: skip
+        merged["last_verified"] = record["verified_at"]
+    return out
+
+
+def effective_capabilities(provider: str, capabilities: dict, fields: dict) -> dict:
+    """program ごとの能力: 人の確認 > 提供元の設定 (証拠つき) > unknown。出どころも返す。
+
+    人の確認の "unknown" は「見たが分からなかった」で、それも unknown のまま (false にしない)。
+    """
+
+    out = {}
+    for name, (field, config_key) in CAPABILITY_SOURCES.items():
+        if field in fields:
+            out[name] = {"value": fields[field], "source": "human_verification"}
+            continue
+        value = capability(capabilities, provider, config_key) if config_key else "unknown"
+        if name == "conversion_reporting" and value is not True:
+            value = "unknown"  # 取り込み API が無いことは、画面に成果が出ないことを意味しない
+        out[name] = {"value": value,
+                     "source": "provider_config" if value != "unknown" else "none"}
+    return out
+
+
 def attribution_class(program: dict, *, has_active_target: bool, capabilities: dict,
                       verification: dict | None) -> tuple[str, str]:
-    """帰属のできる度合いと理由。
+    """帰属のできる度合いと理由 (``verification`` は ``{"fields": {...}}``)。
 
-    - FULL: 提供元が SubID を受け付け、成果に参照が戻ることが確かめられている (証拠つき)。
-    - PARTIAL: ``/go/`` の行き先があり、記事ごとのクリックは分かる。成果は記事に結べない。
-    - MANUAL: 成果は提供元の画面だけで見える (人が写す) と確かめられ、リンクもある。
+    - FULL: SubID を受け付け、成果に記事・掲載元の参照が戻る (どちらも確認済み) + リンクあり。
+    - MANUAL: リンクあり。成果は提供元の画面で見える (確認済み) が、取り込み API は無い。
+    - PARTIAL: リンクあり (``/go/`` で記事ごとのクリックは分かる)。成果は記事に結べない。
     - NONE: SubID も成果の参照も無いと確かめられ、リンクも無い。
     - UNKNOWN: それ以外 (今の情報では分からない)。
     """
 
     provider = program["provider"]
-    subid = (verification or {}).get("fields", {}).get("subid_supported",
-                                                       capability(capabilities, provider,
-                                                                  "subid_in_tracking_url"))
-    clickref = capability(capabilities, provider, "click_reference_in_commission_report")
+    eff = effective_capabilities(provider, capabilities, (verification or {}).get("fields", {}))
+    subid, ref = eff["subid"]["value"], eff["source_attribution"]["value"]
     manual = capability(capabilities, provider, "commission_report_manual")
-    if subid is True and clickref is True and has_active_target:
+    if subid is True and ref is True and has_active_target:
         return "FULL", "SubID and the conversion reference are verified"
     if has_active_target:
         api = capability(capabilities, provider, "commission_import_api")
-        if manual is True and api is not True:
+        dashboard = eff["conversion_reporting"]["value"] is True or manual is True
+        if dashboard and api is not True:
             return "MANUAL", "article-level clicks; conversions only in the provider dashboard"
         return "PARTIAL", ("article-level clicks through /go/; conversions cannot be tied to an "
                            "article (no verified conversion reference)")
-    if subid is False and clickref is False:
+    if subid is False and ref is False:
         return "NONE", "no SubID and no conversion reference (verified), and no tracked link"
     return "UNKNOWN", "no tracked link and the provider capabilities are not verified"
 
@@ -73,12 +133,21 @@ def attribution_class(program: dict, *, has_active_target: bool, capabilities: d
 def build(*, programs: list[dict], article_programs: list[dict], articles: list[dict],
           targets: list[dict], mappings: list[dict], clicks: list[dict],
           commissions: list[dict], capabilities: dict, verifications: list[dict],
-          now: datetime, verification_max_age_days: int | None = None) -> dict:
-    """棚卸しの全体 (読むだけ)。入力はすべて dict の一覧 (DB の行の写し)。"""
+          now: datetime, verification_max_age_days: int | None = None,
+          tracking: dict | None = None,
+          known_probe_fingerprints: dict | None = None) -> dict:  # fmt: skip
+    """棚卸しの全体 (読むだけ)。入力はすべて dict の一覧 (DB の行の写し)。
+
+    ``tracking``: program_id -> {"host", "authorized", "rule"} (tracking URL の host と、その
+    program に許されているか。URL そのものは渡さない)。
+    """
 
     # 提供元の記録の無い案件は "unrecorded" (推測で埋めない。能力はすべて unknown になる)
     programs = [{**p, "provider": p.get("provider") or "unrecorded"} for p in programs]
-    verified = latest_verifications(verifications)
+    verified = merge_verifications(verifications)
+    tracking = tracking or {}
+    probes = (KNOWN_SYNTHETIC_PROBE_FINGERPRINTS if known_probe_fingerprints is None
+              else known_probe_fingerprints)  # fmt: skip
     published = {a["id"]: a for a in articles if a.get("status") == "published"}
     by_program_articles: dict[int, list[dict]] = defaultdict(list)
     for row in article_programs:
@@ -101,9 +170,10 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
                           "affiliate_program_id") == pid]  # fmt: skip
         v = verified.get(pid)
         fields = (v or {}).get("fields", {})
-        subid = fields.get("subid_supported",
-                           capability(capabilities, p["provider"], "subid_in_tracking_url"))
-        last_verified = (v or {}).get("verified_at")
+        eff = effective_capabilities(p["provider"], capabilities, fields)
+        subid = eff["subid"]["value"]
+        last_verified = (v or {}).get("last_verified")
+        track = tracking.get(pid) or {}
         age = None
         if last_verified:
             age = (now - datetime.fromisoformat(last_verified)).days
@@ -121,6 +191,9 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
             ("provider_status_verified", "status_at_provider" in fields),
             ("provider_program_id", bool(fields.get("provider_program_id"))),
             ("subid_capability", isinstance(subid, bool)),
+            ("click_reporting", isinstance(eff["click_reporting"]["value"], bool)),
+            ("conversion_reporting", isinstance(eff["conversion_reporting"]["value"], bool)),
+            ("source_attribution", isinstance(eff["source_attribution"]["value"], bool)),
             ("cookie_window_days", fields.get("cookie_window_days") is not None
              or isinstance(capability(capabilities, p["provider"], "cookie_window_days"), int)),
             ("last_verified", last_verified is not None),
@@ -130,6 +203,9 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
             "catalog_status": p.get("status") or "unknown",
             "provider_status": fields.get("status_at_provider", "unknown"),
             "has_tracking_url": bool(p.get("tracking_url")),
+            "tracking_host": track.get("host"),
+            "tracking_host_authorized": track.get("authorized", False),
+            "tracking_host_rule": track.get("rule"),
             "landing_page": "present" if p.get("landing_page_url") else "missing",
             "commission": ({"type": p.get("commission_type"), "value": p.get("commission_value"),
                             "currency": p.get("currency") or "missing"}
@@ -143,6 +219,11 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
             "commission_facts": commissions_by_program.get(pid, 0),
             "last_verified": last_verified, "verification": verification_state,
             "subid_supported": subid,
+            "capabilities": eff,
+            # catalog (DB) と人の確認は出どころが違う。片方でもう片方を上書きしない
+            "catalog": _catalog_facts(p),
+            "verified": {"fields": fields, "provenance": (v or {}).get("provenance", {})},
+            "differences": _differences(p, fields),
             "attribution": attr, "attribution_reason": why, "missing_fields": missing,
         })  # fmt: skip
 
@@ -161,6 +242,14 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
             "attribution": dict(Counter(r["attribution"] for r in rows)),
             "capabilities": {k: capability(capabilities, provider, k) for k in
                              (capabilities.get("capability_keys") or {})},
+            # 人の確認を提供元ごとに数えるだけ (設定のファイルは書き換えない)
+            "observed_capabilities": {
+                name: dict(Counter(_tri(r["capabilities"][name]) for r in rows
+                                   if r["capabilities"][name]["source"] == "human_verification"))
+                for name in CAPABILITY_SOURCES},
+            "actual_provider_observed": sorted({r["verified"]["fields"]["actual_provider"]
+                                                for r in rows
+                                                if "actual_provider" in r["verified"]["fields"]}),
             "source": ((capabilities.get("providers") or {}).get(provider) or {}).get("kind")
             or "not described",
             "human_action_required": any(r["next_action"] for r in rows),
@@ -169,7 +258,7 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
     coverage = _coverage(published, article_programs, active_targets, active_mappings,
                          program_by_id)  # fmt: skip
     ops = _operations(program_rows, coverage, active_targets, active_mappings, targets_by_id,
-                      program_by_id, clicks_by_token, target_tokens)  # fmt: skip
+                      program_by_id, clicks_by_token, target_tokens, probes)  # fmt: skip
     queue = _human_queue(program_rows, coverage)
     return {
         "counts": {
@@ -193,6 +282,37 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
     }  # fmt: skip
 
 
+def _tri(cap: dict) -> str:
+    return {True: "true", False: "false"}.get(cap["value"], "unknown")
+
+
+def _catalog_facts(p: dict) -> dict:
+    landing = p.get("landing_page_url")
+    return {"status": p.get("status") or "unknown", "provider": p["provider"],
+            "commission_type": p.get("commission_type"),
+            "commission_value": p.get("commission_value"), "currency": p.get("currency"),
+            "landing_host": (urlsplit(landing).hostname or "invalid") if landing else None,
+            "provenance": "catalog (affiliate_programs)"}  # fmt: skip
+
+
+def _differences(p: dict, fields: dict) -> list[dict]:
+    """catalog と人の確認が食い違う項目 (どちらも上書きしない。人が catalog を別に直す)。"""
+
+    cat = _catalog_facts(p)
+    pairs = (("provider", "actual_provider"), ("commission_type", "commission_type_observed"),
+             ("commission_value", "commission_value_observed"),
+             ("currency", "commission_currency_observed"),
+             ("landing_host", "landing_host_observed"))  # fmt: skip
+    out = []
+    for cat_key, field in pairs:
+        if field in fields and cat[cat_key] is not None and cat[cat_key] != fields[field]:
+            out.append({"field": cat_key, "catalog": cat[cat_key], "verified": fields[field]})
+    status = fields.get("status_at_provider")
+    if status in ("paused", "ended", "rejected") and cat["status"] == "active":
+        out.append({"field": "status", "catalog": cat["status"], "verified": status})
+    return out
+
+
 def _next_action(row: dict) -> str | None:
     if row["catalog_status"] == "unknown":
         return "confirm the program status at the provider"
@@ -200,6 +320,8 @@ def _next_action(row: dict) -> str | None:
         return "confirm whether the program resumed or ended; plan replacement for its articles"
     if not row["has_tracking_url"]:
         return "obtain the tracking URL at the provider (after confirming approval)"
+    if not row["tracking_host_authorized"]:
+        return "approve the tracking URL host for this program (approve-host, after checking it)"
     if row["active_placements"] == 0:
         return "map the tracked link into an article (existing link mapping flow)"
     if "subid_capability" in row["missing_fields"]:
@@ -254,7 +376,10 @@ def _coverage(published, article_programs, active_targets, active_mappings, prog
 
 
 def _operations(program_rows, coverage, active_targets, active_mappings, targets_by_id,
-                program_by_id, clicks_by_token, target_tokens):
+                program_by_id, clicks_by_token, target_tokens, probes):
+    unmatched = {tok: n for tok, n in clicks_by_token.items() if tok not in target_tokens}
+    probe_tokens = {tok for tok in unmatched
+                    if hashlib.sha256(tok.encode("utf-8")).hexdigest() in probes}
     destinations = defaultdict(set)
     for t in active_targets:
         destinations[t.get("destination_url")].add(t["affiliate_program_id"])
@@ -303,8 +428,17 @@ def _operations(program_rows, coverage, active_targets, active_mappings, targets
                                          if c["inactive_program_assigned"]],
         # token の中身は出さない (数だけ)
         "clicks_with_unknown_token": {
-            "tokens": sum(1 for tok in clicks_by_token if tok not in target_tokens),
-            "clicks": sum(n for tok, n in clicks_by_token.items() if tok not in target_tokens)},
+            "tokens": sum(1 for tok in unmatched if tok not in probe_tokens),
+            "clicks": sum(n for tok, n in unmatched.items() if tok not in probe_tokens)},
+        # 既知の合成 probe (読むときに分けるだけ。元のクリックの行は変えない)
+        "synthetic_probe_clicks": {
+            "tokens": len(probe_tokens), "clicks": sum(unmatched[t] for t in probe_tokens),
+            "evidence": sorted({probes[hashlib.sha256(t.encode("utf-8")).hexdigest()]
+                                for t in probe_tokens})},
+        "tracking_url_host_not_authorized": [r["id"] for r in program_rows if r["has_tracking_url"]
+                                             and not r["tracking_host_authorized"]],
+        "catalog_differs_from_verification": {r["id"]: r["differences"] for r in program_rows
+                                              if r["differences"]},
         # ASP の画面でしか分からない作業がある提供元 (記事の中の置き換えは手元の作業なので除く)
         "human_asp_login_required": sorted({r["provider"] for r in program_rows
                                             if r["next_action"] and not r["next_action"].startswith(
@@ -343,6 +477,11 @@ def _human_queue(program_rows, coverage):
                           "approval status and the tracking URL from the provider dashboard",
                           "priority": "P1" if assigned else "P2",
                           "blocks": f"links for {assigned} assigned published article(s)"})
+        if r["has_tracking_url"] and not r["tracking_host_authorized"]:
+            items.append({**base, "reason": "tracking URL host not authorized for this program",
+                          "required_value": "confirmation that the tracking URL host is the "
+                          "provider's (approve-host)", "priority": "P1" if assigned else "P2",
+                          "blocks": f"link targets for {assigned} assigned published article(s)"})
         if r["has_tracking_url"] and "subid_capability" in r["missing_fields"]:
             items.append({**base, "reason": "SubID / conversion reference support unknown",
                           "required_value": "whether the provider accepts a SubID / clickref on "

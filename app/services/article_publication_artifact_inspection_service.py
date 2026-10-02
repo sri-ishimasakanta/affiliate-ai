@@ -53,7 +53,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.affiliate.destination_policy import is_host_approved
+from app.affiliate.destination_policy import is_destination_approved
+from app.affiliate.program_host_approvals import load_program_host_policy
 from app.affiliate.projection import (
     PROJECTION_STATUS_ACTIVE,
     PROJECTION_VERSION_ACTIVE,
@@ -355,8 +356,12 @@ class ArticlePublicationArtifactInspectionService:
             destination_host=target.destination_host,
             current_projection_version=current_projection_version,
             projection_eligible=self._resolve_projection_eligible(target),
-            host_policy_eligible=is_host_approved(
-                provider=program.provider, destination_host=target.destination_host
+            host_policy_eligible=is_destination_approved(
+                program_id=program.id,
+                program_name=program.name,
+                provider=program.provider,
+                destination_host=target.destination_host,
+                program_policy=load_program_host_policy(),
             ),
         )
 

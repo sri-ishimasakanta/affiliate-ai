@@ -33,7 +33,8 @@ def _program(pid, provider="net", status="active", tracking=None, **extra):
     return {"id": pid, "name": f"P{pid}", "provider": provider, "category": None,
             "commission_type": extra.get("commission_type"),
             "commission_value": extra.get("commission_value"), "currency": extra.get("currency"),
-            "landing_page_url": None, "tracking_url": tracking, "status": status}  # fmt: skip
+            "landing_page_url": extra.get("landing"), "tracking_url": tracking, "status": status,
+            "tracking": tracking}  # fmt: skip
 
 
 def _article(aid, mode="affiliate", status="published"):
@@ -41,12 +42,17 @@ def _article(aid, mode="affiliate", status="published"):
 
 
 def _build(programs, *, article_programs=(), articles=(), targets=(), mappings=(), clicks=(),
-           commissions=(), capabilities=CAPS, verifications=(), max_age=None):  # fmt: skip
+           commissions=(), capabilities=CAPS, verifications=(), max_age=None, tracking=None,
+           probes=None):  # fmt: skip
+    if tracking is None:  # 既定: tracking URL のある案件は host が許されている
+        tracking = {p["id"]: {"host": "t.example", "authorized": True, "rule": "program"}
+                    for p in programs if p.get("tracking")}
     return inv.build(programs=list(programs), article_programs=list(article_programs),
                      articles=list(articles), targets=list(targets), mappings=list(mappings),
                      clicks=list(clicks), commissions=list(commissions),
                      capabilities=capabilities, verifications=list(verifications), now=NOW,
-                     verification_max_age_days=max_age)  # fmt: skip
+                     verification_max_age_days=max_age, tracking=tracking,
+                     known_probe_fingerprints=probes)  # fmt: skip
 
 
 def _target(tid, aid, pid, token, dest="https://vendor.example/a", status="active"):
@@ -226,7 +232,9 @@ def test_report_never_contains_urls_tokens_or_secrets() -> None:
                     mappings=[_mapping(100, 5, 10)],
                     clicks=[{"token": "TOKENVALUE123"}, {"token": "ORPHANTOKEN999"}])  # fmt: skip
     text = json.dumps(report, default=str)
-    for leaked in ("t.example", "dest.example", "XYZ123", "TOKENVALUE123", "ORPHANTOKEN999"):
+    # host は安全な情報として出てよい。URL・path・query・token は出ない
+    for leaked in ("https://", "secret-path", "aff=", "dest.example", "XYZ123", "TOKENVALUE123",
+                   "ORPHANTOKEN999"):
         assert leaked not in text
     assert report["operations"]["clicks_with_unknown_token"] == {"tokens": 1, "clicks": 1}
     assert _row(report, 1)["clicks_all_time"] == 1
@@ -322,7 +330,7 @@ def test_the_cli_is_read_only_and_verify_plans_by_default(engine, tmp_path, caps
     assert main(["program", "1"], session_factory=factory, now=NOW, verifications_path=path) == 0
     assert main(["program", "9"], session_factory=factory, now=NOW, verifications_path=path) == 2
     out = capsys.readouterr().out
-    assert "t.example" not in out and "read-only" in out
+    assert "https://" not in out and "hidden" not in out and "read-only" in out
     args = ["verify", "1", "--status", "approved", "--source", "provider dashboard", "--by",
             "human", "--observed-at", "2026-10-01T10:00:00+09:00"]
     assert main(args, session_factory=factory, now=NOW, verifications_path=path) == 0
@@ -330,3 +338,155 @@ def test_the_cli_is_read_only_and_verify_plans_by_default(engine, tmp_path, caps
     assert main(args + ["--execute"], session_factory=factory, now=NOW,
                 verifications_path=path) == 0  # fmt: skip
     assert len(path.read_text("utf-8").splitlines()) == 1
+
+
+# -- C11 intake (2026-10-02): 人の確認の項目・出どころ・合成 probe ----------------------------
+def _rec(rid, pid, fields, at="2026-10-01T00:00:00+00:00"):
+    return {"id": rid, "program_id": pid, "verified_at": at, "verified_by": "human",
+            "source": "dashboard", "fields": fields}
+
+
+def test_explicit_unknown_capability_stays_unknown_not_false() -> None:
+    report = _build([_program(1)], verifications=[_rec(1, 1, {
+        "subid_supported": "unknown", "click_reporting_supported": True,
+        "conversion_reporting_supported": False,
+        "content_source_attribution_supported": "unknown"})])
+    caps = _row(report, 1)["capabilities"]
+    assert caps["subid"] == {"value": "unknown", "source": "human_verification"}
+    assert caps["click_reporting"]["value"] is True
+    assert caps["conversion_reporting"]["value"] is False
+    assert caps["source_attribution"]["value"] == "unknown"
+    missing = _row(report, 1)["missing_fields"]
+    assert "subid_capability" in missing and "source_attribution" in missing
+    assert "click_reporting" not in missing and "conversion_reporting" not in missing
+    assert report["providers"]["net"]["observed_capabilities"]["subid"] == {"unknown": 1}
+    # 取り込み API が無い (false) ことは、画面に成果が出ないことを意味しない
+    assert _row(_build([_program(2)]), 2)["capabilities"]["conversion_reporting"]["value"] == (
+        "unknown")
+
+
+def test_later_partial_verification_does_not_erase_earlier_fields() -> None:
+    records = [_rec(1, 1, {"subid_supported": True, "link_id": "L-1"},
+                    "2026-10-01T00:00:00+00:00"),
+               _rec(2, 1, {"status_at_provider": "approved"}, "2026-10-01T05:00:00+00:00")]
+    row = _row(_build([_program(1)], verifications=records), 1)
+    assert row["verified"]["fields"] == {"subid_supported": True, "link_id": "L-1",
+                                         "status_at_provider": "approved"}
+    assert row["verified"]["provenance"]["subid_supported"]["record_id"] == 1
+    assert row["verified"]["provenance"]["status_at_provider"]["record_id"] == 2
+    assert row["last_verified"] == "2026-10-01T05:00:00+00:00"
+
+
+def test_catalog_and_verification_keep_separate_provenance() -> None:
+    program = _program(1, commission_type="percentage", commission_value=30.0, currency="USD",
+                       landing="https://www.vendor.example.test/")
+    report = _build([program], verifications=[_rec(1, 1, {
+        "commission_type_observed": "percentage", "commission_value_observed": 25.0,
+        "commission_currency_observed": "USD", "actual_provider": "Impact",
+        "landing_host_observed": "www.vendor.example.test", "status_at_provider": "paused"})])
+    row = _row(report, 1)
+    assert row["catalog"]["commission_value"] == 30.0  # catalog は上書きしない
+    assert row["catalog"]["provenance"] == "catalog (affiliate_programs)"
+    assert row["verified"]["fields"]["commission_value_observed"] == 25.0
+    diff = {d["field"]: (d["catalog"], d["verified"]) for d in row["differences"]}
+    assert diff == {"commission_value": (30.0, 25.0), "provider": ("net", "Impact"),
+                    "status": ("active", "paused")}
+    assert report["operations"]["catalog_differs_from_verification"][1] == row["differences"]
+    assert report["providers"]["net"]["actual_provider_observed"] == ["Impact"]
+
+
+def test_verified_capabilities_drive_full_and_manual_attribution() -> None:
+    kw = {"articles": [_article(5)], "targets": [_target(10, 5, 1, "tok")],
+          "mappings": [_mapping(100, 5, 10)]}
+    full = _build([_program(1, tracking="https://t.example/1")], **kw, verifications=[
+        _rec(1, 1, {"subid_supported": True, "content_source_attribution_supported": True})])
+    assert _row(full, 1)["attribution"] == "FULL"
+    manual = _build([_program(1, tracking="https://t.example/1")], **kw, verifications=[
+        _rec(1, 1, {"conversion_reporting_supported": True})])
+    assert _row(manual, 1)["attribution"] == "MANUAL"
+
+
+def test_tracking_url_with_unauthorized_host_is_a_gap() -> None:
+    report = _build([_program(1, tracking="https://t.example/1")],
+                    article_programs=[{"article_id": 5, "affiliate_program_id": 1,
+                                       "is_primary": True}], articles=[_article(5)],
+                    tracking={1: {"host": "t.example", "authorized": False, "rule": None}})
+    row = _row(report, 1)
+    assert row["tracking_host"] == "t.example" and row["tracking_host_authorized"] is False
+    assert row["next_action"].startswith("approve the tracking URL host")
+    assert report["operations"]["tracking_url_host_not_authorized"] == [1]
+    items = [(i["priority"], i["reason"]) for i in report["human_action_queue"]]
+    assert ("P1", "tracking URL host not authorized for this program") in items
+
+
+def test_known_synthetic_probe_clicks_are_separated_at_read_time() -> None:
+    import hashlib
+
+    probe = "PROBETOKEN0000000000AA"
+    fps = {hashlib.sha256(probe.encode()).hexdigest(): "docs/x.md"}
+    clicks = [{"token": probe}, {"token": "REALORPHAN000000000000"}, {"token": "tok"}]
+    report = _build([_program(1, tracking="https://t.example/1")], articles=[_article(5)],
+                    targets=[_target(10, 5, 1, "tok")], mappings=[_mapping(100, 5, 10)],
+                    clicks=clicks, probes=fps)  # fmt: skip
+    ops = report["operations"]
+    assert ops["synthetic_probe_clicks"] == {"tokens": 1, "clicks": 1, "evidence": ["docs/x.md"]}
+    assert ops["clicks_with_unknown_token"] == {"tokens": 1, "clicks": 1}
+    assert probe not in json.dumps(report)
+    assert clicks[0] == {"token": probe}  # 元のデータは変えない
+
+
+def test_the_shipped_probe_fingerprint_is_the_documented_one() -> None:
+    from pathlib import Path
+
+    doc = Path("docs/operations/synthetic-runtime-click-e2e.md").read_text("utf-8")
+    for fingerprint, evidence in inv.KNOWN_SYNTHETIC_PROBE_FINGERPRINTS.items():
+        assert evidence == "docs/operations/synthetic-runtime-click-e2e.md"
+        assert fingerprint in doc
+
+
+@pytest.mark.parametrize("fields", [
+    {"link_id": "https://x.example/l"}, {"actual_provider": "https://impact.example"},
+    {"click_reporting_supported": "yes"}, {"conversion_reporting_supported": 1},
+    {"pause_end_notice": "maybe"}, {"notice_effective_date": "2026-13-01"},
+    {"commission_currency_observed": "usd"}, {"commission_value_observed": -1},
+    {"commission_type_observed": "cpa"}, {"landing_host_observed": "https://vendor.example/"},
+    {"pause_end_notice": "none_seen", "notice_effective_date": "2026-11-01"},
+])  # fmt: skip
+def test_new_verify_fields_refuse_urls_and_guesses(session, tmp_path, fields) -> None:
+    service = _service(session, tmp_path)
+    with pytest.raises(InventoryError):
+        service.verify(program_id=1, source="provider dashboard", verified_by="human",
+                       observed_at="2026-10-01T10:00:00+09:00", fields=fields, execute=True,
+                       now=NOW)  # fmt: skip
+    assert not (tmp_path / "v.jsonl").exists()
+
+
+def test_new_verify_fields_are_recorded_as_given(session, tmp_path) -> None:
+    service = _service(session, tmp_path)
+    fields = {"link_id": "L-123", "actual_provider": "Impact", "click_reporting_supported": True,
+              "conversion_reporting_supported": "unknown",
+              "content_source_attribution_supported": False,
+              "pause_end_notice": "end_announced", "notice_effective_date": "2026-12-31",
+              "commission_type_observed": "percentage", "commission_value_observed": 30,
+              "commission_currency_observed": "USD", "landing_host_observed": "WWW.Vendor.example"}
+    out = service.verify(program_id=1, source="provider dashboard", verified_by="human",
+                         observed_at="2026-10-01T10:00:00+09:00", fields=fields, execute=True,
+                         now=NOW)  # fmt: skip
+    rec = out["record"]["fields"]
+    assert rec["conversion_reporting_supported"] == "unknown"
+    assert rec["content_source_attribution_supported"] is False
+    assert rec["landing_host_observed"] == "www.vendor.example"
+    assert rec["commission_value_observed"] == 30.0
+    # catalog (DB) は変わらない
+    assert session.get(AffiliateProgram, 1).commission_value is None
+
+
+def test_the_cli_takes_tristate_options() -> None:
+    from scripts.affiliate_inventory import _parser
+
+    args = _parser().parse_args(["verify", "1", "--subid-supported", "unknown",
+                                 "--click-reporting", "true", "--source-attribution", "false",
+                                 "--source", "s", "--by", "h", "--observed-at", "x"])
+    assert (args.subid_supported, args.click_reporting, args.source_attribution) == (
+        "unknown", True, False)
+    assert args.conversion_reporting is None  # 書かなければ記録しない

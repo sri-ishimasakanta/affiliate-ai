@@ -1,0 +1,2 @@
+{"schema": "affiliate-program-host-approvals/1", "note": "C11 program-level tracking URL host approvals. Append-only; written only by scripts/affiliate_tracking_intake.py approve-host / revoke-host --execute after a human checked the host at the provider. Hosts and identifiers only (no URL, token or secret). A catalog landing page host is not an approval.", "records": [
+]}

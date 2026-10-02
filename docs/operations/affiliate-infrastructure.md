@@ -111,6 +111,140 @@ uv run python scripts/affiliate_inventory.py verify <id> --status approved --sou
 Output never contains a tracking URL, a destination URL, a token value or a secret (presence and
 counts only).
 
+## ASP intake (2026-10-02): tracking URL, program host authorization, structured verification
+
+Local only. Nothing here logs in to an ASP, calls a provider API, creates a link target, maps a
+link into an article, pushes the WordPress projection or edits an article. No migration.
+
+- code: `app/services/affiliate_tracking_intake_service.py`, `scripts/affiliate_tracking_intake.py`,
+  `app/affiliate/program_host_approvals.py`, `app/affiliate/destination_policy.py`
+  (`is_destination_approved`)
+- program host approvals: `app/config/affiliate_program_host_approvals.json` (version-controlled,
+  append-only; empty until a human approves a host)
+- tests: `tests/unit/test_affiliate_tracking_intake.py`, `tests/unit/test_affiliate_inventory.py`
+
+### Tracking URL intake (`onboard`)
+
+The generic version of the Make-only `onboard_make_affiliate.py`:
+
+- PLAN by default; `--execute` writes **only** `affiliate_programs.tracking_url` (through the
+  existing `AffiliateProgramService.update_program`). No link target, mapping, projection or
+  WordPress change.
+- the URL is never a CLI argument: hidden prompt (`getpass`, not echoed) or `--url-stdin` (first
+  line of stdin, e.g. `Get-Clipboard | … --url-stdin`), so it stays out of the shell history.
+- identity first: `--program-id` plus `--expect-name` / `--expect-provider` must match the catalog
+  before the URL is asked for.
+- validation (existing `validate_destination_url` plus intake rules): https only, no userinfo,
+  port absent or 443, no backslash, no fragment, not this site; the URL is stored exactly as given.
+- refused: the same URL already on another program or on another program's link target; a
+  different URL when the program already has one (replacement is a separate operation, not
+  provided); a program whose catalog status is not active.
+- output: program identity, scheme, host, query parameter **names**, length, the first 16 hex of
+  the URL's SHA-256, whether the host is authorized for the program, and the catalog landing host
+  for comparison (a landing host is never an authorization). Unexpected exceptions are printed
+  without their message (a database error may carry the URL as a bound parameter).
+
+### Program-level host authorization (`approve-host` / `revoke-host`)
+
+- `is_destination_approved` = the existing provider rule (Make → `www.make.com`, unchanged) **or** a
+  program rule recorded by a human. Default deny.
+- provider-level rules are never used for aggregate labels (`direct`, `multi_network`,
+  `unrecorded`); the module refuses to load if one is added. A host approved for program A does
+  not authorize program B, even when both are `direct`.
+- a program rule is bound to `(program_id, program_name, provider, host)`: renaming the program or
+  changing its provider voids it. Exact normalized host match only (no wildcard, suffix or partial
+  match). Redirects are not followed and not trusted: the approval covers the tracking URL's own
+  host.
+- approval needs the tracking URL to be registered first, and the approved host must be that
+  URL's host. The catalog landing host cannot be approved unless it *is* the tracking host. IP
+  addresses, single-label names, this site and the synthetic probe host cannot be approved.
+- PLAN by default; `--execute` appends a record (who, when observed, source text without URL) to
+  the approvals file; review the git diff and commit it. Revocation is another appended record.
+- enforced where hosts were already checked: `AffiliateLinkTargetService.create_target` and the
+  publication artifact inspection (`host_policy_eligible`).
+
+### Structured verification (`verify`, extended)
+
+The same append-only `data/affiliate/program_verifications.jsonl` (schema
+`affiliate-program-verification/1`; new optional fields). Later records add or update individual
+fields; a later status-only check does not erase an earlier SubID answer (field-level merge with
+per-field provenance). Leaving an option out records nothing (missing). Capabilities take
+`true` / `false` / `unknown`; `unknown` means "looked, could not tell" and is never read as false.
+
+### Catalog vs verification provenance
+
+The inventory shows each program's `catalog` block (the DB values, provenance
+`catalog (affiliate_programs)`) next to its `verified` block (fields with record id, time, person
+and source). Differences (commission, currency, provider vs actual provider, landing host,
+active vs paused / ended / rejected) are listed under `differences` and
+`operations.catalog_differs_from_verification`. A verification never updates the catalog; a
+catalog change is a separate, explicit operation.
+
+### Capabilities (read-only materialization)
+
+There is no existing path that writes a human observation into the provider capability config,
+and none is added. Per program, the inventory uses: human verification > provider config (repository
+evidence only) > unknown, and shows the source of each value. Per provider it counts the observed
+values (`observed_capabilities`). Attribution uses these per-program values: FULL needs SubID
+`true` and source attribution `true` with a tracked link; MANUAL needs a tracked link and
+conversions visible in the dashboard without an import API.
+
+### Synthetic probe click
+
+The one click whose token is not a link target is the documented synthetic `/go` E2E probe
+(`docs/operations/synthetic-runtime-click-e2e.md`: token SHA-256 fingerprint, `source_click_id` 1,
+import run 2). The inventory now classifies it at read time by that fingerprint as
+`operations.synthetic_probe_clicks` and leaves `clicks_with_unknown_token` for real unknowns.
+The click row is not changed.
+
+### Human ASP capture workflow (per program)
+
+1. `affiliate_inventory.py verify <id> …` (PLAN) → check → same command with `--execute`
+2. `affiliate_tracking_intake.py onboard --program-id <id> --expect-name … --expect-provider …`
+   (PLAN, hidden URL) → check host / fingerprint → same with `--execute` (URL asked again)
+3. `affiliate_tracking_intake.py approve-host … --host <host shown in step 2>` (PLAN) → check →
+   same with `--execute` → review and commit `app/config/affiliate_program_host_approvals.json`
+4. `affiliate_tracking_intake.py status --program-id <id>` and
+   `affiliate_inventory.py program <id>` (read-only)
+
+Creating link targets, mapping them into articles and pushing the projection stay separate,
+later, human-approved steps (existing flows).
+
+### What each observed value goes into
+
+| Seen in the ASP dashboard | CLI | Field / option | Values |
+|---|---|---|---|
+| approval / status | `verify` | `--status` → `status_at_provider` | applied / approved / active / paused / rejected / ended / unknown |
+| tracking URL obtained | `verify` | `--tracking-url-obtained` | true / false |
+| tracking URL itself | `onboard` | hidden prompt / `--url-stdin` → `affiliate_programs.tracking_url` | the URL (never on the command line) |
+| tracking URL host | `approve-host` | `--host` → approvals file | host shown by `onboard` |
+| provider program / advertiser id | `verify` | `--provider-program-id` | short id |
+| link id | `verify` | `--link-id` | short id |
+| SubID / custom parameter | `verify` | `--subid-supported` | true / false / unknown |
+| click reporting | `verify` | `--click-reporting` | true / false / unknown |
+| conversion reporting | `verify` | `--conversion-reporting` | true / false / unknown |
+| source / content attribution in conversions | `verify` | `--source-attribution` | true / false / unknown |
+| commission type | `verify` | `--commission-type` | percentage / fixed / tiered / hybrid / other |
+| commission value | `verify` | `--commission-value` | number |
+| currency | `verify` | `--commission-currency` | 3-letter code (USD, JPY) |
+| commission terms confirmed | `verify` | `--commission-terms-confirmed` | true / false |
+| cookie window | `verify` | `--cookie-window-days` | whole days |
+| landing page | `verify` | `--landing-host` | host only (no URL) |
+| pause / end notice | `verify` | `--pause-end-notice` (+ `--notice-effective-date`) | none_seen / pause_announced / end_announced / unknown (+ YYYY-MM-DD) |
+| actual provider / platform | `verify` | `--actual-provider` | short name |
+| observed_at | all write commands | `--observed-at` | ISO time with timezone, not in the future |
+| evidence source | all write commands | `--source` | short text, no URL / secret / personal data |
+
+Anything not visible in the dashboard is left out (stays missing) or given as `unknown` for a
+capability. Never guess.
+
+### Manual revenue import (dependency kept)
+
+Still needs a migration (`manual_metric_entries.subject_kind` CHECK). After the P1 capture, the
+choice is made from the recorded fields: conversions returned with a source reference through an
+API → provider API importer (like Make); dashboard export only → CSV import; dashboard numbers only
+→ extend the manual metric ledger (migration, human decision).
+
 ## Baseline (2026-10-01, production DB, read-only)
 
 19 programs across 6 provider labels (direct 6, PartnerStack 5, Impact 4, FirstPromoter 2, make 1,
@@ -119,5 +253,6 @@ multi_network 1); catalog status active 16 / unknown 2 / paused 1; status verifi
 articles 25: linked 3, program without link 9, supporting without program 13, affiliate without a
 monetization path 0; `monetization_mode` missing on 1 (article 1, which is linked
 through Make while 6 more assigned programs have no link).
-Clicks 50 (49 on Make targets, 1 on a token that is not a link target); commission facts 0.
+Clicks 50 (49 on Make targets, 1 on a token that is not a link target — since 2026-10-02 classified as the
+documented synthetic probe); commission facts 0.
 Human action queue 60 items: P1 8, P2 10, P3 1, P4 41.

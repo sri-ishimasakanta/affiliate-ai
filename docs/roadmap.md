@@ -349,6 +349,7 @@ Full detail: [affiliate-infrastructure.md](operations/affiliate-infrastructure.m
 | Part | Status | Production |
 |---|---|---|
 | first half: ASP / program / link inventory, coverage, ASP operations detections, attribution readiness (FULL / PARTIAL / MANUAL / UNKNOWN / NONE), human action queue (P1–P4 by what it blocks), human verification record | **COMPLETED** (2026-10-01) | read-only CLI `scripts/affiliate_inventory.py`; `verify` PLAN by default, local file only; no migration; 0 external calls |
+| ASP intake: generic tracking URL onboarding (hidden input, PLAN default, DB only), program-level host authorization (default deny; `direct` isolated per program), structured verification (link id, actual provider, tri-state click / conversion / source attribution, observed commission, landing host, pause / end notice), synthetic probe click classified at read time | **COMPLETED** (2026-10-02) | no migration; 0 external calls; approvals file empty (no host approved) |
 | provider-side work (status, approval, tracking URLs, SubID / cookie window) | **PENDING HUMAN** | the queue lists it; nothing is done at any ASP by the system |
 | manual ASP revenue import | **STOP — needs a migration** (`manual_metric_entries.subject_kind` CHECK) | human decision; nothing entered |
 | SubID | not applicable yet (no provider verified) | no parameter added to any link |
