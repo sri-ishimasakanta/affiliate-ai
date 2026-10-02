@@ -21,7 +21,11 @@ import time
 from dataclasses import dataclass, field
 
 from app.social.threads.client import ThreadsClient
-from app.social.threads.errors import ThreadsError, ThreadsNotConfiguredError
+from app.social.threads.errors import (
+    ThreadsError,
+    ThreadsNotConfiguredError,
+    ThreadsResponseError,
+)
 from app.social.threads.models import (
     DEFAULT_API_VERSION,
     MEDIA_METRICS,
@@ -283,6 +287,19 @@ class ThreadsService:
         """公開済み投稿の事実 (permalink / timestamp) を読む。"""
 
         return self._client.fetch_media(media_id)
+
+    def list_account_posts(self, *, limit: int = 100) -> list[dict]:
+        """自分のアカウントの投稿の一覧 (新しい順、最大 ``limit`` 件、1 ページ)。**読むだけ。**
+
+        失敗は ``ThreadsError`` のまま上げる (呼び出し側が安全側に倒す)。
+        """
+
+        limit = max(1, min(int(limit), 100))
+        payload = self._client.fetch_account_threads(limit=limit)
+        data = payload.get("data")
+        if not isinstance(data, list):
+            raise ThreadsResponseError("the account threads response carried no data list")
+        return [item for item in data if isinstance(item, dict)][:limit]
 
 
 def _insights(subject: str, payload: dict, wanted) -> ThreadsInsights:

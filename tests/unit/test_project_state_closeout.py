@@ -92,7 +92,21 @@ def test_no_production_code_reads_the_note() -> None:
 
 #: T7B の後に意図して足した動作の変更 (これ以外は T7B と同じでなければならない)。
 #: C9: Growth opportunity の評価を有効にする (``worker.subsystems`` の中。値はコードの既定)。
-INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B = {"growth_opportunity_evaluation": {"enabled": True}}
+INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B = {
+    "growth_opportunity_evaluation": {"enabled": True},
+    # 2026-10-02 manual-post coexistence (人の決定: 15 分ごと)。note は比べない。
+    "account_post_discovery": {"interval_minutes": 15},
+}
+#: 2026-10-02 manual-post coexistence: トップレベルの ``account_posts`` に決まった値だけ
+#: (manual 投稿の後の待ち 60 分・一覧 100 件・公開の直前の読み直しは必須)。note は比べない。
+INTENDED_TOP_LEVEL_SINCE_T7B = {
+    "account_posts": {"cooldown_minutes": 60, "listing_limit": 100,
+                      "pre_publication_refresh": True},
+}
+
+
+def _without_note(value):
+    return {k: v for k, v in value.items() if k != "note"} if isinstance(value, dict) else value
 
 
 def test_the_committed_policy_is_t7b_plus_only_the_note_and_the_c9_enablement() -> None:
@@ -100,8 +114,11 @@ def test_the_committed_policy_is_t7b_plus_only_the_note_and_the_c9_enablement() 
     note = data["automatic_publication"].pop("note")
     subsystems = data["worker"]["subsystems"]
     # 意図した変更は、決まった場所 (worker.subsystems) に、決まった値だけ。
-    added = {name: subsystems.pop(name) for name in INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B}
+    added = {name: _without_note(subsystems.pop(name))
+             for name in INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B}
     assert added == INTENDED_WORKER_SUBSYSTEMS_SINCE_T7B
+    top = {name: _without_note(data.pop(name)) for name in INTENDED_TOP_LEVEL_SINCE_T7B}
+    assert top == INTENDED_TOP_LEVEL_SINCE_T7B
     # それを除けば T7B の時点の policy (note を除いて正規化) と同じ: 公開・承認・在庫・Growth の
     # ほかの設定は何も変わっていない。
     canonical = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()

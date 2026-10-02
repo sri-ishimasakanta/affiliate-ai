@@ -11,6 +11,11 @@
 7. 読むだけの事前確認 (``GET /me``) が通る — API が止められていれば、コンテナを
    作る前に止まる (2026-09-25 の "API access blocked." のような状態)
 
+manual-post coexistence (2026-10-02): 外への書き込みに進む **直前に**、自アカウントの投稿の一覧を
+必ず読み直す (``account_posts.pre_publication_refresh``)。読み直した状態で queue と T3 の判定を
+やり直し、人が直前に出した投稿があれば待つ (間隔・重複)。一覧を読めなければ公開しない
+(提案は承認済みのまま、次の評価へ回す)。
+
 公開は T3 の ``publish(trigger="automatic")`` を通る。自動の公開は **間隔を上書き
 できない** (T3 がそれを拒否する)。応答を取りこぼせば T3 が ``uncertain`` にし、
 照合が済むまで queue 全体が止まる。
@@ -68,6 +73,8 @@ class AutoPublishOutcome:
     notes: list[str] = field(default_factory=list)
     #: T6.3.3a: どの枠か (``article`` / ``account_growth``) と、Growth の枠の事実。
     lane: str = "article"
+    #: 公開の直前に読み直した自アカウントの投稿の一覧の要約 (manual-post coexistence)。
+    account_post_refresh: dict | None = None
     growth_trigger: str | None = None
     growth_date_jst: str | None = None
     paired_article_publication_id: int | None = None
@@ -93,6 +100,7 @@ class AutoPublishOutcome:
             "next_blockers": list(self.next_blockers) if self.next_blockers is not None else None,
             "notes": list(self.notes),
             "lane": self.lane,
+            "account_post_refresh": self.account_post_refresh,
             "growth_trigger": self.growth_trigger,
             "growth_date_jst": self.growth_date_jst,
             "paired_article_publication_id": self.paired_article_publication_id,
@@ -230,6 +238,24 @@ class ThreadsAutoPublisher:
             outcome.outcome = "blocked"
             outcome.blocked_reasons.extend(plan.blocked_reasons)
             return outcome
+        if not self._refresh_account_posts(now, outcome):
+            return outcome
+        # 読み直した状態で評価し直す (直前の manual 投稿・重なりで止まることがある)。
+        evaluation = self._queue.evaluate_growth(now=now, publication_enabled=True)
+        outcome.next_evaluation_at = evaluation.next_evaluation_at
+        if (not evaluation.would_publish_now or evaluation.candidate is None
+                or evaluation.candidate.proposal_id != candidate.proposal_id):
+            outcome.outcome = "blocked"
+            outcome.blocked_reasons.extend(evaluation.blockers or (
+                "the candidate changed after the pre-publication refresh",))
+            return outcome
+        plan = self._publications.plan(
+            proposal_id=candidate.proposal_id, now=now, trigger=PUB_TRIGGER_AUTOMATIC
+        )
+        if not plan.ok:
+            outcome.outcome = "blocked"
+            outcome.blocked_reasons.extend(plan.blocked_reasons)
+            return outcome
         audit = {
             "lane": "account_growth",
             "growth_trigger": outcome.growth_trigger,
@@ -242,6 +268,40 @@ class ThreadsAutoPublisher:
         outcome.next_blockers = list(after.blockers)
         outcome.next_evaluation_at = after.next_evaluation_at
         return outcome
+
+    # -- manual-post coexistence: 公開の直前の読み直し -------------------------------------
+    def _refresh_account_posts(self, now: datetime, outcome: AutoPublishOutcome) -> bool:
+        """自アカウントの投稿の一覧を読み直す。読めなければ公開しない (False)。"""
+
+        if not self._policy.account_post_pre_publication_refresh:
+            return True
+        from app.services.threads_account_post_service import (
+            AccountPostDiscoveryError,
+            ThreadsAccountPostService,
+        )
+
+        service = ThreadsAccountPostService(
+            self._session, threads_service=self._threads,
+            listing_limit=self._policy.account_post_listing_limit)  # fmt: skip
+        outcome.network_calls += 1  # 一覧の読み (読むだけ)
+        try:
+            summary = service.refresh(now=now, source="pre_publication")
+        except AccountPostDiscoveryError as exc:
+            self._session.rollback()
+            outcome.outcome = "account_post_refresh_failed"
+            outcome.account_post_refresh = {"ok": False, "category": exc.category,
+                                            "reason": exc.reason}
+            outcome.blocked_reasons.append(
+                f"pre-publication account post refresh failed ({exc.category}); the "
+                "publication is deferred to the next evaluation (fail closed)")
+            outcome.next_evaluation_at = now + timedelta(
+                minutes=self._policy.idle_publication_reevaluation_minutes)
+            return False
+        outcome.account_post_refresh = {
+            "ok": True, "listed": summary["listed"],
+            "discovered": summary["discovered"], "origin_changed": summary["origin_changed"],
+            "superseded_proposals": summary["superseded_proposals"]}  # fmt: skip
+        return True
 
     def _execute(self, proposal_id: int, now: datetime, outcome: AutoPublishOutcome, *,
                  audit=None) -> None:  # fmt: skip
@@ -301,6 +361,25 @@ class ThreadsAutoPublisher:
         candidate = evaluation.next_candidate
         outcome.proposal_id = candidate.proposal_id
 
+        plan = self._publications.plan(
+            proposal_id=candidate.proposal_id, now=now, trigger=PUB_TRIGGER_AUTOMATIC
+        )
+        if not plan.ok:
+            outcome.outcome = "blocked"
+            outcome.blocked_reasons.extend(plan.blocked_reasons)
+            return outcome
+
+        if not self._refresh_account_posts(now, outcome):
+            return outcome
+        # 読み直した状態で評価し直す (直前の manual 投稿・重なりで止まることがある)。
+        evaluation = self._queue.evaluate(now=now, publication_enabled=True)
+        outcome.next_evaluation_at = evaluation.next_evaluation_at
+        if (not evaluation.would_publish_now or evaluation.next_candidate is None
+                or evaluation.next_candidate.proposal_id != candidate.proposal_id):
+            outcome.outcome = "blocked"
+            outcome.blocked_reasons.extend(evaluation.blockers or (
+                "the candidate changed after the pre-publication refresh",))
+            return outcome
         plan = self._publications.plan(
             proposal_id=candidate.proposal_id, now=now, trigger=PUB_TRIGGER_AUTOMATIC
         )

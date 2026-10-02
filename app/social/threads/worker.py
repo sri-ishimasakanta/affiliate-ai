@@ -53,11 +53,14 @@ SUBSYSTEM_PERFORMANCE_FEEDBACK = "performance_feedback_evaluation"
 #: 既定は無効。軽い点検 (取り込みの時刻と新しい行の印) を 1 時間ごと、重い評価は 24 時間ごとか、
 #: 印が変わったとき (最短間隔より早めない)。
 SUBSYSTEM_GROWTH_OPPORTUNITY = "growth_opportunity_evaluation"
+#: 自アカウントの投稿の一覧を読み、system / manual / unknown を照合する (読むだけ、15 分ごと)。
+SUBSYSTEM_ACCOUNT_POST_DISCOVERY = "account_post_discovery"
 #: 同じ時刻に期限が来たときの実行順。決定を取り込み、queue を観測してから公開を評価する。
 SUBSYSTEM_ORDER = (
     SUBSYSTEM_HEALTH,
     SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_QUEUE_OBSERVATION,
+    SUBSYSTEM_ACCOUNT_POST_DISCOVERY,
     SUBSYSTEM_PUBLICATION_EVALUATION,
     SUBSYSTEM_INSIGHTS_REFRESH,
     SUBSYSTEM_PERFORMANCE_FEEDBACK,
@@ -398,6 +401,7 @@ __all__ = [
     "SUBSYSTEM_APPROVAL_SYNC",
     "SUBSYSTEM_HEALTH",
     "SUBSYSTEM_INSIGHTS_REFRESH",
+    "SUBSYSTEM_ACCOUNT_POST_DISCOVERY",
     "SUBSYSTEM_ORDER",
     "SUBSYSTEM_PERFORMANCE_FEEDBACK",
     "SUBSYSTEM_GROWTH_OPPORTUNITY",

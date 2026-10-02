@@ -561,6 +561,15 @@ class _ReadOnlyThreads:
             access_token_configured=True,
         )
 
+    #: manual-post coexistence: 自アカウントの投稿の一覧 (読むだけ)。既定は空。呼んだ回数は
+    #: ``account_listings`` に数える (書き込みの ``calls`` には入れない)。
+    def list_account_posts(self, *, limit=100):
+        self.account_listings = getattr(self, "account_listings", 0) + 1
+        error = getattr(self, "account_listing_error", None)
+        if error is not None:
+            raise error
+        return [dict(item) for item in getattr(self, "account_posts", [])][:limit]
+
     def media_insights(self, media_id, metrics=None):
         from app.social.threads.models import ThreadsInsights
 
@@ -1120,7 +1129,8 @@ def test_the_three_phases_are_labelled_separately(
     # (b) 実行結果: 1 本、書き込み 2 件 (作成・公開)、通信 4 件 (事前確認・作成・公開・読み戻し)。
     assert "posts published     = 1" in result
     assert "threads write calls = 2" in result
-    assert "network calls       = 4" in result
+    # manual-post coexistence: + 15 分ごとの一覧の読み + 公開の直前の読み直し (書き込みは 2)
+    assert "network calls       = 6" in result
     assert "auto-publish        = published" in result
     # (c) 実行後: 次のサイクルの話であり、ロックは解放済みだと明記する。
     assert after.startswith("next-cycle preview after this run")
@@ -1165,7 +1175,8 @@ def test_a_lost_publish_counts_both_write_calls_and_says_so(
     result = out.split("--- (b) ")[1].split("--- (c)")[0]
     assert "posts published     = 0" in result
     assert "threads write calls = 2" in result  # 作成 + (応答を取りこぼした) 公開
-    assert "network calls       = 3" in result  # 事前確認 + 作成 + 公開 (読み戻しは無い)
+    # 事前確認 + 作成 + 公開 (読み戻しは無し) + 一覧の読み (15 分ごと + 公開の直前)
+    assert "network calls       = 5" in result
     assert "auto-publish        = uncertain" in result
     assert "投稿はしていない" not in out
     assert "公開は確定していない" in out

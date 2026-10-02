@@ -211,6 +211,13 @@ from app.models.search_console_query_daily import SearchConsoleQueryDaily
 from app.models.seo_improvement_candidate import SeoImprovementCandidate
 from app.models.seo_improvement_run import SeoImprovementRun
 from app.models.source import Source
+from app.models.threads_account_post import (
+    ORIGIN_MANUAL,
+    ORIGIN_SYSTEM,
+    ORIGIN_UNKNOWN,
+    ThreadsAccountPost,
+    ThreadsAccountPostEvent,
+)
 from app.models.threads_approval import (
     DIGEST_FAILED,
     DIGEST_OUTCOMES,
@@ -299,6 +306,11 @@ from app.models.wordpress_publication_run import (
 )
 
 __all__ = [
+    "ORIGIN_MANUAL",
+    "ORIGIN_SYSTEM",
+    "ORIGIN_UNKNOWN",
+    "ThreadsAccountPost",
+    "ThreadsAccountPostEvent",
     "SNAPSHOT_EMPTY",
     "SNAPSHOT_FAILED",
     "SNAPSHOT_OBSERVED",

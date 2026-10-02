@@ -42,6 +42,7 @@ Performance Snapshot planned).
 | **N6** System Productization | **COMPLETED** (DoD met 2026-09-30) | second local site profile dry-runs without code changes; production untouched |
 | N8 SaaS / Service | **DEFERRED** (2026-10-01, with N7) | nothing buildable |
 | **C11** Affiliate Infrastructure & Revenue Attribution | **ACTIVE** (first half built 2026-10-01) | read-only inventory / coverage / attribution readiness / human action queue; no migration, no external call ([affiliate-infrastructure.md](operations/affiliate-infrastructure.md)) |
+| Threads manual-post coexistence (T6.6 prerequisite) | **COMPLETED** in code (2026-10-02, branch `feat/threads-manual-post-coexistence`) | migration `3d5382e2a6bd` **rehearsed on a production copy, NOT APPLIED** (human approval); worker **not restarted** ([threads-manual-posts.md](operations/threads-manual-posts.md)) |
 | T6.6 Threads Performance Snapshot | PLANNED (after C11) | formal plan kept, not implemented |
 
 **Development order (human decision, 2026-10-01; replaces the 2026-09-30 order):** N3 measurement
@@ -422,6 +423,14 @@ build work.
   patterns (descriptive; no automatic feedback to generation)
 - builds on T4 measurement and T6.5A features; the observation budget and the read path are
   decided when it starts
+- **prerequisite (2026-10-02): manual-post coexistence** — origin-aware snapshots. Every post of
+  our account (system / manual / unknown) is one row of `threads_account_posts` (identity = the
+  Threads post id); snapshots belong to that row, so manual vs system and growth vs normal stay
+  comparable. Manual posting is supported: manual posts are in analysis, not in system quotas,
+  and they affect cooldown and duplicate / topic / wording checks; discovery runs every 15
+  minutes and is mandatory right before publication (a failed read defers the publication).
+  Manual post kind starts `unknown` (human classification available). Details:
+  [threads-manual-posts.md](operations/threads-manual-posts.md)
 
 ## Intentionally excluded
 

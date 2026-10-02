@@ -94,6 +94,16 @@ class ThreadsClient:
 
         return self._get(f"/{media_id}", {"fields": ",".join(fields)})
 
+    def fetch_account_threads(self, *, fields=MEDIA_FIELDS, limit: int = 25) -> dict[str, Any]:
+        """自分のアカウントの投稿の一覧を読む (manual-post coexistence、副作用なし)。
+
+        項目は 1 件の読み (``fetch_media``) と同じものだけを問う (存在しない項目を推測しない)。
+        1 回で読むのは 1 ページだけ (``limit`` 件まで)。
+        """
+
+        return self._get(f"/{self._user_id()}/threads",
+                         {"fields": ",".join(fields), "limit": int(limit)})
+
     def fetch_container_status(self, creation_id: str) -> dict[str, Any]:
         """コンテナの状態を読む (公開が成立したかの照合に使う)。
 

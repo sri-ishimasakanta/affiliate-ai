@@ -334,6 +334,29 @@ class ThreadsOperationsPolicy:
     def digest_preview_characters(self) -> int:
         return int(self.digest.get("preview_characters", 80))
 
+    # -- manual-post coexistence (2026-10-02) ---------------------------------------
+    @property
+    def account_posts(self) -> dict[str, Any]:
+        return self.section("account_posts")
+
+    @property
+    def account_post_cooldown_minutes(self) -> int:
+        """manual / unknown の自アカウントの投稿の後、自動公開を待つ分 (枠は使わない)。"""
+
+        return int(self.account_posts.get("cooldown_minutes", 60))
+
+    @property
+    def account_post_listing_limit(self) -> int:
+        """1 回の一覧の読みで見る件数 (最大 100)。"""
+
+        return max(1, min(int(self.account_posts.get("listing_limit", 100)), 100))
+
+    @property
+    def account_post_pre_publication_refresh(self) -> bool:
+        """自動公開の直前に一覧を必ず読み直すか (人の決定: 必須。読めなければ公開しない)。"""
+
+        return bool(self.account_posts.get("pre_publication_refresh", True))
+
     # -- T4.3: automatic publication --------------------------------------------
     @property
     def automatic_publication_enabled(self) -> bool:

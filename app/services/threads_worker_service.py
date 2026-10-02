@@ -53,6 +53,7 @@ from app.social.threads.schedule import daily_activity, publication_timing, wind
 from app.social.threads.worker import (
     MODE_PLAN,
     SUBSYSTEM_ACCOUNT_GROWTH_MAINTENANCE,
+    SUBSYSTEM_ACCOUNT_POST_DISCOVERY,
     SUBSYSTEM_APPROVAL_NOTIFICATION_FLUSH,
     SUBSYSTEM_APPROVAL_SYNC,
     SUBSYSTEM_GROWTH_OPPORTUNITY,
@@ -366,6 +367,15 @@ class ThreadsWorkerService:
             SUBSYSTEM_INSIGHTS_REFRESH,
         ):
             schedule.register(name, first_run_at=now)
+        # manual-post coexistence: 自アカウントの投稿の一覧 (読むだけ、15 分ごと)。Threads を
+        # 読んでよい worker (--collect-insights か --auto-publish) だけ。
+        reads = self._collect_insights or self._auto_publish
+        schedule.register(
+            SUBSYSTEM_ACCOUNT_POST_DISCOVERY,
+            first_run_at=now if reads else None,
+            enabled=reads,
+            disabled_reason=None if reads else "start with --collect-insights or --auto-publish",
+        )
         schedule.register(
             SUBSYSTEM_APPROVAL_SYNC,
             first_run_at=now if self._sync_approvals else None,
@@ -418,6 +428,7 @@ class ThreadsWorkerService:
         return {
             SUBSYSTEM_HEALTH: self._health,
             SUBSYSTEM_QUEUE_OBSERVATION: self._queue_observation,
+            SUBSYSTEM_ACCOUNT_POST_DISCOVERY: self._account_post_discovery,
             SUBSYSTEM_PUBLICATION_EVALUATION: self._publication_evaluation,
             SUBSYSTEM_INSIGHTS_REFRESH: self._insights_refresh,
             SUBSYSTEM_PERFORMANCE_FEEDBACK: self._performance_feedback_evaluation,
@@ -666,6 +677,56 @@ class ThreadsWorkerService:
             ),
         )
 
+    def _account_post_service(self, session):
+        from app.services.threads_account_post_service import ThreadsAccountPostService
+
+        threads = self._threads
+        if threads is None:
+            from app.social.threads.service import ThreadsService
+
+            threads = ThreadsService(self._settings)
+        return ThreadsAccountPostService(
+            session, threads_service=threads, listing_limit=self._policy.account_post_listing_limit,
+            measurement_policy=self._measurement)  # fmt: skip
+
+    def _account_post_discovery(self, now: datetime) -> SubsystemResult:
+        """自アカウントの投稿の一覧を読み、system / manual / unknown を照合する (読むだけ)。
+
+        manual 投稿は公開の本数・承認・Growth の枠に入らない。間隔・重複の判定に入る。読めなく
+        ても worker は止めない (次の回に読み直す。公開の直前の読み直しは別に必ず行う)。
+        """
+
+        from app.services.threads_account_post_service import (
+            AccountPostDiscoveryError,
+            account_posts_ready,
+        )
+
+        interval = self._interval(SUBSYSTEM_ACCOUNT_POST_DISCOVERY, 15)
+        with self._factory() as session:
+            if not account_posts_ready(session):
+                session.rollback()
+                return SubsystemResult(next_run_at=now + interval, summary={
+                    "discovered": False, "reason": "account post tables missing (migration "
+                    "3d5382e2a6bd not applied)", "network_calls": 0})  # fmt: skip
+            self._counters["network_calls"] += 1
+            try:
+                summary = self._account_post_service(session).refresh(now=now, source="periodic")
+            except AccountPostDiscoveryError as exc:
+                session.rollback()
+                return SubsystemResult(next_run_at=now + interval, summary={
+                    "discovered": False, "category": exc.category, "reason": exc.reason,
+                    "network_calls": 1, "threads_writes": 0})  # fmt: skip
+        changed = bool(summary["discovered"] or summary["origin_changed"]
+                       or summary["superseded_proposals"] or summary["text_changed"])
+        return SubsystemResult(
+            next_run_at=now + interval,
+            summary={**summary, "discovered_count": len(summary["discovered"]),
+                     "network_calls": 1, "threads_writes": 0},
+            # 新しい manual 投稿・提案の置き換えがあれば、公開の評価を待たせない (間隔を見直す)。
+            wake={SUBSYSTEM_PUBLICATION_EVALUATION: now, SUBSYSTEM_QUEUE_OBSERVATION: now}
+            if changed else {},
+        )
+
     def _auto_publisher(self, session):
         from app.services.threads_auto_publisher import ThreadsAutoPublisher
 
@@ -881,6 +942,24 @@ class ThreadsWorkerService:
                 tracked.append(
                     {"publication_id": row.id, "maturity": stage, "due_at": due_at.isoformat()}
                 )
+        # manual-post coexistence: manual / unknown の自分の投稿も同じ間隔で観測する。
+        account_due: list[int] = []
+        with self._factory() as session:
+            from app.services.threads_account_post_service import account_posts_ready
+
+            if account_posts_ready(session):
+                plan = self._account_post_service(session).due_for_insights(
+                    now, by_maturity=by_maturity, stop_after_hours=stop_after)
+                account_due = plan["due"]
+                intervals.extend(plan["intervals"])
+            session.rollback()
+        account_refreshed: list[dict] = []
+        if self._collect_insights and account_due:
+            with self._factory() as session:
+                result = self._account_post_service(session).collect_insights(
+                    account_due, now=now)
+            self._counters["network_calls"] += result["network_calls"]
+            account_refreshed = result["details"]
         # 取得してもしなくても、次の確認は最も短い間隔ぶん先にする
         # (期限が来たものが「期限のまま」空回りしないように)。
         next_at = now + (min(intervals) if intervals else idle)
@@ -891,7 +970,10 @@ class ThreadsWorkerService:
                     "tracked": tracked,
                     "would_refresh": due,
                     "refreshed": [],
-                    "network_calls": 0,
+                    "account_posts_due": account_due,
+                    "account_posts_refreshed": account_refreshed,
+                    "network_calls": len([d for d in account_refreshed
+                                          if d.get("result") != "unchanged"]),
                     "note": (
                         "PLAN only; start the worker with --collect-insights to read, "
                         "or rely on the C8 import_threads_insights step"
@@ -935,6 +1017,8 @@ class ThreadsWorkerService:
                     for d in refreshed
                 ],
                 "network_calls": calls,
+                "account_posts_due": account_due,
+                "account_posts_refreshed": account_refreshed,
                 "threads_writes": 0,
             },
             # T6.5: 新しい観測を取り込んだら、成績の参考の作り直しを前倒しする

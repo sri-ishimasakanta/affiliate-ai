@@ -6,8 +6,9 @@
   例外にする (うっかり通信しないことを構造で保証する)。
 - 観測を取り直したり、保存済みの指標を書き換えたりしない。
 
-アカウントの投稿一覧を読む API はこのリポジトリの Threads client に無いので、手動・
-管理外の投稿の検出は ``unavailable`` と報告する (新しい API 呼び出しは足さない)。
+manual-post coexistence (2026-10-02): 手動・管理外の投稿は、worker が読んだ自アカウントの投稿の
+台帳 (``threads_account_posts``) から報告する (この診断自身は通信しない)。台帳の無い DB では
+``unavailable``。投稿ごとの観測の系列 (origin つき) は ``ThreadsAccountPostService.dataset``。
 """
 
 from __future__ import annotations
@@ -39,10 +40,34 @@ from app.social.threads.policy import get_measurement_policy, get_operations_pol
 
 UNTRACKED_UNAVAILABLE = {
     "status": "unavailable",
-    "reason": "the Threads client has no read-only method to list the account's posts; "
-    "untracked-post detection is not implemented in this task",
+    "reason": "the account post ledger is missing (migration 3d5382e2a6bd not applied)",
     "remote_not_tracked": [],
 }
+
+
+def untracked_posts(session) -> dict:
+    """台帳にある manual / unknown の投稿 (system の記録に無いもの)。読むだけ。"""
+
+    from app.services.threads_account_post_service import (
+        ThreadsAccountPostService,
+        account_posts_ready,
+    )
+
+    if not account_posts_ready(session):
+        return dict(UNTRACKED_UNAVAILABLE)
+    rows = [p for p in ThreadsAccountPostService(session).posts() if p.origin != "system"]
+    return {
+        "status": "available",
+        "reason": "from the account post ledger (periodic and pre-publication discovery)",
+        "remote_not_tracked": [
+            {"account_post_id": p.id, "media_id": p.threads_media_id, "origin": p.origin,
+             "post_kind": p.post_kind, "published_at": _iso(p.published_at),
+             "missing_since": _iso(p.missing_since)} for p in rows],
+    }
+
+
+def _iso(value) -> str | None:
+    return ensure_aware(value).isoformat() if value is not None else None
 
 
 class _NoNetwork:
@@ -118,6 +143,7 @@ class ThreadsPerformanceService:
         as_of = ensure_aware(as_of or datetime.now(UTC))
         with read_only_session(self._session):
             records = self.records()
+            untracked = untracked_posts(self._session)
         return build_report(
             records,
             as_of=as_of,
@@ -125,7 +151,7 @@ class ThreadsPerformanceService:
             operations_policy=get_operations_policy(),
             tz=self._tz,
             untracked={
-                **UNTRACKED_UNAVAILABLE,
+                **untracked,
                 # 手元の公開で、最後の観測が「見つからない (404)」だったもの。
                 "internal_not_resolvable": [
                     r.publication_id

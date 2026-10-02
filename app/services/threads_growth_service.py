@@ -501,10 +501,25 @@ class ThreadsGrowthService:
         return gs.history_from_meta(rows[: gs.RECENT_STRATEGY_WINDOW])
 
     def _recent_items(self) -> list[dict]:
-        return [
-            {"ref": f"proposal #{r.id}", "text": r.content_text}
+        """最近の Growth Post の提案と、manual / unknown の自分の投稿 (新しい順)。
+
+        manual-post coexistence: 人が直前に出した似た投稿があれば、同じような Growth Post を
+        作らない (言い回し・書き出し・結び・近い全文)。目的の重なりは記録だけ (今までどおり)。
+        """
+
+        from app.services.threads_proposal_stock_service import manual_recent_items
+
+        items = [
+            {"ref": f"proposal #{r.id}", "text": r.content_text,
+             "at": ensure_aware(r.created_at) if r.created_at else None}
             for r in self.growth_proposals()[:RECENT_GROWTH_WINDOW]
         ]
+        manual = manual_recent_items(self._session, limit=RECENT_GROWTH_WINDOW)
+        if not manual:
+            return [{"ref": i["ref"], "text": i["text"]} for i in items]
+        floor = datetime.min.replace(tzinfo=UTC)
+        merged = sorted(items + manual, key=lambda i: i.get("at") or floor, reverse=True)
+        return [{"ref": i["ref"], "text": i["text"]} for i in merged]
 
     def _generate_day(self, day, observation: FollowerObservation | None, now: datetime
                       ) -> tuple[int | None, int, str | None, str | None]:  # fmt: skip

@@ -96,6 +96,12 @@ class FakeThreadsAPI:
             mid = f"m{cid}"
             self._texts[mid] = self._texts[cid]
             return httpx.Response(200, json={"id": mid})
+        if request.method == "GET" and path.endswith("/threads"):
+            # manual-post coexistence: 自アカウントの投稿の一覧 (この代役が公開したものだけ)。
+            stamp = self.clock.strftime("%Y-%m-%dT%H:%M:%S+0000")
+            return httpx.Response(200, json={"data": [
+                {"id": mid, "text": text, "timestamp": stamp, "media_type": "TEXT_POST"}
+                for mid, text in self._texts.items() if mid.startswith("m")]})
         if request.method == "GET" and path.endswith("/9876543210"):
             return httpx.Response(200, json={"id": "9876543210", "username": "bizfluxlab"})
         if request.method == "GET":
@@ -108,7 +114,8 @@ class FakeThreadsAPI:
         return httpx.Response(404, json={"error": {"message": "unexpected"}})
 
     def creates(self) -> list[dict]:
-        return [r["form"] for r in self.requests if r["path"].endswith("/threads")]
+        return [r["form"] for r in self.requests
+                if r["method"] == "POST" and r["path"].endswith("/threads")]
 
 
 def _publisher(session, api: FakeThreadsAPI) -> ThreadsAutoPublisher:

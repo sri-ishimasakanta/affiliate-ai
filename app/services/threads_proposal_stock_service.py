@@ -659,7 +659,7 @@ class ThreadsProposalStockService:
             .order_by(ThreadsPostProposal.created_at.desc(), ThreadsPostProposal.id.desc())
             .limit(RECENT_WINDOW)
         ).all()
-        return [
+        items = [
             {
                 "ref": f"proposal #{row.id}",
                 "text": row.content_text or "",
@@ -669,6 +669,11 @@ class ThreadsProposalStockService:
             }
             for row in rows
         ]
+        # manual-post coexistence: 人が Threads から出した投稿の話題も避ける (記事・切り口は不明)。
+        items += [{"ref": m["ref"], "text": m["text"], "article_id": None, "angle": "unknown",
+                   "link_mode": None} for m in manual_recent_items(self._session,
+                                                                    limit=RECENT_WINDOW)]
+        return items
 
     def _ingest(
         self, request, output, now, room, outcome, alerts, *, final=True, strict_quality=False
@@ -825,7 +830,7 @@ class ThreadsProposalStockService:
                 outcome["skipped"].append(
                     {
                         "request_id": rid,
-                        "reason": f"an identical proposal already exists (#{existing})",
+                        "reason": f"an identical proposal already exists ({existing})",
                     }
                 )
             kept = [item for item in kept if item["angle"] not in duplicates]
@@ -875,20 +880,23 @@ class ThreadsProposalStockService:
         )
         return None
 
-    def _live_identities(self) -> dict[str, int]:
-        """生きている提案 (承認待ち・承認済み) と公開済みの本文の正規形 → 提案 ID。"""
+    def _live_identities(self) -> dict[str, str]:
+        """生きている提案 (承認待ち・承認済み)・公開済み・manual の自分の投稿の本文の正規形 →
+        その参照 (``#12`` / ``manual Threads post <id>``)。"""
 
         rows = self._session.execute(
             select(ThreadsPostProposal.id, ThreadsPostProposal.content_text).where(
                 ThreadsPostProposal.status.in_((*TP_OPEN_STATES, TP_APPROVED))
             )
         ).all()
-        identities = {normalized_identity(text_): pid for pid, text_ in rows}
+        identities = {normalized_identity(text_): f"#{pid}" for pid, text_ in rows}
         for pid, text_ in self._session.execute(
             select(ThreadsPublication.proposal_id, ThreadsPublication.exact_published_text)
         ).all():
             if text_:
-                identities.setdefault(normalized_identity(text_), pid)
+                identities.setdefault(normalized_identity(text_), f"#{pid}")
+        for item in manual_recent_items(self._session, limit=RECENT_WINDOW):
+            identities.setdefault(normalized_identity(item["text"]), item["ref"])
         return identities
 
     def _fail(self, request, outcome, reason: str) -> None:
@@ -1069,3 +1077,20 @@ def _alert_provider_failed(reason: str) -> AlertDraft:
 
 
 __all__ = ["SCHEMA", "ThreadsProposalStockService"]
+
+
+def manual_recent_items(session, *, limit: int) -> list[dict]:
+    """manual / unknown の自分の投稿の本文 (新しい順)。migration の前の DB では空。
+
+    manual-post coexistence: 人が Threads から出した投稿も、重複・話題・言い回しの判定に入れる
+    (本数・承認・公開の成功には入れない)。
+    """
+
+    from app.services.threads_account_post_service import (
+        ThreadsAccountPostService,
+        account_posts_ready,
+    )
+
+    if not account_posts_ready(session):
+        return []
+    return ThreadsAccountPostService(session).recent_texts(limit=limit)

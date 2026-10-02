@@ -77,6 +77,15 @@ class _FakeThreads:
             access_token_configured=self._state == "ready",
         )
 
+    #: manual-post coexistence: 自アカウントの投稿の一覧 (読むだけ)。既定は空。呼んだ回数は
+    #: ``account_listings`` に数える (書き込みの ``calls`` には入れない)。
+    def list_account_posts(self, *, limit=100):
+        self.account_listings = getattr(self, "account_listings", 0) + 1
+        error = getattr(self, "account_listing_error", None)
+        if error is not None:
+            raise error
+        return [dict(item) for item in getattr(self, "account_posts", [])][:limit]
+
     def check_connection(self):
         self.calls.append("preflight")
         status = self.describe()

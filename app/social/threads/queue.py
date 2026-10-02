@@ -90,6 +90,8 @@ BLOCKER_GAP_NOT_ELAPSED = "gap_not_elapsed"
 BLOCKER_OUTSIDE_PUBLICATION_WINDOW = "outside_publication_window"
 BLOCKER_NO_ELIGIBLE_CANDIDATE = "no_eligible_candidate"
 BLOCKER_AUTOMATIC_PUBLICATION_DISABLED = "automatic_publication_disabled"
+#: manual-post coexistence: manual / unknown の自分の投稿の直後 (間隔・密度)。枠は使わない。
+BLOCKER_RECENT_ACCOUNT_POST = "recent_account_post"
 GLOBAL_BLOCKERS = (
     BLOCKER_THREADS_DISABLED,
     BLOCKER_THREADS_MISCONFIGURED,
@@ -98,6 +100,7 @@ GLOBAL_BLOCKERS = (
     BLOCKER_OUTSIDE_PUBLICATION_WINDOW,
     BLOCKER_NO_ELIGIBLE_CANDIDATE,
     BLOCKER_AUTOMATIC_PUBLICATION_DISABLED,
+    BLOCKER_RECENT_ACCOUNT_POST,
 )
 #: 設定が壊れている・公開が不確定、など **人が直す必要がある** ブロッカー。
 #: 「無効にしてある」「間隔待ち」「夜」は健全な待ちであって問題ではない。
@@ -156,6 +159,20 @@ class QueueFacts:
     uncertain_publication_ids: tuple[int, ...] = ()
     mature_post_count: int = 0
     minimum_mature_posts: int = 3
+    #: manual-post coexistence: manual / unknown の自分の投稿のいちばん新しい公開時刻。
+    #: 間隔・密度だけに使う (本数・Growth の 1 日 1 本には数えない)。
+    last_account_post_at: datetime | None = None
+
+
+def account_post_cooldown_until(queue: QueueFacts, policy) -> datetime | None:
+    """manual / unknown の投稿の後、自動公開を待つ時刻 (過ぎていれば ``None``)。"""
+
+    last = _aware(queue.last_account_post_at)
+    if last is None:
+        return None
+    until = last + timedelta(minutes=policy.account_post_cooldown_minutes)
+    now = _aware(queue.now) or datetime.now(UTC)
+    return until if until > now else None
 
 
 @dataclass(frozen=True)
@@ -373,6 +390,9 @@ def evaluate_queue(
         # T3 の不確定状態は絶対。照合が済むまで、次の候補は 1 件も進めない。
         blockers.append(BLOCKER_UNCERTAIN_PUBLICATION)
     blockers.extend(r for r in timing.reasons)  # gap_not_elapsed / outside_publication_window
+    cooldown_until = account_post_cooldown_until(queue, policy)
+    if cooldown_until is not None:
+        blockers.append(BLOCKER_RECENT_ACCOUNT_POST)
     if not eligible:
         blockers.append(BLOCKER_NO_ELIGIBLE_CANDIDATE)
     if not publication_enabled:
@@ -405,7 +425,8 @@ def evaluate_queue(
         next_candidate=eligible[0] if eligible else None,
         timing=timing,
         next_evaluation_at=_next_evaluation_at(
-            now, blockers, timing, policy, _earliest_not_before(others, now)
+            now, blockers, timing, policy, _earliest_not_before(others, now),
+            cooldown_until=cooldown_until, tz=tz,
         ),
         evidence_state=evidence,
         ordering_basis="diversity_then_approval_order",
@@ -484,6 +505,9 @@ def evaluate_growth_lane(
     window_open = window_is_open(policy.publication_window, now, tz)
     if not window_open:
         blockers.append(BLOCKER_OUTSIDE_PUBLICATION_WINDOW)
+    cooldown_until = account_post_cooldown_until(queue, policy)
+    if cooldown_until is not None:
+        blockers.append(BLOCKER_RECENT_ACCOUNT_POST)
     if not eligible:
         blockers.append(BLOCKER_NO_ELIGIBLE_GROWTH)
     if not publication_enabled:
@@ -500,6 +524,8 @@ def evaluate_growth_lane(
         moments = [v.not_before for v in waiting if v.not_before and v.not_before > now]
         if not window_open:
             moments.append(next_window_open_at(policy.publication_window, now, tz))
+        if cooldown_until is not None:
+            moments.append(next_window_open_at(policy.publication_window, cooldown_until, tz))
         if eligible and not blockers:
             moments.append(now)
         next_at = min(moments) if moments else now + timedelta(
@@ -536,6 +562,9 @@ def _next_evaluation_at(
     timing: PublicationTiming,
     policy: ThreadsOperationsPolicy,
     earliest_not_before: datetime | None = None,
+    *,
+    cooldown_until: datetime | None = None,
+    tz: ZoneInfo | None = None,
 ) -> datetime:
     """次に公開を評価し直す時刻。**固定の枠 (5 分刻み等) には合わせない。**
 
@@ -556,12 +585,18 @@ def _next_evaluation_at(
     }
     if waiting_on_humans.intersection(blockers):
         return idle
+    if cooldown_until is not None and tz is not None:
+        # manual 投稿の後の待ち。予定は取り消さず、待ちが明けて窓が開いている最初の時刻に見直す。
+        resume = next_window_open_at(policy.publication_window, cooldown_until, tz)
+        return max(resume, timing.earliest_at) if not timing.eligible_now else resume
     if not timing.eligible_now:
         return timing.earliest_at
     return idle
 
 
 __all__ = [
+    "BLOCKER_RECENT_ACCOUNT_POST",
+    "account_post_cooldown_until",
     "BLOCKER_GROWTH_DAILY_LIMIT",
     "BLOCKER_NO_ELIGIBLE_GROWTH",
     "GrowthLaneEvaluation",

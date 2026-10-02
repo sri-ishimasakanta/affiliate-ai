@@ -63,8 +63,18 @@
       },
       "growth_opportunity_evaluation": {
         "enabled": true
+      },
+      "account_post_discovery": {
+        "interval_minutes": 15,
+        "note": "Manual-post coexistence: read-only listing of our own account's posts (up to account_posts.listing_limit). Runs when the worker may read Threads (--collect-insights or --auto-publish). Needs migration 3d5382e2a6bd."
       }
     }
+  },
+  "account_posts": {
+    "cooldown_minutes": 60,
+    "listing_limit": 100,
+    "pre_publication_refresh": true,
+    "note": "Manual posts are supported. A manual or unknown post on our account never consumes the system quota (counts stay on threads_publications) but it delays automatic publication for cooldown_minutes in both lanes. Right before any automatic publication the listing is read again (mandatory); if that read fails, the publication is deferred to the next evaluation (fail closed)."
   },
   "queue": {
     "starvation_guard_hours": 48,

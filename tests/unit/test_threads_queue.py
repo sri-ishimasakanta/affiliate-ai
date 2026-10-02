@@ -156,7 +156,9 @@ def test_reason_vocabulary_is_small_and_fixed() -> None:
         # T6.3.3: Growth Post は JST の 1 日に 1 本まで。
         "growth_daily_limit",
     }
-    assert len(GLOBAL_BLOCKERS) == 7
+    # 2026-10-02 manual-post coexistence: manual / unknown の自分の投稿の後の待ち (1 つ増えた)。
+    assert len(GLOBAL_BLOCKERS) == 8
+    assert "recent_account_post" in GLOBAL_BLOCKERS
 
 
 def test_each_strong_blocker_maps_to_one_reason() -> None:

@@ -161,6 +161,9 @@ def test_all_tables_registered() -> None:
         "threads_publications",
         "threads_publication_attempts",
         "threads_insight_snapshots",
+        # 2026-10-02 manual-post coexistence: 自アカウントの投稿の台帳と、その出来事 (追記だけ)。
+        "threads_account_posts",
+        "threads_account_post_events",
         "threads_approval_digests",
         "threads_queue_control_events",
         # T6.5B: 外の観察 (自分の提案・公開の表とは別)。

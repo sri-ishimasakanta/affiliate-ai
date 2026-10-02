@@ -2,6 +2,10 @@
 
 公開済み投稿の指標を、観測した時点ごとに 1 行として積む。上書きしない。
 
+2026-10-02 (manual-post coexistence): 観測の単位は自アカウントの投稿
+(``threads_account_post_id``、必須)。system 投稿は公開の記録 (``threads_publication_id``) も
+持つ。manual / unknown の投稿は公開の記録を持たない (NULL)。同じ投稿の同じ観測時刻は 1 行だけ。
+
 **「観測できなかった」と「0 だった」を混同しない。**
 
 - Meta が明示的に 0 を返したら 0 を保存する。
@@ -28,7 +32,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
@@ -48,13 +52,24 @@ class ThreadsInsightSnapshot(Base):
         UniqueConstraint(
             "threads_publication_id", "observed_at", name="uq_threads_insight_observation"
         ),
+        UniqueConstraint(
+            "threads_account_post_id", "observed_at",
+            name="uq_threads_insight_account_post_observation",
+        ),
         Index("ix_threads_insight_snapshots_pub", "threads_publication_id"),
+        Index("ix_threads_insight_snapshots_account_post", "threads_account_post_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    threads_publication_id: Mapped[int] = mapped_column(
-        ForeignKey("threads_publications.id", ondelete="RESTRICT"), nullable=False
+    #: system 投稿だけが持つ (manual / unknown は NULL)。
+    threads_publication_id: Mapped[int | None] = mapped_column(
+        ForeignKey("threads_publications.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: 観測の単位 (必須)。公開の記録だけが与えられたら、保存の直前に system 投稿の行に結ぶ
+    #: (``app.models.threads_account_post._link_snapshots_to_account_posts``)。
+    threads_account_post_id: Mapped[int] = mapped_column(
+        ForeignKey("threads_account_posts.id", ondelete="RESTRICT"), nullable=False
     )
     threads_media_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
@@ -80,3 +95,5 @@ class ThreadsInsightSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    account_post = relationship("ThreadsAccountPost")

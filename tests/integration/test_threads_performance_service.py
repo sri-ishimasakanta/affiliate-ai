@@ -4,7 +4,8 @@ pin する契約:
 
 - 経過時間の起点は ``remote_timestamp`` (保存済みの ``age_hours`` や ``published_at`` ではない)。
 - DB を 1 行も変えない。Threads の client を作らない。
-- 管理外の投稿の検出は、一覧を読む API が無いので ``unavailable`` と報告する。
+- 管理外の投稿は、自アカウントの投稿の台帳から報告する (2026-10-02 manual-post coexistence)。
+  台帳はあるが manual の投稿が無ければ ``available`` で空。
 - CLI は JSON と Markdown を出力先に書く。
 """
 
@@ -154,7 +155,8 @@ def test_the_report_uses_the_remote_timestamp_and_changes_nothing(
         report["checkpoint_summary"]["3h"]["classification"]["status"]
         == "directional_decline_signal"
     )
-    assert report["untracked_remote_posts"]["status"] == "unavailable"
+    assert report["untracked_remote_posts"]["status"] == "available"
+    assert report["untracked_remote_posts"]["remote_not_tracked"] == []
     assert report["side_effects"]["threads_calls"] == 0
 
 

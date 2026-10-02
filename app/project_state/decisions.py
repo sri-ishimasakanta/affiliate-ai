@@ -1017,6 +1017,31 @@ DECISIONS = (
             "(PLAN -> --execute)。ほかの 7 件は登録・申請の有無を提供元で確かめる"
         ),
     },
+    {
+        "id": "threads-manual-post-coexistence",
+        "area": "threads",
+        "decision": (
+            "人が Threads から手で投稿してよい。自アカウントの投稿は Threads の投稿 ID で 1 行に"
+            "持ち、由来 (system / manual / unknown) を残す。manual 投稿は分析・間隔・重複・"
+            "話題・言い回しに入れ、公開の本数・承認・Growth の 1 日 1 本には入れない。一覧は "
+            "15 分ごとに読み、自動公開の直前には必ず読み直す (読めなければ公開しない)。manual "
+            "の種類は unknown で始め、人だけが分類する (出来事を追記)"
+        ),
+        "rationale": (
+            "手での投稿と自動公開が重なっても、二重投稿・過密・誤った帰属を起こさず、承認と公開"
+            "の履歴を汚さないため (人の決定 2026-10-02)"
+        ),
+        "evidence": ["docs/operations/threads-manual-posts.md"],
+        "phrase": "Manual posting is supported.",
+        "resulting_state": (
+            "migration 3d5382e2a6bd (追加だけ) を本番の写しで予行済み・本番は未適用。コードは "
+            "branch feat/threads-manual-post-coexistence (本番の作業ツリーには未反映)"
+        ),
+        "follow_up": (
+            "人が migration の本番への適用と worker の再起動を決める (手順は "
+            "threads-manual-posts.md)"
+        ),
+    },
 )
 
 

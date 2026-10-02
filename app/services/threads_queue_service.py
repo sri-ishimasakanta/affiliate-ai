@@ -105,7 +105,23 @@ class ThreadsQueueService:
             any_uncertain_publication_ids=tuple(self.uncertain_publication_ids(lane="all")),
             mature_post_count=self.mature_post_count(now),
             minimum_mature_posts=self._measurement.minimum_mature_posts,
+            last_account_post_at=self.last_account_post_at(),
         )
+
+    def last_account_post_at(self) -> datetime | None:
+        """manual / unknown の自分の投稿のいちばん新しい公開時刻 (間隔・密度だけに使う)。
+
+        migration ``3d5382e2a6bd`` の前の DB では ``None`` (manual 投稿をまだ知らない)。
+        """
+
+        from app.services.threads_account_post_service import (
+            ThreadsAccountPostService,
+            account_posts_ready,
+        )
+
+        if not account_posts_ready(self._session):
+            return None
+        return ThreadsAccountPostService(self._session).latest_non_system_post_at()
 
     def evaluate_growth(
         self, *, now: datetime | None = None, publication_enabled: bool = False
