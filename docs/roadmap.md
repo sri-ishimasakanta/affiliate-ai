@@ -439,6 +439,14 @@ build work.
 
 ## Deferred (cross-cutting)
 
+- **Threads account-post discovery observability** (backlog, 2026-10-02): the worker log line
+  `event=account_post_discovery` shows only `next=`. Add, safely: discovery success / failure,
+  discovered count, system / manual / unknown counts, reconciled count, failure reason category
+  and `next_run_at`. No post text, token or permalink in the log. Not implemented yet.
+- **Runtime confirmation pending** (2026-10-02): the first natural system publication after the
+  manual-post coexistence activation has not happened yet; confirm from the worker log and DB
+  (read-only) that the pre-publication account post refresh ran before the Threads write and that
+  the new post reconciled as `system`.
 - **N7 SaaS Validation / N8 SaaS / Service** (2026-10-01, human): not deleted; pilot
   infrastructure kept; restart conditions in *N — Additional revenue track*.
 
