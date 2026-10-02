@@ -132,6 +132,9 @@ Copy taken with the SQLite backup API (the production file was only read):
 | pending registry | `3d5382e2a6bd` removed from `PENDING_PRODUCTION_MIGRATIONS` |
 | first discovery (read-only, before restart) | listed 55; all matched the 55 system rows; new 0, manual 0, unknown 0, origin changes 0, text changes 0, missing 0, reappeared 0, proposals superseded 0; proposal states unchanged; Threads writes 0 |
 | policy in effect | cooldown 60 min, supersede cap 14 days, pre-publication refresh mandatory, listing 100, discovery every 15 min |
+| validation before restart | ruff clean; targeted Threads / migration / project-state tests 348 passed in the production tree (production DB hash identical before and after); `git diff --check` clean; strict check: only the intentional maintenance stop failed (task disabled, worker not running) |
+| worker restart | task re-enabled (task XML identical to before the stop); the 14:25 recovery trigger exited `already_running` (exit 4) as expected; `Start-ScheduledTask` once at 14:28:42 JST → pid 11280, `reclaimed_stale=True`, same profile and capabilities |
+| after restart | code `9ad8bce`, DB `3d5382e2a6bd`; periodic discovery 14:28:46 and 14:43:46 (55 system rows seen, next 14:58:44); 0 errors in the worker log; strict check ok; first evaluation `gap_not_elapsed` (next 15:02:24), Growth `growth_daily_limit` |
 
 Snapshots grew from 4156 (rehearsal copy) to 4192 before the migration because the worker kept
 importing insights until it was stopped; the migration preserved the 4192 exactly.
