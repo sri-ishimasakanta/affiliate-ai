@@ -990,6 +990,33 @@ DECISIONS = (
         ),
         "follow_up": "人が P1 の ASP の画面で確かめ、登録と許可を PLAN から行う",
     },
+    {
+        "id": "c11-registration-before-tracking",
+        "area": "revenue/affiliate-infrastructure",
+        "decision": (
+            "人の ASP の作業は 登録・申請 -> 審査 -> 承認 -> tracking の順。"
+            "catalog の active は候補として扱っているだけで、提携の承認ではない。"
+            "確認の記録には根拠 (提供元の画面・メール / 人の記憶) を必ず書き、"
+            "記憶は提供元で確認済みとは扱わない。"
+            "tracking URL の登録と host の許可は、提供元で確かめた approved / active の後だけ"
+        ),
+        "rationale": (
+            "HubSpot は過去に申請してサイト規模を理由に却下された (人の申告 2026-10-02)。"
+            "承認を確かめる前に tracking の作業を並べると、承認の無い案件に URL を探しに"
+            "行くことになる"
+        ),
+        "evidence": ["docs/operations/affiliate-infrastructure.md"],
+        "phrase": "Catalog status is not the partnership status.",
+        "resulting_state": (
+            "提携の状態 (not_registered … ended) と根拠の種類を確認の記録に追加 "
+            "(migration なし)。登録の段階 A〜E と、承認を確かめるまで閉じた tracking の"
+            "受け付け。記録はまだ 0 件"
+        ),
+        "follow_up": (
+            "人が HubSpot の過去の却下を human_recollection として記録する "
+            "(PLAN -> --execute)。ほかの 7 件は登録・申請の有無を提供元で確かめる"
+        ),
+    },
 )
 
 

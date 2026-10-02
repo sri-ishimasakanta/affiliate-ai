@@ -80,7 +80,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None, *, session_factory=None, approvals_path: Path | None = None, stdin=None,
-         prompt=getpass.getpass, now=None) -> int:  # fmt: skip
+         prompt=getpass.getpass, now=None,
+         verifications_path: Path | None = None) -> int:  # fmt: skip
     from app.services.affiliate_tracking_intake_service import AffiliateTrackingIntakeService
 
     args = _parser().parse_args(argv)
@@ -90,11 +91,13 @@ def main(argv=None, *, session_factory=None, approvals_path: Path | None = None,
         session_factory = SessionLocal
     try:
         with session_factory() as session:
-            service = AffiliateTrackingIntakeService(session, approvals_path=approvals_path)
+            service = AffiliateTrackingIntakeService(session, approvals_path=approvals_path,
+                                                     verifications_path=verifications_path)
             if args.command == "onboard":
                 # identity を先に確かめてから URL を求める (Make onboarding と同じ順番)
-                service.program(args.program_id, expect_name=args.expect_name,
-                                expect_provider=args.expect_provider)
+                program = service.program(args.program_id, expect_name=args.expect_name,
+                                          expect_provider=args.expect_provider)
+                service.require_approved(program)  # 承認を確かめる前に URL を求めない
                 session.rollback()
                 raw = _read_url(args.url_stdin, stdin, prompt)
                 kw = {"expect_name": args.expect_name, "expect_provider": args.expect_provider,

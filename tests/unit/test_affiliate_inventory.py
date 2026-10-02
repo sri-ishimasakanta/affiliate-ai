@@ -101,9 +101,11 @@ def test_active_program_without_tracking_url_is_a_gap_and_priority_follows_block
                                        "is_primary": True}],
                     articles=[_article(5)])  # fmt: skip
     assert report["operations"]["catalog_active_without_tracking_url"] == [1, 2]
-    items = [(i["program_id"], i["priority"]) for i in report["human_action_queue"]
-             if i["reason"] == "no tracking URL"]
-    assert items == [(1, "P1"), (2, "P2")]
+    # 承認を確かめる前は、tracking ではなく登録・申請の確認が先 (catalog active ≠ 承認)
+    items = [(i["program_id"], i["priority"], i["step"]) for i in report["human_action_queue"]
+             if i["reason"] == "registration / application at the provider not confirmed"]
+    assert items == [(1, "P1", "A_APPLY_OR_REGISTER"), (2, "P2", "A_APPLY_OR_REGISTER")]
+    assert not [i for i in report["human_action_queue"] if "tracking" in i["reason"]]
     assert report["coverage"][5]["state"] == "program_without_link"
 
 
@@ -142,8 +144,10 @@ def test_content_without_monetization_path_separates_supporting_articles() -> No
 
 def test_never_verified_and_stale_verification() -> None:
     records = [{"id": 1, "program_id": 1, "verified_at": (NOW - timedelta(days=100)).isoformat(),
+                "evidence_kind": "provider_dashboard",
                 "fields": {"status_at_provider": "approved"}},
                {"id": 2, "program_id": 2, "verified_at": (NOW - timedelta(days=3)).isoformat(),
+                "evidence_kind": "provider_dashboard",
                 "fields": {"status_at_provider": "active"}}]  # fmt: skip
     programs = [_program(1), _program(2), _program(3)]
     report = _build(programs, verifications=records, max_age=90)
@@ -262,6 +266,7 @@ def _service(session, tmp_path):
 def test_verify_plans_by_default_and_appends_only_with_execute(session, tmp_path) -> None:
     service = _service(session, tmp_path)
     kw = {"program_id": 1, "source": "provider dashboard", "verified_by": "human",
+          "evidence_kind": "provider_dashboard",
           "observed_at": "2026-10-01T10:00:00+09:00",
           "fields": {"status_at_provider": "approved", "cookie_window_days": 30}}
     plan = service.verify(**kw, now=NOW)
@@ -285,6 +290,7 @@ def test_verify_refuses_guesses_urls_and_unknown_fields(session, tmp_path, field
     service = _service(session, tmp_path)
     with pytest.raises(InventoryError):
         service.verify(program_id=1, source="provider dashboard", verified_by="human",
+                       evidence_kind="provider_dashboard",
                        observed_at="2026-10-01T10:00:00+09:00", fields=fields, execute=True,
                        now=NOW)  # fmt: skip
     assert not (tmp_path / "v.jsonl").exists()
@@ -302,6 +308,7 @@ def test_verify_refuses_secrets_personal_data_and_bad_times(session, tmp_path, s
     service = _service(session, tmp_path)
     with pytest.raises(InventoryError):
         service.verify(program_id=1, source=source, verified_by=by, observed_at=observed,
+                       evidence_kind="provider_dashboard",
                        fields={"status_at_provider": "approved"}, execute=True, now=NOW)
 
 
@@ -330,8 +337,9 @@ def test_the_cli_is_read_only_and_verify_plans_by_default(engine, tmp_path, caps
     assert main(["program", "1"], session_factory=factory, now=NOW, verifications_path=path) == 0
     assert main(["program", "9"], session_factory=factory, now=NOW, verifications_path=path) == 2
     out = capsys.readouterr().out
-    assert "https://" not in out and "hidden" not in out and "read-only" in out
-    args = ["verify", "1", "--status", "approved", "--source", "provider dashboard", "--by",
+    assert "https://" not in out and "t.example/hidden" not in out and "read-only" in out
+    args = ["verify", "1", "--evidence", "provider_dashboard", "--status", "approved",
+            "--source", "provider dashboard", "--by",
             "human", "--observed-at", "2026-10-01T10:00:00+09:00"]
     assert main(args, session_factory=factory, now=NOW, verifications_path=path) == 0
     assert not path.exists()
@@ -343,7 +351,7 @@ def test_the_cli_is_read_only_and_verify_plans_by_default(engine, tmp_path, caps
 # -- C11 intake (2026-10-02): 人の確認の項目・出どころ・合成 probe ----------------------------
 def _rec(rid, pid, fields, at="2026-10-01T00:00:00+00:00"):
     return {"id": rid, "program_id": pid, "verified_at": at, "verified_by": "human",
-            "source": "dashboard", "fields": fields}
+            "source": "dashboard", "evidence_kind": "provider_dashboard", "fields": fields}
 
 
 def test_explicit_unknown_capability_stays_unknown_not_false() -> None:
@@ -415,8 +423,10 @@ def test_tracking_url_with_unauthorized_host_is_a_gap() -> None:
     assert row["tracking_host"] == "t.example" and row["tracking_host_authorized"] is False
     assert row["next_action"].startswith("approve the tracking URL host")
     assert report["operations"]["tracking_url_host_not_authorized"] == [1]
+    assert row["registration"]["bucket"] == "E_READY_FOR_ONBOARDING"
+    assert row["registration"]["evidence"] == "tracking_url_issued"
     items = [(i["priority"], i["reason"]) for i in report["human_action_queue"]]
-    assert ("P1", "tracking URL host not authorized for this program") in items
+    assert ("P1", "tracking URL obtained; local intake pending") in items
 
 
 def test_known_synthetic_probe_clicks_are_separated_at_read_time() -> None:
@@ -456,6 +466,7 @@ def test_new_verify_fields_refuse_urls_and_guesses(session, tmp_path, fields) ->
     service = _service(session, tmp_path)
     with pytest.raises(InventoryError):
         service.verify(program_id=1, source="provider dashboard", verified_by="human",
+                       evidence_kind="provider_dashboard",
                        observed_at="2026-10-01T10:00:00+09:00", fields=fields, execute=True,
                        now=NOW)  # fmt: skip
     assert not (tmp_path / "v.jsonl").exists()
@@ -470,6 +481,7 @@ def test_new_verify_fields_are_recorded_as_given(session, tmp_path) -> None:
               "commission_type_observed": "percentage", "commission_value_observed": 30,
               "commission_currency_observed": "USD", "landing_host_observed": "WWW.Vendor.example"}
     out = service.verify(program_id=1, source="provider dashboard", verified_by="human",
+                       evidence_kind="provider_dashboard",
                          observed_at="2026-10-01T10:00:00+09:00", fields=fields, execute=True,
                          now=NOW)  # fmt: skip
     rec = out["record"]["fields"]
@@ -484,9 +496,102 @@ def test_new_verify_fields_are_recorded_as_given(session, tmp_path) -> None:
 def test_the_cli_takes_tristate_options() -> None:
     from scripts.affiliate_inventory import _parser
 
-    args = _parser().parse_args(["verify", "1", "--subid-supported", "unknown",
+    args = _parser().parse_args(["verify", "1", "--evidence", "provider_dashboard",
+                                 "--subid-supported", "unknown",
                                  "--click-reporting", "true", "--source-attribution", "false",
                                  "--source", "s", "--by", "h", "--observed-at", "x"])
     assert (args.subid_supported, args.click_reporting, args.source_attribution) == (
         "unknown", True, False)
     assert args.conversion_reporting is None  # 書かなければ記録しない
+
+
+# -- C11 registration order (2026-10-02): 登録 -> 審査 -> 承認 -> tracking ------------------------
+def _recalled(rid, pid, fields):
+    return {**_rec(rid, pid, fields), "evidence_kind": "human_recollection"}
+
+
+def test_a_remembered_rejection_is_deferred_but_never_provider_verified() -> None:
+    report = _build([_program(5)], articles=[_article(4)],
+                    article_programs=[{"article_id": 4, "affiliate_program_id": 5,
+                                       "is_primary": True}],
+                    verifications=[_recalled(1, 5, {
+                        "status_at_provider": "rejected",
+                        "rejection_reason": "site_size_or_traffic",
+                        "reapplication_plan": "deferred"})])  # fmt: skip
+    row = _row(report, 5)
+    assert row["registration"] == {"bucket": "C_REJECTED_OR_DEFERRED",
+                                   "partnership_status": "rejected", "evidence": "human_reported",
+                                   "rejection_reason": "site_size_or_traffic",
+                                   "reapplication_plan": "deferred", "account_registered": None}
+    # 提供元で確かめた状態ではない
+    assert row["provider_status"] == "unknown" and row["verification"] == "never_verified"
+    assert row["verified"]["fields"] == {} and row["differences"] == []
+    assert report["counts"]["provider_status_verified"] == 0
+    # tracking・能力・metadata の作業を並べない
+    assert not [i for i in report["human_action_queue"] if i["program_id"] == 5]
+    assert row["next_action"] is None
+    assert report["deferred_programs"][0]["program_id"] == 5
+    assert "does not mean the partnership is approved" in report["status_semantics"]
+
+
+def test_registration_buckets_follow_the_partnership_status() -> None:
+    programs = [_program(i) for i in range(1, 8)]
+    records = [_rec(1, 1, {"status_at_provider": "not_applied"}),
+               _rec(2, 2, {"status_at_provider": "pending"}),
+               _rec(3, 3, {"status_at_provider": "rejected"}),
+               _rec(4, 4, {"status_at_provider": "approved"}),
+               _rec(5, 5, {"status_at_provider": "approved", "tracking_url_obtained": True}),
+               _recalled(6, 6, {"status_at_provider": "approved"})]
+    report = _build(programs, verifications=records)
+    buckets = {r["id"]: r["registration"]["bucket"] for r in report["programs"]}
+    assert buckets == {1: "A_APPLY_OR_REGISTER", 2: "B_WAITING_REVIEW",
+                       3: "C_REJECTED_OR_DEFERRED", 4: "D_APPROVED_NEEDS_TRACKING",
+                       5: "E_READY_FOR_ONBOARDING", 6: "D_APPROVED_NEEDS_TRACKING",
+                       7: "A_APPLY_OR_REGISTER"}
+    assert _row(report, 6)["registration"]["evidence"] == "human_reported"
+    assert _row(report, 7)["registration"]["partnership_status"] == "unknown"
+    steps = {i["program_id"]: (i["step"], i["reason"]) for i in report["human_action_queue"]
+             if "step" in i}
+    assert steps[1] == ("A_APPLY_OR_REGISTER", "not applied yet (not_applied)")
+    assert steps[2][0] == "B_WAITING_REVIEW" and 3 not in steps
+    assert steps[4] == ("D_APPROVED_NEEDS_TRACKING", "approved; no tracking URL")
+    # 承認の前の案件に、cookie window などの metadata の作業は出ない
+    early = {i["program_id"] for i in report["human_action_queue"] if i["priority"] == "P4"}
+    assert early.isdisjoint({1, 2, 3, 7})
+
+
+def test_a_dashboard_check_supersedes_a_recollection() -> None:
+    records = [_recalled(1, 5, {"status_at_provider": "rejected"}),
+               _rec(2, 5, {"status_at_provider": "approved"}, "2026-10-02T00:00:00+00:00")]
+    row = _row(_build([_program(5)], verifications=records), 5)
+    assert row["registration"]["bucket"] == "D_APPROVED_NEEDS_TRACKING"
+    assert row["registration"]["evidence"] == "provider_verified"
+    assert row["reported"]["fields"]["status_at_provider"] == "rejected"  # 記録は残る
+
+
+@pytest.mark.parametrize("kind", [None, "", "provider", "memory"])
+def test_verify_needs_an_explicit_evidence_kind(session, tmp_path, kind) -> None:
+    service = _service(session, tmp_path)
+    with pytest.raises(InventoryError, match="evidence_kind"):
+        service.verify(program_id=1, source="provider dashboard", verified_by="human",
+                       observed_at="2026-10-01T10:00:00+09:00", evidence_kind=kind,
+                       fields={"status_at_provider": "rejected"}, execute=True, now=NOW)
+
+
+def test_registration_fields_are_checked(session, tmp_path) -> None:
+    service = _service(session, tmp_path)
+    kw = {"program_id": 1, "source": "human report in chat", "verified_by": "human",
+          "observed_at": "2026-10-01T10:00:00+09:00", "evidence_kind": "human_recollection",
+          "now": NOW}
+    with pytest.raises(InventoryError, match="needs --status rejected"):
+        service.verify(**kw, fields={"rejection_reason": "site_size_or_traffic"})
+    for bad in ({"applied_on": "last year"}, {"reapply_allowed": "maybe"},
+                {"reapplication_plan": "later"}, {"account_registered": 1}):
+        with pytest.raises(InventoryError):
+            service.verify(**kw, fields=bad)
+    plan = service.verify(**kw, fields={"status_at_provider": "rejected",
+                                        "rejection_reason": "site_size_or_traffic",
+                                        "reapplication_plan": "deferred",
+                                        "account_registered": True})
+    assert plan["recorded"] is False and plan["record"]["evidence_kind"] == "human_recollection"
+    assert not (tmp_path / "v.jsonl").exists()

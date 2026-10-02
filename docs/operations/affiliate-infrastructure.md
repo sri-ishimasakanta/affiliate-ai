@@ -105,11 +105,77 @@ with `verify` (facts) or the existing program / link flows (tracking URL, link m
 uv run python scripts/affiliate_inventory.py providers | programs | program <id> | coverage
 uv run python scripts/affiliate_inventory.py missing-links | stale | attribution | actions | ops
 uv run python scripts/affiliate_inventory.py report --out reports/affiliate/inventory.json
-uv run python scripts/affiliate_inventory.py verify <id> --status approved --source "provider dashboard" --by human --observed-at 2026-10-02T10:00:00+09:00 [--execute]
+uv run python scripts/affiliate_inventory.py verify <id> --evidence provider_dashboard --status approved --source "provider dashboard" --by human --observed-at 2026-10-02T10:00:00+09:00 [--execute]
 ```
 
 Output never contains a tracking URL, a destination URL, a token value or a secret (presence and
 counts only).
+
+## Registration before tracking (2026-10-02)
+
+**Catalog status is not the partnership status.** `affiliate_programs.status = active` means the
+program is a *candidate* in this project's catalog (the program exists and is worth considering).
+It does **not** mean an account exists, an application was sent, or the partnership is approved.
+The partnership status at the ASP / advertiser exists only in human verification records
+(`status_at_provider`, verification layer only, no migration):
+
+`not_registered` · `not_applied` · `applied` · `pending` · `approved` · `active` · `rejected` ·
+`paused` · `ended` · `unknown`
+
+Every verification record states its evidence (`--evidence`, required, no default):
+
+| evidence | meaning | shown as |
+|---|---|---|
+| `provider_dashboard` | checked now in the ASP / advertiser dashboard | provider-verified |
+| `provider_email` | checked now in a message from the provider (e.g. the decision email) | provider-verified |
+| `human_recollection` | remembered by the human (a past event not re-checked) | `human_reported` — never provider-verified |
+
+Recollections are kept in a separate `reported` block: they place the program in a registration
+bucket (labelled `human_reported`) but never count as a provider verification, never feed the
+capabilities and never open the tracking intake. A later dashboard / email check supersedes them
+(the recollection record stays).
+
+### Registration buckets (computed, read-only)
+
+| Bucket | Rule | Next human step |
+|---|---|---|
+| A_APPLY_OR_REGISTER | no status, `unknown`, `not_registered` or `not_applied` | check whether an account / application exists; register and apply if not |
+| B_WAITING_REVIEW | `applied` / `pending` | wait for the result; record it with its evidence |
+| C_REJECTED_OR_DEFERRED | `rejected` / `paused` / `ended` (provider-verified or human-reported) | none until reapplication conditions are met; no tracking, capability or metadata work |
+| D_APPROVED_NEEDS_TRACKING | `approved` / `active` | obtain the tracking URL |
+| E_READY_FOR_ONBOARDING | approved and the tracking URL obtained, or a tracking URL already registered | `onboard` and `approve-host` |
+| ONBOARDED | tracking URL registered, host authorized and an active link target | existing link flows |
+
+The human action queue follows these steps (priority still by what an item blocks); programs in
+C are listed under `deferred_programs`, not in the queue. **Tracking intake is gated:** `onboard`
+and `approve-host` refuse unless the latest provider-verified `status_at_provider` is `approved`
+or `active` (a recollection does not open it; a later rejection closes it again).
+
+Registration fields (`verify`): `--account-registered` (true / false / unknown), `--applied-on`,
+`--decided-on` (YYYY-MM-DD), `--rejection-reason` (site_size_or_traffic / content_or_category /
+region_or_language / policy / other / not_stated; only with `--status rejected`),
+`--reapply-allowed` (true / false / unknown, the provider's rule), `--reapplication-plan`
+(deferred / planned / not_planned / undecided, this project's decision).
+
+### ASP signup checklist (per provider / program)
+
+Nothing here is stored as a credential. Passwords, API keys, tokens and session data are never
+entered into affiliate-ai (they stay in the human's password manager).
+
+| Item | Where it is recorded |
+|---|---|
+| provider / program | catalog (`--program-id`, `--actual-provider` if the platform differs) |
+| registration location | only the program information page cited in the catalog notes (2026-08-28) is known; the signup page itself is found by the human at the provider |
+| account required / registered | `--account-registered` |
+| application required / submitted | `--status applied` (or `not_applied`), `--applied-on` |
+| website URL submitted | the site's own URL (not stored per program) |
+| site / category description, traffic / site-size answers | kept by the human; not stored |
+| application status | `--status` with `--evidence` |
+| submitted_at | `--applied-on` |
+| result | `--status approved / rejected`, `--decided-on` |
+| rejection reason | `--rejection-reason` |
+| reapply allowed | `--reapply-allowed`; our plan: `--reapplication-plan` |
+| approval evidence source | `--evidence provider_dashboard / provider_email` and `--source` (no URL) |
 
 ## ASP intake (2026-10-02): tracking URL, program host authorization, structured verification
 
@@ -199,7 +265,10 @@ The click row is not changed.
 
 ### Human ASP capture workflow (per program)
 
-1. `affiliate_inventory.py verify <id> …` (PLAN) → check → same command with `--execute`
+0. registration first (see *Registration before tracking*): the intake below starts only after
+   `approved` / `active` is recorded with `--evidence provider_dashboard` or `provider_email`
+1. `affiliate_inventory.py verify <id> --evidence provider_dashboard …` (PLAN) → check → same
+   command with `--execute`
 2. `affiliate_tracking_intake.py onboard --program-id <id> --expect-name … --expect-provider …`
    (PLAN, hidden URL) → check host / fingerprint → same with `--execute` (URL asked again)
 3. `affiliate_tracking_intake.py approve-host … --host <host shown in step 2>` (PLAN) → check →
@@ -214,7 +283,10 @@ later, human-approved steps (existing flows).
 
 | Seen in the ASP dashboard | CLI | Field / option | Values |
 |---|---|---|---|
-| approval / status | `verify` | `--status` → `status_at_provider` | applied / approved / active / paused / rejected / ended / unknown |
+| approval / status | `verify` | `--status` → `status_at_provider` | not_registered / not_applied / applied / pending / approved / active / rejected / paused / ended / unknown |
+| how it was seen | `verify` | `--evidence` (required) | provider_dashboard / provider_email / human_recollection |
+| account / application / decision | `verify` | `--account-registered`, `--applied-on`, `--decided-on` | true / false / unknown; YYYY-MM-DD |
+| rejection reason / reapply | `verify` | `--rejection-reason`, `--reapply-allowed`, `--reapplication-plan` | see *Registration before tracking* |
 | tracking URL obtained | `verify` | `--tracking-url-obtained` | true / false |
 | tracking URL itself | `onboard` | hidden prompt / `--url-stdin` → `affiliate_programs.tracking_url` | the URL (never on the command line) |
 | tracking URL host | `approve-host` | `--host` → approvals file | host shown by `onboard` |

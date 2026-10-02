@@ -75,14 +75,22 @@ class AffiliateInventoryService:
         return out
 
     def verify(self, *, program_id: int, source: str, verified_by: str, observed_at: str,
-               fields: dict, execute: bool = False, now: datetime | None = None) -> dict:
-        """人が ASP の画面で確かめた事実を足す (既定は PLAN)。推測の値は入れない。"""
+               fields: dict, evidence_kind: str, execute: bool = False,
+               now: datetime | None = None) -> dict:  # fmt: skip
+        """人が確かめた事実を足す (既定は PLAN)。推測の値は入れない。
+
+        ``evidence_kind``: ``provider_dashboard`` / ``provider_email`` (今、提供元の画面・メールで
+        確かめた) か ``human_recollection`` (人の記憶。提供元で確認済みとは扱わない)。既定は無い
+        (いちばん強い主張を黙って選ばない)。
+        """
 
         now = now or datetime.now(UTC)
         program = self._session.get(AffiliateProgram, program_id)
         self._session.rollback()
         if program is None:
             raise InventoryError(f"program {program_id} does not exist")
+        if evidence_kind not in inv.EVIDENCE_KINDS:
+            raise InventoryError(f"evidence_kind must be one of {inv.EVIDENCE_KINDS}")
         clean = _check_fields(fields)
         if not clean:
             raise InventoryError("give at least one verified field")
@@ -101,7 +109,8 @@ class AffiliateInventoryService:
                   "provider": program.provider,
                   "verified_at": seen.astimezone(UTC).isoformat(timespec="seconds"),
                   "entered_at": now.astimezone(UTC).isoformat(timespec="seconds"),
-                  "verified_by": by[:64], "source": src, "fields": clean,
+                  "verified_by": by[:64], "source": src, "evidence_kind": evidence_kind,
+                  "fields": clean,
                   "provenance": "human_entry"}  # fmt: skip
         if not execute:
             return {"recorded": False, "reason": "PLAN (re-run with --execute)", "record": record}
@@ -199,7 +208,7 @@ def _check_fields(fields: dict) -> dict:
             if not _PROGRAM_ID.match(str(value)) or mm._CREDENTIAL.search(str(value)):
                 raise InventoryError(f"{key} is a short id (no URL, no secret)")
             value = str(value)
-        elif key in inv.TRISTATE_FIELDS:
+        elif key in (*inv.TRISTATE_FIELDS, "account_registered", "reapply_allowed"):
             if not (value is True or value is False or value == "unknown"):  # 1 / 0 は通さない
                 raise InventoryError(f"{key} is true, false or unknown")
         elif key in ("tracking_url_obtained", "commission_terms_confirmed"):
@@ -215,6 +224,18 @@ def _check_fields(fields: dict) -> dict:
         elif key == "pause_end_notice":
             if value not in inv.NOTICE_STATES:
                 raise InventoryError(f"pause_end_notice must be one of {inv.NOTICE_STATES}")
+        elif key in ("applied_on", "decided_on"):
+            try:
+                value = date.fromisoformat(str(value)).isoformat()
+            except ValueError:
+                raise InventoryError(f"{key} is a date (YYYY-MM-DD)") from None
+        elif key == "rejection_reason":
+            if value not in inv.REJECTION_REASONS:
+                raise InventoryError(f"rejection_reason must be one of {inv.REJECTION_REASONS}")
+        elif key == "reapplication_plan":
+            if value not in inv.REAPPLICATION_PLANS:
+                raise InventoryError(f"reapplication_plan must be one of "
+                                     f"{inv.REAPPLICATION_PLANS}")
         elif key == "notice_effective_date":
             try:
                 value = date.fromisoformat(str(value)).isoformat()
@@ -241,6 +262,8 @@ def _check_fields(fields: dict) -> dict:
         else:
             raise InventoryError(f"unknown field {key}")
         out[key] = value
+    if "rejection_reason" in out and out.get("status_at_provider") != "rejected":
+        raise InventoryError("rejection_reason needs --status rejected in the same record")
     if "notice_effective_date" in out and out.get("pause_end_notice") in (None, "none_seen"):
         raise InventoryError("notice_effective_date needs a pause or end notice")
     return out

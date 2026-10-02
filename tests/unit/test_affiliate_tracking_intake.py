@@ -58,8 +58,24 @@ def _seed(session, *programs):
     session.commit()
 
 
-def _svc(session, tmp_path):
-    return AffiliateTrackingIntakeService(session, approvals_path=tmp_path / "approvals.json")
+def _record_status(session, tmp_path, pid, status="approved", evidence="provider_dashboard"):
+    from app.services.affiliate_inventory_service import AffiliateInventoryService
+
+    AffiliateInventoryService(session, capabilities={},
+                              verifications_path=tmp_path / "v.jsonl").verify(
+        program_id=pid, source="provider dashboard", verified_by="human",
+        observed_at=OBSERVED, fields={"status_at_provider": status}, evidence_kind=evidence,
+        execute=True)  # fmt: skip
+
+
+def _svc(session, tmp_path, *, approve=True):
+    """既定: すべての案件の承認を提供元の画面で確かめた記録を置く (順番の関門を通す)。"""
+
+    if approve:
+        for program in session.scalars(select(AffiliateProgram)):
+            _record_status(session, tmp_path, program.id)
+    return AffiliateTrackingIntakeService(session, approvals_path=tmp_path / "approvals.json",
+                                          verifications_path=tmp_path / "v.jsonl")
 
 
 def _host_kw(name, provider, host, **extra):
@@ -123,6 +139,38 @@ def test_identity_duplicates_and_replacement_are_refused(session, tmp_path) -> N
         svc.plan_onboard(1, expect_name="Alpha", expect_provider="direct", raw_url=URL_B)
     assert SECRET not in str(exc.value)
     assert session.get(AffiliateProgram, 1).tracking_url == URL_A
+
+
+@pytest.mark.parametrize("status,evidence", [
+    (None, None), ("not_applied", "provider_dashboard"), ("applied", "provider_dashboard"),
+    ("pending", "provider_email"), ("rejected", "provider_dashboard"),
+    ("approved", "human_recollection"),
+])  # fmt: skip
+def test_tracking_intake_waits_for_a_provider_verified_approval(session, tmp_path, status,
+                                                                evidence) -> None:  # fmt: skip
+    _seed(session, ("Alpha", "direct"))
+    if status:
+        _record_status(session, tmp_path, 1, status, evidence)
+    svc = _svc(session, tmp_path, approve=False)
+    with pytest.raises(IntakeError, match="partnership status"):
+        svc.plan_onboard(1, expect_name="Alpha", expect_provider="direct", raw_url=URL_A)
+    session.get(AffiliateProgram, 1).tracking_url = URL_A
+    session.commit()
+    with pytest.raises(IntakeError, match="partnership status"):
+        svc.plan_host("approve", 1, **_host_kw("Alpha", "direct", "track.vendor-a.example.test"))
+    # 記憶の「承認」は、提供元で確かめた状態としては数えない
+    assert svc.partnership(1)[0] == ("unknown" if evidence in (None, "human_recollection")
+                                     else status)
+
+
+def test_a_later_rejection_closes_the_gate_again(session, tmp_path) -> None:
+    _seed(session, ("Alpha", "direct"))
+    svc = _svc(session, tmp_path)
+    assert svc.plan_onboard(1, expect_name="Alpha", expect_provider="direct",
+                            raw_url=URL_A)["action"] == "would_register_tracking_url"
+    _record_status(session, tmp_path, 1, "rejected")
+    with pytest.raises(IntakeError, match="'rejected'"):
+        svc.plan_onboard(1, expect_name="Alpha", expect_provider="direct", raw_url=URL_A)
 
 
 def test_inactive_programs_cannot_take_a_tracking_url(session, tmp_path) -> None:
@@ -264,32 +312,37 @@ def test_the_cli_reads_the_url_hidden_and_never_prints_it(engine, tmp_path, caps
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     with factory() as s:
         _seed(s, ("Alpha", "direct"))
+        _record_status(s, tmp_path, 1)
     ap = tmp_path / "approvals.json"
+    vp = tmp_path / "v.jsonl"
     base = ["onboard", "--program-id", "1", "--expect-name", "Alpha", "--expect-provider",
             "direct"]
     prompts = []
-    assert main(base, session_factory=factory, approvals_path=ap,
+    assert main(base, session_factory=factory, approvals_path=ap, verifications_path=vp,
                 prompt=lambda text: prompts.append(text) or URL_A) == 0  # fmt: skip
     assert prompts and "hidden" in prompts[0]
     with factory() as s:
         assert s.get(AffiliateProgram, 1).tracking_url is None  # PLAN
     assert main([*base, "--url-stdin", "--execute"], session_factory=factory, approvals_path=ap,
-                stdin=io.StringIO(URL_A + "\n")) == 0  # fmt: skip
+                verifications_path=vp, stdin=io.StringIO(URL_A + "\n")) == 0  # fmt: skip
     with factory() as s:
         assert s.get(AffiliateProgram, 1).tracking_url == URL_A
     # identity が違えば URL を求める前に止まる
     asked = []
     assert main(["onboard", "--program-id", "1", "--expect-name", "Wrong", "--expect-provider",
-                 "direct"], session_factory=factory, approvals_path=ap,
+                 "direct"], session_factory=factory, approvals_path=ap, verifications_path=vp,
                 prompt=lambda t: asked.append(t) or URL_A) == 2  # fmt: skip
     assert asked == []
     approve = ["approve-host", "--program-id", "1", "--expect-name", "Alpha", "--expect-provider",
                "direct", "--host", "track.vendor-a.example.test", "--source", "dashboard",
                "--by", "human", "--observed-at", OBSERVED]
-    assert main(approve, session_factory=factory, approvals_path=ap) == 0
+    assert main(approve, session_factory=factory, approvals_path=ap,
+                verifications_path=vp) == 0  # fmt: skip
     assert not ap.exists()
-    assert main([*approve, "--execute"], session_factory=factory, approvals_path=ap) == 0
-    assert main(["status", "--program-id", "1"], session_factory=factory, approvals_path=ap) == 0
+    assert main([*approve, "--execute"], session_factory=factory, approvals_path=ap,
+                verifications_path=vp) == 0  # fmt: skip
+    assert main(["status", "--program-id", "1"], session_factory=factory, approvals_path=ap,
+                verifications_path=vp) == 0  # fmt: skip
     out = capsys.readouterr().out
     assert SECRET not in out and "https://" not in out and "/c/12345" not in out
     assert "PLAN only" in out and '"host_authorized": true' in out
@@ -302,6 +355,7 @@ def test_the_cli_withholds_unexpected_error_messages(engine, tmp_path, capsys,
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     with factory() as s:
         _seed(s, ("Alpha", "direct"))
+        _record_status(s, tmp_path, 1)
 
     def boom(*_a, **_k):
         raise RuntimeError(f"db failure with parameter {URL_A}")
@@ -309,7 +363,7 @@ def test_the_cli_withholds_unexpected_error_messages(engine, tmp_path, capsys,
     monkeypatch.setattr(AffiliateTrackingIntakeService, "execute_onboard", boom)
     code = main(["onboard", "--program-id", "1", "--expect-name", "Alpha", "--expect-provider",
                  "direct", "--execute"], session_factory=factory, approvals_path=tmp_path / "a",
-                prompt=lambda _t: URL_A)  # fmt: skip
+                verifications_path=tmp_path / "v.jsonl", prompt=lambda _t: URL_A)  # fmt: skip
     out = capsys.readouterr().out
     assert code == 1 and SECRET not in out and "message withheld" in out
 

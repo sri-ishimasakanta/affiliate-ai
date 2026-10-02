@@ -12,7 +12,8 @@
     uv run python scripts/affiliate_inventory.py report [--out reports/affiliate/inventory.json]
 
     # 人が ASP の画面で確かめた事実を足す (既定は PLAN。--execute で書く)
-    uv run python scripts/affiliate_inventory.py verify 5 --status approved --subid-supported false
+    uv run python scripts/affiliate_inventory.py verify 5 --evidence provider_dashboard
+        --status approved
         --cookie-window-days 90 --source "PartnerStack dashboard" --by human
         --observed-at 2026-10-02T10:00:00+09:00 [--execute]
 
@@ -49,7 +50,14 @@ def _tri(text: str):
 
 
 def _parser() -> argparse.ArgumentParser:
-    from app.revenue.affiliate_inventory import COMMISSION_TYPES, NOTICE_STATES, PROVIDER_STATUSES
+    from app.revenue.affiliate_inventory import (
+        COMMISSION_TYPES,
+        EVIDENCE_KINDS,
+        NOTICE_STATES,
+        PROVIDER_STATUSES,
+        REAPPLICATION_PLANS,
+        REJECTION_REASONS,
+    )
 
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -65,7 +73,16 @@ def _parser() -> argparse.ArgumentParser:
     show.add_argument("program_id", type=int)
     ver = sub.add_parser("verify")
     ver.add_argument("program_id", type=int)
+    ver.add_argument("--evidence", choices=EVIDENCE_KINDS, required=True,
+                     help="provider_dashboard / provider_email: checked now at the provider; "
+                          "human_recollection: remembered (never shown as provider-verified)")
     ver.add_argument("--status", choices=PROVIDER_STATUSES)
+    ver.add_argument("--account-registered", type=_tri)
+    ver.add_argument("--applied-on", help="YYYY-MM-DD")
+    ver.add_argument("--decided-on", help="YYYY-MM-DD")
+    ver.add_argument("--rejection-reason", choices=REJECTION_REASONS)
+    ver.add_argument("--reapply-allowed", type=_tri)
+    ver.add_argument("--reapplication-plan", choices=REAPPLICATION_PLANS)
     ver.add_argument("--provider-program-id")
     ver.add_argument("--link-id")
     ver.add_argument("--actual-provider", help="the platform actually used (e.g. Impact)")
@@ -162,8 +179,14 @@ def main(argv=None, *, session_factory=None, now: datetime | None = None,
                           "commission_currency_observed": args.commission_currency,
                           "landing_host_observed": args.landing_host,
                           "pause_end_notice": args.pause_end_notice,
-                          "notice_effective_date": args.notice_effective_date}
+                          "notice_effective_date": args.notice_effective_date,
+                          "account_registered": args.account_registered,
+                          "applied_on": args.applied_on, "decided_on": args.decided_on,
+                          "rejection_reason": args.rejection_reason,
+                          "reapply_allowed": args.reapply_allowed,
+                          "reapplication_plan": args.reapplication_plan}
                 result = service.verify(program_id=args.program_id, source=args.source,
+                                        evidence_kind=args.evidence,
                                         verified_by=args.by, observed_at=args.observed_at,
                                         fields=fields, execute=args.execute, now=now)
             else:

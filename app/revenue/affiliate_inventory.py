@@ -22,7 +22,21 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 CATALOG_STATUSES = ("active", "paused", "ended", "unknown")
-PROVIDER_STATUSES = ("applied", "approved", "active", "paused", "rejected", "ended", "unknown")
+#: ASP / 広告主の側の提携の状態 (catalog の status とは別。catalog の active は「候補として
+#: 扱っている」だけで、提携の承認を意味しない)。人の確認の記録だけの値 (migration なし)。
+PROVIDER_STATUSES = ("not_registered", "not_applied", "applied", "pending", "approved", "active",
+                     "rejected", "paused", "ended", "unknown")  # fmt: skip
+#: 確認の根拠。今の画面・メールで確かめたもの (provider_*) と、人の記憶 (human_recollection) を
+#: 分ける。記憶は「提供元で確認済み」とは表示しない。
+EVIDENCE_KINDS = ("provider_dashboard", "provider_email", "human_recollection")
+PROVIDER_EVIDENCE = ("provider_dashboard", "provider_email")
+REJECTION_REASONS = ("site_size_or_traffic", "content_or_category", "region_or_language",
+                     "policy", "other", "not_stated")  # fmt: skip
+REAPPLICATION_PLANS = ("deferred", "planned", "not_planned", "undecided")
+#: 登録 -> 審査 -> 承認 -> tracking の段階
+REGISTRATION_BUCKETS = ("A_APPLY_OR_REGISTER", "B_WAITING_REVIEW", "C_REJECTED_OR_DEFERRED",
+                        "D_APPROVED_NEEDS_TRACKING", "E_READY_FOR_ONBOARDING",
+                        "ONBOARDED")  # fmt: skip
 ATTRIBUTION_CLASSES = ("FULL", "PARTIAL", "MANUAL", "UNKNOWN", "NONE")
 #: 人の確認で true / false / "unknown" をとる能力 (書かなければ記録なし = missing)
 TRISTATE_FIELDS = ("subid_supported", "click_reporting_supported", "conversion_reporting_supported",
@@ -61,6 +75,43 @@ def latest_verifications(records: list[dict]) -> dict[int, dict]:
     return out
 
 
+def split_by_evidence(records: list[dict]) -> tuple[list[dict], list[dict]]:
+    """提供元で確かめた記録と、人の記憶の記録に分ける (根拠の書かれていない記録は記憶側)。"""
+
+    provider = [r for r in records if r.get("evidence_kind") in PROVIDER_EVIDENCE]
+    reported = [r for r in records if r.get("evidence_kind") not in PROVIDER_EVIDENCE]
+    return provider, reported
+
+
+def registration_bucket(row: dict) -> tuple[str, str, str]:
+    """(bucket, 状態, 根拠)。提供元で確かめた状態を先に使い、無ければ人の記憶 (そう表示する)。
+
+    tracking URL が DB にあり、host が許され、記事にリンクがあるものは ONBOARDED (提携の証拠は
+    発行された URL。状態そのものは別に確かめていない)。
+    """
+
+    verified = row["verified"]["fields"].get("status_at_provider")
+    reported = row["reported"]["fields"].get("status_at_provider")
+    status, evidence = ((verified, "provider_verified") if verified
+                        else (reported, "human_reported") if reported else ("unknown", "none"))
+    obtained = row["verified"]["fields"].get("tracking_url_obtained") is True
+    if status in ("rejected", "paused", "ended"):
+        return "C_REJECTED_OR_DEFERRED", status, evidence
+    # 登録済みの tracking URL は、提供元が発行した提携の証拠 (状態を別に確かめていなくても)
+    issued = evidence if verified else "tracking_url_issued"
+    if row["has_tracking_url"] and row["tracking_host_authorized"] and row["active_link_targets"]:
+        return "ONBOARDED", status, issued
+    if row["has_tracking_url"]:
+        return "E_READY_FOR_ONBOARDING", status, issued
+    if status in ("approved", "active"):
+        if obtained:
+            return "E_READY_FOR_ONBOARDING", status, evidence
+        return "D_APPROVED_NEEDS_TRACKING", status, evidence
+    if status in ("applied", "pending"):
+        return "B_WAITING_REVIEW", status, evidence
+    return "A_APPLY_OR_REGISTER", status, evidence
+
+
 def merge_verifications(records: list[dict]) -> dict[int, dict]:
     """項目ごとに最新の値をとる (状態だけの確認が、前に確かめた SubID を消さない)。
 
@@ -77,7 +128,8 @@ def merge_verifications(records: list[dict]) -> dict[int, dict]:
             merged["provenance"][key] = {"verified_at": record["verified_at"],
                                          "record_id": record["id"],
                                          "verified_by": record.get("verified_by"),
-                                         "source": record.get("source")}  # fmt: skip
+                                         "source": record.get("source"),
+                                         "evidence_kind": record.get("evidence_kind")}  # fmt: skip
         merged["last_verified"] = record["verified_at"]
     return out
 
@@ -144,7 +196,9 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
 
     # 提供元の記録の無い案件は "unrecorded" (推測で埋めない。能力はすべて unknown になる)
     programs = [{**p, "provider": p.get("provider") or "unrecorded"} for p in programs]
-    verified = merge_verifications(verifications)
+    provider_records, reported_records = split_by_evidence(verifications)
+    verified = merge_verifications(provider_records)
+    reported = merge_verifications(reported_records)
     tracking = tracking or {}
     probes = (KNOWN_SYNTHETIC_PROBE_FINGERPRINTS if known_probe_fingerprints is None
               else known_probe_fingerprints)  # fmt: skip
@@ -223,11 +277,20 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
             # catalog (DB) と人の確認は出どころが違う。片方でもう片方を上書きしない
             "catalog": _catalog_facts(p),
             "verified": {"fields": fields, "provenance": (v or {}).get("provenance", {})},
+            # 人の記憶 (提供元で確かめていない)。能力・状態の「確認済み」には使わない
+            "reported": {"fields": (reported.get(pid) or {}).get("fields", {}),
+                         "provenance": (reported.get(pid) or {}).get("provenance", {})},
             "differences": _differences(p, fields),
             "attribution": attr, "attribution_reason": why, "missing_fields": missing,
         })  # fmt: skip
 
     for row in program_rows:
+        bucket, status, evidence = registration_bucket(row)
+        row["registration"] = {"bucket": bucket, "partnership_status": status,
+                               "evidence": evidence,
+                               "rejection_reason": _pick(row, "rejection_reason"),
+                               "reapplication_plan": _pick(row, "reapplication_plan"),
+                               "account_registered": _pick(row, "account_registered")}
         row["next_action"] = _next_action(row)
 
     providers = {}
@@ -273,9 +336,20 @@ def build(*, programs: list[dict], article_programs: list[dict], articles: list[
             "articles": dict(Counter(a["state"] for a in coverage.values())),
             "never_verified_programs": sum(1 for r in program_rows
                                            if r["verification"] == "never_verified"),
+            "registration_buckets": dict(Counter(r["registration"]["bucket"]
+                                                 for r in program_rows)),
         },  # fmt: skip
         "providers": providers, "programs": program_rows, "coverage": coverage,
         "operations": ops, "human_action_queue": queue,
+        "deferred_programs": [{"program_id": r["id"], "program": r["name"],
+                               "provider": r["provider"], **r["registration"]}
+                              for r in program_rows
+                              if r["registration"]["bucket"] == "C_REJECTED_OR_DEFERRED"],
+        "status_semantics": ("catalog_status active = the program is a candidate in the catalog; "
+                             "it does not mean the partnership is approved. The partnership "
+                             "status comes only from human verification records; "
+                             "human_recollection is shown as human_reported, never as "
+                             "provider-verified"),
         "subid_design": _subid_design(program_rows),
         "reading": ("local facts only; missing / unknown are not guessed; no tracking URL is "
                     "created, no parameter is added and no link is replaced"),
@@ -313,13 +387,33 @@ def _differences(p: dict, fields: dict) -> list[dict]:
     return out
 
 
+def _pick(row: dict, field: str):
+    """提供元で確かめた値 > 人の記憶 > None。"""
+
+    if field in row["verified"]["fields"]:
+        return row["verified"]["fields"][field]
+    return row["reported"]["fields"].get(field)
+
+
+_BUCKET_ACTION = {
+    "A_APPLY_OR_REGISTER": "confirm whether an account and an application exist at the provider; "
+                           "if not, register and apply",
+    "B_WAITING_REVIEW": "wait for the review result; record approved / rejected when it arrives",
+    "C_REJECTED_OR_DEFERRED": None,
+    "D_APPROVED_NEEDS_TRACKING": "obtain the tracking URL at the provider",
+}
+
+
 def _next_action(row: dict) -> str | None:
     if row["catalog_status"] == "unknown":
         return "confirm the program status at the provider"
     if row["catalog_status"] in ("paused", "ended"):
         return "confirm whether the program resumed or ended; plan replacement for its articles"
+    bucket = row["registration"]["bucket"]
+    if bucket in _BUCKET_ACTION:
+        return _BUCKET_ACTION[bucket]
     if not row["has_tracking_url"]:
-        return "obtain the tracking URL at the provider (after confirming approval)"
+        return "register the obtained tracking URL locally (onboard)"
     if not row["tracking_host_authorized"]:
         return "approve the tracking URL host for this program (approve-host, after checking it)"
     if row["active_placements"] == 0:
@@ -457,6 +551,18 @@ PRIORITY_RULES = {
 }
 
 
+_QUEUE_STEP = {
+    "A_APPLY_OR_REGISTER": ("registration / application at the provider not confirmed",
+                            "whether an account and an application exist (register and apply "
+                            "if not); record the status with its evidence"),
+    "B_WAITING_REVIEW": ("application waiting for review", "the review result"),
+    "D_APPROVED_NEEDS_TRACKING": ("approved; no tracking URL",
+                                  "the tracking URL from the provider dashboard"),
+    "E_READY_FOR_ONBOARDING": ("tracking URL obtained; local intake pending",
+                               "onboard (hidden input) and approve-host"),
+}
+
+
 def _human_queue(program_rows, coverage):
     items = []
     for r in program_rows:
@@ -472,12 +578,22 @@ def _human_queue(program_rows, coverage):
                           "required_value": "current status at the provider",
                           "priority": "P1" if assigned else "P2",
                           "blocks": f"{assigned} assigned published article(s) (replacement)"})
-        if not r["has_tracking_url"] and r["catalog_status"] == "active":
-            items.append({**base, "reason": "no tracking URL", "required_value":
-                          "approval status and the tracking URL from the provider dashboard",
-                          "priority": "P1" if assigned else "P2",
-                          "blocks": f"links for {assigned} assigned published article(s)"})
-        if r["has_tracking_url"] and not r["tracking_host_authorized"]:
+        bucket = r["registration"]["bucket"]
+        prio = "P1" if assigned else "P2"
+        blocks = f"links for {assigned} assigned published article(s)"
+        intake_done = r["has_tracking_url"] and r["tracking_host_authorized"]
+        if r["catalog_status"] == "active" and bucket in _QUEUE_STEP and not (
+                bucket == "E_READY_FOR_ONBOARDING" and intake_done):
+            reason, required = _QUEUE_STEP[bucket]
+            if bucket == "A_APPLY_OR_REGISTER" and r["registration"]["partnership_status"] in (
+                    "not_registered", "not_applied"):
+                reason = f"not applied yet ({r['registration']['partnership_status']})"
+            items.append({**base, "step": bucket, "reason": reason, "required_value": required,
+                          "priority": prio, "blocks": blocks})
+        if bucket in ("C_REJECTED_OR_DEFERRED", "A_APPLY_OR_REGISTER", "B_WAITING_REVIEW"):
+            continue  # 承認の前に tracking・能力・metadata の作業は並べない
+        if r["has_tracking_url"] and not r["tracking_host_authorized"] and bucket != (
+                "E_READY_FOR_ONBOARDING"):
             items.append({**base, "reason": "tracking URL host not authorized for this program",
                           "required_value": "confirmation that the tracking URL host is the "
                           "provider's (approve-host)", "priority": "P1" if assigned else "P2",
@@ -494,7 +610,9 @@ def _human_queue(program_rows, coverage):
                 items.append({**base, "reason": f"{label} not recorded", "required_value": label,
                               "priority": "P4", "blocks": "revenue sizing / attribution window"})
     order = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
-    return sorted(items, key=lambda i: (order[i["priority"]], i["provider"], i["program_id"]))
+    steps = {b: i for i, b in enumerate(REGISTRATION_BUCKETS)}
+    return sorted(items, key=lambda i: (order[i["priority"]], steps.get(i.get("step"), 9),
+                                        i["provider"], i["program_id"]))
 
 
 def _subid_design(program_rows) -> dict:
@@ -507,5 +625,7 @@ def _subid_design(program_rows) -> dict:
             if not confirmed else "see docs/operations/affiliate-infrastructure.md"}  # fmt: skip
 
 
-__all__ = ["ATTRIBUTION_CLASSES", "CATALOG_STATUSES", "PRIORITY_RULES", "PROVIDER_STATUSES",
-           "attribution_class", "build", "capability", "latest_verifications"]
+__all__ = ["ATTRIBUTION_CLASSES", "CATALOG_STATUSES", "EVIDENCE_KINDS", "PRIORITY_RULES",
+           "PROVIDER_EVIDENCE", "PROVIDER_STATUSES", "REGISTRATION_BUCKETS", "attribution_class",
+           "build", "capability", "latest_verifications", "registration_bucket",
+           "split_by_evidence"]

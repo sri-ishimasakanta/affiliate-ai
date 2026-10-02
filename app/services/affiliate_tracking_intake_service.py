@@ -29,7 +29,13 @@ from app.affiliate.destination_safety import AffiliateDestinationError, validate
 from app.affiliate.schemas import AffiliateProgramUpdate
 from app.models import AffiliateLinkTarget, AffiliateProgram
 from app.models.enums import AffiliateProgramStatus
-from app.services.affiliate_inventory_service import InventoryError, _text
+from app.revenue import affiliate_inventory as inv
+from app.services.affiliate_inventory_service import (
+    VERIFICATIONS_PATH,
+    AffiliateInventoryService,
+    InventoryError,
+    _text,
+)
 from app.services.affiliate_program_service import AffiliateProgramService
 
 FINGERPRINT_SHOWN = 16
@@ -84,9 +90,33 @@ def _host_of(url: str | None) -> str | None:
 
 
 class AffiliateTrackingIntakeService:
-    def __init__(self, session: Session, *, approvals_path: Path | None = None) -> None:
+    def __init__(self, session: Session, *, approvals_path: Path | None = None,
+                 verifications_path: Path | None = None) -> None:  # fmt: skip
         self._session = session
         self._approvals_path = approvals_path or approvals.DEFAULT_PATH
+        self._verifications_path = verifications_path or VERIFICATIONS_PATH
+
+    def partnership(self, program_id: int) -> tuple[str, str | None]:
+        """(提供元で確かめた最新の提携の状態, その根拠)。記憶だけの記録は数えない。"""
+
+        records = AffiliateInventoryService(
+            self._session, capabilities={},
+            verifications_path=self._verifications_path).verifications()  # fmt: skip
+        provider, _reported = inv.split_by_evidence(records)
+        merged = inv.merge_verifications(provider).get(program_id) or {}
+        status = merged.get("fields", {}).get("status_at_provider", "unknown")
+        prov = merged.get("provenance", {}).get("status_at_provider") or {}
+        return status, prov.get("evidence_kind")
+
+    def require_approved(self, program: AffiliateProgram) -> None:
+        """登録 -> 審査 -> 承認 -> tracking の順番。承認を提供元で確かめるまで先に進まない。"""
+
+        status, _evidence = self.partnership(program.id)
+        if status not in ("approved", "active"):
+            raise IntakeError(
+                f"program {program.id} partnership status is {status!r} (provider-verified); "
+                "tracking intake needs approved / active recorded from the provider dashboard "
+                "or email (verify --evidence provider_dashboard --status approved)")
 
     # -- 共通 --------------------------------------------------------------------------------
     def program(self, program_id: int, *, expect_name: str,
@@ -114,6 +144,7 @@ class AffiliateTrackingIntakeService:
                      raw_url: str) -> dict:  # fmt: skip
         program = self.program(program_id, expect_name=expect_name,
                                expect_provider=expect_provider)
+        self.require_approved(program)
         facts = inspect_url(raw_url)
         url = raw_url.strip("\r\n")
         if str(program.status) != AffiliateProgramStatus.ACTIVE.value:
@@ -200,6 +231,7 @@ class AffiliateTrackingIntakeService:
             self.policy().get(program.id) or ())
         self._session.rollback()
         if action == "approve":
+            self.require_approved(program)
             if registered is None:
                 raise IntakeError(f"program {program_id} has no tracking URL; register it first "
                                   "(onboard), then approve its host")
