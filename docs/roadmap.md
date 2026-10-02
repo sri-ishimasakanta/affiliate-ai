@@ -42,7 +42,7 @@ Performance Snapshot planned).
 | **N6** System Productization | **COMPLETED** (DoD met 2026-09-30) | second local site profile dry-runs without code changes; production untouched |
 | N8 SaaS / Service | **DEFERRED** (2026-10-01, with N7) | nothing buildable |
 | **C11** Affiliate Infrastructure & Revenue Attribution | **ACTIVE** (first half built 2026-10-01) | read-only inventory / coverage / attribution readiness / human action queue; no migration, no external call ([affiliate-infrastructure.md](operations/affiliate-infrastructure.md)) |
-| Threads manual-post coexistence (T6.6 prerequisite) | **COMPLETED** in code (2026-10-02, branch `feat/threads-manual-post-coexistence`) | migration `3d5382e2a6bd` **rehearsed on a production copy, NOT APPLIED** (human approval); worker **not restarted** ([threads-manual-posts.md](operations/threads-manual-posts.md)) |
+| Threads manual-post coexistence (T6.6 prerequisite) | **COMPLETED** (2026-10-02, merged to `main`) | migration `3d5382e2a6bd` **APPLIED** to production 2026-10-02 (human-approved; backup `affiliate_ai.pre-3d5382e2a6bd.20261002T051343Z.db`); first discovery: 55 system, 0 manual, 0 unknown ([threads-manual-posts.md](operations/threads-manual-posts.md)) |
 | T6.6 Threads Performance Snapshot | PLANNED (after C11) | formal plan kept, not implemented |
 
 **Development order (human decision, 2026-10-01; replaces the 2026-09-30 order):** N3 measurement

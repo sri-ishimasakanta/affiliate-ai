@@ -118,7 +118,25 @@ Copy taken with the SQLite backup API (the production file was only read):
 | rollback | downgrade to `a4a74a5bcb8b` ok (snapshots 4156, new tables gone), upgrade again ok |
 | `alembic check` on the upgraded copy | no new upgrade operations (models = migration) |
 
-## Production activation (human steps; not done)
+## Production record (2026-10-02, human-approved)
+
+| step | result |
+|---|---|
+| preflight | `main` `d523e7a` → feature `3d68bc7` fast-forward only; tree clean; DB `a4a74a5bcb8b`; worker task Running (15-minute recovery trigger, IgnoreNew); nightly / daily / weekly tasks next run tomorrow or later |
+| isolated test | `test_export_article_plan_cli` 4 passed against an isolated migrated copy (it opens the default DB; the worktree had none) |
+| worker stop | 14:13:24–14:13:30 JST: task temporarily **Disabled** (so the recovery trigger could not restart old code during the migration; actions / profile / trigger unchanged, task XML hash kept), then the worker process tree only (uv / python); 0 worker processes left |
+| backup | `D:/Backups/affiliate-ai/affiliate_ai.pre-3d5382e2a6bd.20261002T051343Z.db` (SQLite backup API, sha256 `b3530ed35ea7563af937284d2bd5606fc487e071e9c6a55500f9356b3cb55aca`), integrity ok, foreign keys clean, 67 tables with the same row counts as production |
+| merge | `git merge --ff-only` → `main` = `3d68bc7` |
+| migration | `uv run alembic upgrade head` → `3d5382e2a6bd (head)`; `alembic check` no diff |
+| post-check | publications 55 (51 normal, 4 Growth), proposals 65 and snapshots 4192 (existing columns) identical to the backup; the 65 other tables identical; 55 system account posts (51 normal, 4 growth); 55 backfill events; unlinked / mismatched snapshots 0; orphans 0; published without account post 0; duplicate post ids 0; foreign keys clean; integrity ok; daily article / Growth counts 2026-09-23..10-02 identical before and after |
+| pending registry | `3d5382e2a6bd` removed from `PENDING_PRODUCTION_MIGRATIONS` |
+| first discovery (read-only, before restart) | listed 55; all matched the 55 system rows; new 0, manual 0, unknown 0, origin changes 0, text changes 0, missing 0, reappeared 0, proposals superseded 0; proposal states unchanged; Threads writes 0 |
+| policy in effect | cooldown 60 min, supersede cap 14 days, pre-publication refresh mandatory, listing 100, discovery every 15 min |
+
+Snapshots grew from 4156 (rehearsal copy) to 4192 before the migration because the worker kept
+importing insights until it was stopped; the migration preserved the 4192 exactly.
+
+## Production activation (human steps)
 
 The code must not run against the production DB before the migration: the scheduled tasks and the
 worker run from the production working tree, so the branch is merged only together with the

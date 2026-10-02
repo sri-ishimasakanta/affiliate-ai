@@ -179,7 +179,8 @@ def _db(tmp_path: Path, *, heartbeat_age=timedelta(seconds=60)) -> Path:
     db.execute("insert into notification_deliveries values (1, 'daily_incident', 'sent', "
                "'2026-09-24', 'secret-recipient@example.test')")  # fmt: skip
     # 本番と同じ revision (C9-B の引き渡しの依頼の表は 2026-09-29 に本番へ適用済み)。
-    db.execute("insert into alembic_version values ('a4a74a5bcb8b')")  # 本番 (2026-09-30)
+    # 2026-10-02: Threads manual-post coexistence の 3d5382e2a6bd を本番へ適用した。
+    db.execute("insert into alembic_version values ('3d5382e2a6bd')")  # 本番 (2026-10-02)
     db.commit()
     db.close()
     return path

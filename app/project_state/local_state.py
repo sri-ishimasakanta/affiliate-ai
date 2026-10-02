@@ -196,13 +196,13 @@ def describe_url(url: str) -> str:
 #: 記録: ``4fe83827d695`` (C9-B の引き渡しの依頼の表) は 2026-09-29 23:44 JST に本番へ適用した
 #: (人の許可あり。integrity_check ok・foreign_key_check 0・既存の表の行と中身は同じ)。backup は
 #: D:/Backups/affiliate-ai/ の ``affiliate_ai.pre-c9b.20260929T144335Z.db``。
-#: 本番の確認点で待っている migration (無ければ空)。a4a74a5bcb8b は 2026-09-30 に本番へ適用済み。
-#: ``3d5382e2a6bd`` (Threads manual-post coexistence: 自アカウントの投稿の台帳) は 2026-10-02 に
-#: 設計の承認を得て、本番の写しで予行済み。本番への適用は人が決める (それまで worker を新しい
-#: コードで起動しない)。
-PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {
-    "3d5382e2a6bd": "Threads manual-post coexistence (account post ledger)",
-}
+#: 記録: ``3d5382e2a6bd`` (Threads manual-post coexistence: 自アカウントの投稿の台帳) は
+#: 2026-10-02 14:2x JST に本番へ適用した (人の許可あり。worker を止めてから。integrity_check ok・
+#: foreign_key_check 0・公開 55 / 提案 65 / 観測 4192 の中身は同じ・system の投稿 55 件・結べない
+#: 観測 0)。backup は D:/Backups/affiliate-ai/ の
+#: ``affiliate_ai.pre-3d5382e2a6bd.20261002T051343Z.db``。
+#: 本番の確認点で待っている migration (無ければ空)。
+PENDING_PRODUCTION_MIGRATIONS: dict[str, str] = {}
 ALEMBIC_NOT_UP_TO_DATE = "Target database is not up to date"
 
 
