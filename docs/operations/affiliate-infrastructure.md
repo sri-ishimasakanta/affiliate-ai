@@ -1,5 +1,10 @@
 # Affiliate infrastructure & revenue attribution (C11)
 
+> **FROZEN (2026-10-13):** C11 is paused as part of the project freeze. ASP state at the freeze:
+> Make onboarded; Krisp applied (waiting for review; a result may arrive by e-mail while frozen);
+> HubSpot rejected / deferred (human recollection); Fireflies.ai and 15 others not applied or
+> unknown. No ASP was contacted. See [freeze-2026-10-13.md](../freeze-2026-10-13.md).
+
 C11 first half (2026-10-01): inventory of ASPs, programs and links, coverage, ASP operations
 detections, attribution readiness, and the human action queue. **Read-only and local.** Nothing
 is sent to any provider; no tracking URL is created; no parameter is added; no link is replaced;

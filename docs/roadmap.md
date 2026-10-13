@@ -13,8 +13,37 @@ separate fields: code can be complete while production activation is still pendi
 Status words: `COMPLETED`, `ACTIVE`, `NEXT`, `PLANNED`, `DEFERRED`, `INTENTIONALLY_EXCLUDED`.
 Production words: `DEPLOYED`, `NOT ENABLED`, `PENDING HUMAN`, `N/A`.
 
-Last updated: 2026-10-01 (human reprioritization: C11 ACTIVE, N7 / N8 DEFERRED, T6.6 Threads
-Performance Snapshot planned).
+Last updated: 2026-10-13 (**project FROZEN**; before that 2026-10-01: C11 ACTIVE, N7 / N8
+DEFERRED, T6.6 Threads Performance Snapshot planned).
+
+---
+
+## Project status: FROZEN (2026-10-13 JST)
+
+**Project status:** FROZEN. **Frozen at:** 2026-10-13 JST. Full record and resume entry point:
+[freeze-2026-10-13.md](freeze-2026-10-13.md).
+
+**Reason:** impressions / PV / affiliate conversions have not reached a level that provides a
+sufficiently clear monetization outlook.
+
+**Operational state:**
+- scheduled automation disabled (4 affiliate-ai tasks Disabled, none deleted)
+- worker stopped
+- external publication stopped
+- existing public content retained (WordPress articles, Threads posts, note pieces, affiliate links)
+- production DB retained (`3d5382e2a6bd`, integrity ok)
+- freeze backup created (`D:/Backups/affiliate-ai/affiliate_ai.freeze-20261013.20261013T080008Z.db` + runtime snapshot)
+- credentials retained in existing secure storage (not copied, not revoked)
+- no external content deleted
+
+**Resume requires:** review credentials / API validity; inspect external API / provider changes;
+verify DB revision; verify Git HEAD; verify scheduled-task definitions; run tests; run
+project-state checks; inspect pending migrations; review the approval queue; review Threads state
+(reconcile publication #113 first); review ASP statuses; explicitly re-enable tasks only after
+validation (worker first, under control).
+
+The unit statuses below (and in `docs/project-roadmap.json`) are kept exactly as they were at the
+freeze: ACTIVE / PLANNED / DEFERRED items are paused, not cancelled or removed.
 
 ---
 

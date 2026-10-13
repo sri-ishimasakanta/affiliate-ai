@@ -1,5 +1,9 @@
 # Threads 自動公開 (T4.3: 実装済み・本番で有効)
 
+> **FROZEN (2026-10-13):** プロジェクトの凍結により、自動公開は停止中 (worker 停止・タスク
+> `affiliate-ai-threads-worker` は Disabled)。下の条件は再開したときの説明として残す。公開 #113 は
+> `uncertain` のまま (再開時に最初に照合する)。再開の手順: [freeze-2026-10-13.md](../freeze-2026-10-13.md)。
+
 <!-- state-corrected: 2026-09-26 T7B: the header said production was disabled; policy enabled=true (7aa8990) and the worker start-up record (can_publish=True) show it is enabled -->
 
 T4.3 で、承認済み queue から自動で公開する経路を実装した。T4.3 の時点では無効のまま
